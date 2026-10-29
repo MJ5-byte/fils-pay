@@ -34,6 +34,43 @@ test("settlement.paid maps to the documented public data shape", () => {
   });
 });
 
+test("refund.succeeded maps to the documented public data shape", () => {
+  const deliveryEventId = randomUUID();
+  const transactionId = randomUUID();
+  const merchantId = randomUUID();
+  const refundId = randomUUID();
+  const createdAt = new Date("2026-10-05T12:10:00.000Z");
+
+  const envelope = buildEnvelope(deliveryEventId, {
+    eventType: "refund.succeeded",
+    aggregateId: transactionId,
+    payload: {
+      merchantId,
+      refundId,
+      amountFils: 4_000,
+      feeReversedFils: 100,
+      refundedTotalFils: 4_000,
+      newStatus: "refunded",
+    },
+    createdAt,
+  });
+
+  assert.deepEqual(envelope, {
+    id: deliveryEventId,
+    type: "refund.succeeded",
+    createdAt: "2026-10-05T12:10:00.000Z",
+    data: {
+      transactionId,
+      merchantId,
+      refundId,
+      amountFils: 4_000,
+      feeReversedFils: 100,
+      refundedTotalFils: 4_000,
+      status: "refunded",
+    },
+  });
+});
+
 // MK: was refund.created before the rename
 test("buildEnvelope rejects an event type it has no mapping for", () => {
   assert.throws(
