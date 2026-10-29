@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Merchants can cancel other merchants' payment links
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** A merchant could cancel another merchant's active payment link by sending its id under their own merchant path, and got 204.
+- **Cause:** The cancel route only checks that the caller belongs to the path merchant (`apps/api/src/routes/paymentLinks.ts:104`), and `apps/api/src/paymentLinks/cancel.ts:13-19` cancels `WHERE id = $1` with no merchant condition.
+- **Breaks:** Anyone with a merchant account who learns a link id can stop another merchant's customers from paying them.
+- **Fix:** `cancel.ts` now matches the link on both its id and the path merchant in the update and in the follow-up lookup, so another merchant's link answers the same 404 as a missing one and its existence is not revealed. Test added.
 ### Bug: Expired payment links can still be paid
 - **Status:** Fixed
 - **Type:** Security, medium

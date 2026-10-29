@@ -301,6 +301,33 @@ test("cancel: happy path 204, nonexistent id -> 404, already-paid -> 409", async
   assert.equal(cancelPaid.json().error, "not_cancelable");
 });
 
+test("cancel: another merchant's link answers 404 and the link stays active", async () => {
+  const alpha = await createApprovedMerchantWithApiKey("cancel-alpha");
+  const beta = await createApprovedMerchantWithApiKey("cancel-beta");
+  const link = await createLink(alpha.rawKey, alpha.merchantId, {});
+
+  const cancelOther = await app.inject({
+    method: "DELETE",
+    url: `/v1/merchants/${beta.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(beta.rawKey),
+  });
+  assert.equal(cancelOther.statusCode, 404, cancelOther.body);
+  assert.equal(cancelOther.json().error, "payment_link_not_found");
+
+  const linkRow = await pool.query<{ status: string }>(
+    `SELECT status FROM payment_links WHERE id = $1`,
+    [link.id],
+  );
+  assert.equal(linkRow.rows[0]?.status, "active");
+
+  const cancelOwn = await app.inject({
+    method: "DELETE",
+    url: `/v1/merchants/${alpha.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(alpha.rawKey),
+  });
+  assert.equal(cancelOwn.statusCode, 204, cancelOwn.body);
+});
+
 test("list returns created payment links for the owning merchant", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("list");
   await createLink(rawKey, merchantId, { reference: "list-a" });
