@@ -192,3 +192,13 @@ use `parseBhdToFils`.
 three-decimal BHD values are converted to integer fils consistently, signed
 adjustments remain supported, and invalid input is still returned as the
 existing `invalid_amount` API error.
+
+## Capture Git history
+
+From the repository root, capture the commit graph in `git-history.txt`:
+
+```sh
+git --no-pager log --graph > git-history.txt
+```
+
+The `>` redirection replaces the file's contents each time the command runs.
