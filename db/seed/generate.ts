@@ -908,9 +908,9 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       label: "seed default key",
     });
     apiKeyCount += 1;
-    // Dev/test convenience only: the raw key is never stored, so this is
-    // the only place it's ever visible. Fine to print for seed data.
-    console.log(`seed: issued API key for ${merchant.displayName}: ${issued.rawKey}`);
+    // Seed stdout can be captured by CI or deploy logs, so secrets must never be logged.
+    // The prefix is the display-safe value already stored in api_keys.key_prefix.
+    console.log(`seed: issued API key for ${merchant.displayName}: ${issued.prefix}`);
   }
 
   return {

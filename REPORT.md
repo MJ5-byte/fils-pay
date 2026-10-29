@@ -268,6 +268,13 @@
 - **Cause:** `verifyAcquirerCallbackSignature` in `apps/api/src/webhooks/inboundVerify.ts` compared signatures with `Buffer.compare(...) === 0`, which short-circuits on the first differing byte and is not constant time, and it parsed the signed timestamp but never checked its freshness.
 - **Breaks:** An attacker who observed one signed callback could replay it indefinitely, and the timing side channel helped forge a valid signature.
 - **Fix:** The compare now uses the repo's constant-time `timingSafeEqualHex`, as `webhooks/sign.ts` already does, and a callback whose signed timestamp is older than a 300 second window is rejected with a new `stale_timestamp` reason. Additive: the require-signature behaviour from BHA-14 is unchanged and no existing reason was removed. No schema change. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/40
+### Bug: Seed prints plaintext API keys
+- **Status:** Fixed
+- **Type:** Security, low
+- **Problem:** Running the seed printed every merchant's full raw API key to the terminal, so any log that captured seed output (CI or a deploy) kept live-usable keys in plaintext.
+- **Cause:** `db/seed/generate.ts:913` logged `issued.rawKey` for each merchant, the one place the raw key is ever visible.
+- **Breaks:** The rule never to log secrets: raw API keys end up in CI or deploy logs if the seed runs there.
+- **Fix:** The seed now logs `issued.prefix`, the display-safe 16 character prefix already stored in `api_keys.key_prefix`, instead of the raw key. What the seed writes to the database is unchanged, so the keys still work for local dev; only the terminal output changed. No test: a seed log change is visible the moment the seed runs.
 
 ### Bug: Duplicate acquirer callbacks are saved twice
 - **Status:** Fixed
