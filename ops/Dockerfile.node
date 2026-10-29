@@ -1,0 +1,27 @@
+# FilsPay JS services (api, reporting, migrate, seed).
+#
+# One image ships the whole npm workspace; the compose file overrides CMD
+# per service (npm run migrate / npm run seed / npx tsx apps/api/src/index.ts
+# / npx tsx apps/reporting/src/index.ts). tsx is a devDependency of the
+# root workspace, so the full install (npm ci, not --omit=dev) is required.
+#
+# (Restored for the Handover: the two Dockerfiles were referenced by the
+# compose file but never existed in any commit.)
+
+FROM node:20-slim
+
+WORKDIR /app
+
+# Install with the lockfile first so dependency layers cache independently
+# of source changes.
+COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
+COPY packages ./packages
+COPY apps ./apps
+COPY db ./db
+COPY scripts ./scripts
+
+RUN npm ci --no-audit --no-fund
+
+EXPOSE 3000
+
+CMD ["npx", "tsx", "apps/api/src/index.ts"]

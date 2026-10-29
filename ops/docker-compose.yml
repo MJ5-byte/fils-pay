@@ -40,6 +40,7 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    env_file: .env.docker
     command: ["npm", "run", "migrate"]
     environment:
       # Postgres and every app service here share the same Docker Compose
@@ -59,6 +60,7 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    env_file: .env.docker
     command: ["npm", "run", "seed"]
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
@@ -70,8 +72,11 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
-    # WEBHOOK_SECRET_ENCRYPTION_KEY isn't needed in dev; the api uses a built-in
-    # dev key unless NODE_ENV=production. (copilot, pasted by FH — unverified)
+    # Shared service settings (NODE_ENV, WEBHOOK_SECRET_ENCRYPTION_KEY,
+    # SETTLEMENT_INTERNAL_TOKEN, acquirer secrets) come from .env.docker,
+    # which compose loads via the env_file key below — compose does NOT
+    # auto-load a file named .env.docker.
+    env_file: .env.docker
     command: ["npx", "tsx", "apps/api/src/index.ts"]
     ports:
       - "3000:3000"
@@ -84,6 +89,9 @@ services:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
       # TODO(YA, Jan): give the api its own role before anything is hosted.
       SETTLEMENT_INTERNAL_URL: http://settlement:8091
+      # The settlement internal server requires this token on every route;
+      # the api presents the same value as its Bearer credential.
+      SETTLEMENT_INTERNAL_TOKEN: dev-token
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,12 +100,13 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.go
-    # The daemon falls back to SETTLEMENT_INTERNAL_TOKEN=dev-token when it isn't
-    # set, so nothing extra is needed here for local runs.
-    # FH: it exits at boot without the token for me. set it.
+    # The daemon REQUIRES SETTLEMENT_INTERNAL_TOKEN at boot (there is no
+    # dev-token fallback in code) — set it explicitly here.
+    env_file: .env.docker
     command: ["./settlement", "daemon"]
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
+      SETTLEMENT_INTERNAL_TOKEN: dev-token
       # Batch close and scheme export get their own pool so a long close
       # can't starve the API's connections.
       # AM: PGCONN_SETTLEMENT is ignored while DATABASE_URL is set; kept for the
@@ -111,6 +120,7 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    env_file: .env.docker
     # No subcommand = `worker`. (MK)
     command: ["npx", "tsx", "apps/reporting/src/index.ts"]
     environment:
