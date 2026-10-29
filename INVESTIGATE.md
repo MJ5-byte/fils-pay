@@ -84,9 +84,9 @@ data, so use it only with a development database.
   references the missing `settlement_batch_events` relation, and
   `0055_chart_of_accounts_suspense.sql` expects chart columns that are not in
   the schema created by migration `0007_ledger_double_entry.sql`.
-- The frontends call the API directly from a different origin. The API does
-  not currently configure CORS, so browsers may block frontend API requests
-  even when the API is running.
+- The API allows browser requests from the local web and admin origins on
+  ports 5173 and 5174. A different host or port must be explicitly added to
+  the API's CORS allowlist.
 
 These issues need to be resolved before a clean, full-stack local setup works
 from scratch.
@@ -101,6 +101,45 @@ Merchant dashboard login requires the merchant ID, email, password, and OTP.
 Find the fixture merchant ID in the `merchants` table. Admin login uses email,
 password, and OTP. Never use these fixture credentials outside local
 development.
+
+### Log in to the local admin console
+
+The following steps use the local PostgreSQL test container and seeded admin
+accounts from this development environment. The database must already be
+migrated and seeded; do not run the seed command against a database containing
+data you need.
+
+1. In PowerShell, start the local PostgreSQL container:
+
+   ```powershell
+   docker start filspay-test-pg-30220
+   ```
+
+2. In a separate PowerShell terminal from the repository root, start the API:
+
+   ```powershell
+   $env:DATABASE_URL = "postgres://filspay_test:filspay_test_local@127.0.0.1:55432/filspay_test?sslmode=disable"
+   $env:WEBHOOK_SECRET_ENCRYPTION_KEY = [Convert]::ToBase64String([byte[]]::new(32))
+   npm.cmd run dev --workspace @filspay/api
+   ```
+
+3. In another terminal from the repository root, start the admin frontend:
+
+   ```powershell
+   npm.cmd run dev --workspace @filspay/admin
+   ```
+
+4. Open [http://localhost:5174/login](http://localhost:5174/login) and sign in:
+
+   - Email: `superadmin@filspay.test`
+   - Password: `FilsPayAdminSeed!2026`
+
+5. After selecting **Continue**, enter the development OTP displayed on the
+   page.
+
+The API and frontend must remain running in their terminals. These credentials
+are for local development only. A new database cannot use this sequence as-is:
+see the migration caveats above before setting one up.
 
 ## Tests and checks
 
