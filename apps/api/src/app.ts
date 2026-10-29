@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
 import type { Pool } from "pg";
 import type { Config } from "./config.js";
 import { createAcquirerSimulator } from "./acquirer/simulator.js";
@@ -46,6 +47,17 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.decorate("acquirer", createAcquirerSimulator(config));
   app.decorate("webhookTransport", options.webhookTransport ?? createFetchTransport());
 
+  app.register(cors, {
+    origin: [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://[::1]:5173",
+      "http://localhost:5174",
+      "http://127.0.0.1:5174",
+      "http://[::1]:5174",
+    ],
+    credentials: true,
+  });
   app.register(cookiesPlugin);
   app.register(multipartPlugin, { config });
   app.setErrorHandler(errorHandler);
