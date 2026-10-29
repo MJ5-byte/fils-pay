@@ -53,6 +53,12 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
         "callbackId, type, transactionId, occurredAt, outcome, and note are required",
       );
     }
+    if (!["cleared", "confirmed_fraud"].includes(body.outcome)) {
+      throw new BadRequestError("invalid_request", "outcome must be cleared or confirmed_fraud");
+    }
+    if (Number.isNaN(new Date(body.occurredAt).getTime())) {
+      throw new BadRequestError("invalid_request", "occurredAt must be an ISO-8601 timestamp");
+    }
 
     const verification = verifyAcquirerCallbackSignature(
       body,

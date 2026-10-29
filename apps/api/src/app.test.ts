@@ -144,6 +144,26 @@ test("signup -> login -> otp verify -> authenticated /v1/auth/me", async () => {
   assert.equal(meBody.merchant.onboardingStatus, "submitted");
 });
 
+test("a pending (pre-OTP) merchant session cookie authenticates nothing (B12)", async () => {
+  const { merchantId, email, password } = await signup("pending-auth", "the-real-otp-password-1");
+
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    payload: { merchantId, email, password },
+  });
+  assert.equal(loginRes.statusCode, 200, loginRes.body);
+  assert.equal((loginRes.json() as { otpRequired: boolean }).otpRequired, true);
+
+  const setCookie = (loginRes.headers["set-cookie"] as string | undefined) ?? "";
+  const pendingCookie = setCookie.split(";")[0]!;
+  assert.ok(pendingCookie.includes("="), "login should hand out the pending session cookie");
+
+  // The pending cookie must grant nothing until the OTP is verified.
+  const meRes = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { cookie: pendingCookie } });
+  assert.equal(meRes.statusCode, 401);
+});
+
 test("a second merchant sharing the same owner email resolves correctly via required merchantId", async () => {
   const email = uniqueEmail("shared");
   const passwordA = "password-for-merchant-a-1234";

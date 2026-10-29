@@ -23,8 +23,11 @@ interface TransactionMerchantRow {
  * informational, not a state transition, so this never touches
  * transactions.status or the ledger; a confirmed-fraud outcome still needs
  * a human decision to void/refund, exactly as today.
+ *
+ * Idempotent per (transaction_id, callback_id): a redelivery inserts
+ * nothing (FP-201). Returns whether a NEW row was inserted.
  */
-export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallbackInput): Promise<void> {
+export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallbackInput): Promise<boolean> {
   const txnResult = await pool.query<TransactionMerchantRow>(
     `SELECT merchant_id FROM transactions WHERE id = $1`,
     [callback.transactionId],
@@ -34,10 +37,11 @@ export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallba
     throw new NotFoundError("transaction_not_found");
   }
 
-  await pool.query(
+  const result = await pool.query(
     `INSERT INTO acquirer_callback_notes
         (transaction_id, merchant_id, callback_id, callback_type, outcome, note, received_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, now())
+     ON CONFLICT (transaction_id, callback_id) DO NOTHING`,
     [
       callback.transactionId,
       txnRow.merchant_id,
@@ -45,9 +49,13 @@ export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallba
       callback.type,
       callback.outcome,
       callback.note,
-      callback.occurredAt,
     ],
   );
+  // A redelivered verdict (same transaction, same callback_id) is a no-op:
+  // FP-201. The unique index is 0073; the pair is the dedup scope, never
+  // callback_id alone, because the sandbox acquirer reuses callback_ids
+  // across transactions.
+  return (result.rowCount ?? 0) > 0;
 }
 
 /**

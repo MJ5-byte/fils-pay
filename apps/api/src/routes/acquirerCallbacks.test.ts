@@ -89,6 +89,59 @@ test("POST /v1/acquirer/callbacks accepts a correctly-signed callback and record
   assert.equal(await noteCount(callbackId), "1");
 });
 
+test("POST /v1/acquirer/callbacks treats a redelivery of the same (transaction, callbackId) as a no-op (FP-201)", async () => {
+  const transactionId = await createTransaction();
+  const callbackId = `acqcb_${randomUUID()}`;
+  const body = callbackBody(transactionId, callbackId);
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
+  });
+  const second = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
+  });
+
+  assert.equal(first.statusCode, 200);
+  assert.equal(second.statusCode, 200);
+  assert.equal(await noteCount(callbackId), "1");
+});
+
+test("POST /v1/acquirer/callbacks rejects an outcome that is not cleared/confirmed_fraud", async () => {
+  const transactionId = await createTransaction();
+  const body = { ...callbackBody(transactionId, `acqcb_${randomUUID()}`), outcome: "bogus" };
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "invalid_request");
+});
+
+test("POST /v1/acquirer/callbacks rejects a malformed occurredAt instead of 500ing", async () => {
+  const transactionId = await createTransaction();
+  const body = { ...callbackBody(transactionId, `acqcb_${randomUUID()}`), occurredAt: "yesterday" };
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "invalid_request");
+});
+
 test("POST /v1/acquirer/callbacks rejects a body missing required fields", async () => {
   const res = await app.inject({
     method: "POST",

@@ -9,4 +9,5 @@ SELECT id,
        expires_at
   FROM sessions
  WHERE revoked_at IS NULL
-   AND expires_at > now();
+   AND expires_at > now()
+   AND authenticated = true;
