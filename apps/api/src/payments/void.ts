@@ -8,7 +8,8 @@ import { NotFoundError } from "../lib/errors.js";
 export interface VoidInput {
   transactionId: string;
   merchantId: string;
-  actor: { type: "merchant_session" | "merchant_api_key"; id: string };
+  /** 'system' for the payment-link checkout, which has no merchant actor. */
+  actor: { type: "merchant_session" | "merchant_api_key" | "system"; id: string };
 }
 
 // — YA: simplest thing that still makes the timeline read right.
