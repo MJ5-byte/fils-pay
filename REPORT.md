@@ -170,6 +170,13 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: Catch-up beside the live worker counts events twice
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** Running the reporting `catch-up` command while the worker was live (as the runbook allows) left dashboard capture counts and totals higher than the real activity.
+- **Cause:** Every pass reads the consumer's watermark with a plain `SELECT` (`apps/reporting/src/consumer/cursor.ts:32`, called from `runConsumerPass.ts:43`). Two processes reading it before either commits both select the same events and both apply them; the `running` flag in `listener.ts` only guards passes inside one process, and the comments at `catchUp.ts:17` and `runConsumerPass.ts:16-18` claim a serialization that nothing enforced.
+- **Breaks:** Captured counts and gross totals on the merchant dashboard are inflated by every event both processes applied.
+- **Fix:** `readCursor` now reads the cursor row `FOR UPDATE`, so a second pass waits for the first to commit and then starts from the advanced watermark. Test added.
 ### Bug: One settlement close can freeze reporting
 - **Status:** Fixed
 - **Type:** Data, high

@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { enqueueEvent } from "@filspay/events";
+import { toBahrainDateString } from "../bahrainDate.js";
 import { runConsumerPass, CONSUMER_NAME } from "./runConsumerPass.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -115,6 +116,45 @@ test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_pay
   assert.equal(Number(result.rows[0].gross_fils), 8_000);
   assert.equal(Number(result.rows[0].fee_fils), 200);
   assert.equal(Number(result.rows[0].net_payout_fils), 7_800);
+});
+
+test("runConsumerPass: two overlapping passes (the worker and a catch-up run) apply each event once", async () => {
+  const merchantId = await createMerchant("overlap");
+  const capturedEvent = await enqueueEvent(pool, {
+    eventType: "transaction.captured",
+    aggregateType: "transaction",
+    aggregateId: randomUUID(),
+    payload: { merchantId, amountCapturedFils: 2_000, feeFils: 30, newStatus: "captured", capturedTotalFils: 2_000 },
+  });
+  const volumeDate = toBahrainDateString(capturedEvent.createdAt);
+
+  // Hold an uncommitted insert of the rollup row both passes will write, so
+  // both are guaranteed to be in flight together before either can finish.
+  const blocker = await pool.connect();
+  const passes: Promise<unknown>[] = [];
+  try {
+    await blocker.query("BEGIN");
+    await blocker.query(`INSERT INTO merchant_daily_volume (merchant_id, volume_date) VALUES ($1, $2)`, [merchantId, volumeDate]);
+
+    passes.push(runConsumerPass(pool, config), runConsumerPass(pool, config));
+    for (let waiting = 0, polls = 0; waiting < 2 && polls < 1_000; polls++) {
+      const result = await blocker.query<{ count: string }>(
+        `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      waiting = Number(result.rows[0]?.count ?? 0);
+    }
+  } finally {
+    await blocker.query("ROLLBACK");
+    blocker.release();
+  }
+  await Promise.all(passes);
+
+  const result = await pool.query(`SELECT captured_count, captured_gross_fils FROM merchant_daily_volume WHERE merchant_id = $1`, [
+    merchantId,
+  ]);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].captured_count, 1, "the capture is counted once, not once per pass");
+  assert.equal(Number(result.rows[0].captured_gross_fils), 2_000);
 });
 
 // MK: this is the proof exactly-once holds.
