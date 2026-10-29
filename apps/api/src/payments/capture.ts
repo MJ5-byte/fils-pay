@@ -89,7 +89,10 @@ export async function captureTransaction(
   acquirer: AcquirerSimulator,
   input: CaptureInput,
 ): Promise<CaptureResult> {
-  const requestHash = hashRequest({ amountFils: input.amountFils ?? null });
+  const requestHash = hashRequest({
+    transactionId: input.transactionId,
+    amountFils: input.amountFils ?? null,
+  });
 
   return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {

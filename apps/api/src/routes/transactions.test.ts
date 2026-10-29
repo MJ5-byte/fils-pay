@@ -230,6 +230,29 @@ test("capture with a reused idempotency key but a different body is rejected as 
   assert.equal(conflicting.json().error, "idempotency_key_reused");
 });
 
+test("capture with an idempotency key reused on a different transaction is rejected as a conflict", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("idempotent-cross-txn");
+  const firstTxn = await authorize(rawKey, 8_000);
+  const secondTxn = await authorize(rawKey, 8_000);
+  const key = randomUUID();
+
+  const first = await capture(rawKey, firstTxn.id, {}, key);
+  assert.equal(first.statusCode, 200, first.body);
+
+  const conflicting = await capture(rawKey, secondTxn.id, {}, key);
+  assert.equal(conflicting.statusCode, 422, conflicting.body);
+  assert.equal(conflicting.json().error, "idempotency_key_reused");
+
+  const result = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [secondTxn.id],
+  );
+  const txn = result.rows[0];
+  assert.ok(txn);
+  assert.equal(txn.status, "authorized");
+  assert.equal(Number(txn.captured_fils), 0);
+});
+
 /** Covers GET detail/events and capture. Refunds are not routed yet, so cross-tenant refund is not covered. */
 test("cross-tenant transaction access (wrong merchant) returns 404, not 403 or 500", async () => {
   const owner = await createApprovedMerchantWithApiKey("cross-tenant-owner");

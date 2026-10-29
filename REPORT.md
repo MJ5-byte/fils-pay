@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Capture idempotency ignores the transaction
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** Capturing a second transaction with an Idempotency-Key already used on another transaction returned the first transaction's capture result with 200, and the second transaction was never captured.
+- **Cause:** `apps/api/src/payments/capture.ts:92` built the idempotency request hash from the amount only, and keys are claimed per merchant and endpoint, so the same key and body on a different transaction looked like a replay.
+- **Breaks:** A merchant who reuses a key gets a success answer for money that was never captured, and the authorized hold on the second transaction is left behind.
+- **Fix:** The capture request hash now includes the transaction id, the same way refunds already do, so a key reused on a different transaction is refused with the existing `idempotency_key_reused` 422. Test added.
 ### Bug: Merchants can cancel other merchants' payment links
 - **Status:** Fixed
 - **Type:** Security, medium
