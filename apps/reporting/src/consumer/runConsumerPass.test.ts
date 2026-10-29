@@ -117,6 +117,107 @@ test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_pay
   assert.equal(Number(result.rows[0].net_payout_fils), 7_800);
 });
 
+test("runConsumerPass: end-to-end refund.succeeded lands refund_count/refund_gross_fils in merchant_daily_volume and refreshes refund_merchant_summary", async () => {
+  const merchantId = await createMerchant("e2e-refund");
+
+  // Seed the refund the way processRefund journals it (refunds row + its
+  // transaction), so the refreshed matview has something to materialize.
+  const txnResult = await pool.query<{ id: string }>(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+     VALUES ($1, 'refunded', 5_000, 5_000, $2, now())
+     RETURNING id`,
+    [merchantId, `acq_${randomUUID()}`],
+  );
+  await pool.query(
+    `INSERT INTO refunds (transaction_id, merchant_id, amount_fils, fee_reversed_fils, status, acquirer_reference, reason, created_by_type, created_by_id)
+     VALUES ($1, $2, 5_000, 75, 'succeeded', $3, 'test', 'merchant_api_key', $2)`,
+    [txnResult.rows[0]!.id, merchantId, `acq_${randomUUID()}`],
+  );
+
+  await enqueueEvent(pool, {
+    eventType: "refund.succeeded",
+    aggregateType: "transaction",
+    aggregateId: txnResult.rows[0]!.id,
+    payload: {
+      merchantId,
+      refundId: randomUUID(),
+      amountFils: 5_000,
+      feeReversedFils: 75,
+      refundedTotalFils: 5_000,
+      newStatus: "refunded",
+    },
+  });
+
+  const { processedCount } = await runConsumerPass(pool, config);
+  assert.ok(processedCount >= 1, "at least this test's refund event was processed");
+
+  const volume = await pool.query(
+    `SELECT refund_count, refund_gross_fils FROM merchant_daily_volume WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(volume.rows.length, 1);
+  assert.equal(Number(volume.rows[0].refund_count), 1);
+  assert.equal(Number(volume.rows[0].refund_gross_fils), 5_000);
+
+  // The after-pass matview refresh must have picked up the seeded refund.
+  const summary = await pool.query(
+    `SELECT refund_count, total_refunded_fils FROM refund_merchant_summary WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(summary.rows.length, 1);
+  assert.equal(Number(summary.rows[0].refund_count), 1);
+  assert.equal(Number(summary.rows[0].total_refunded_fils), 5_000);
+});
+
+test("runConsumerPass: end-to-end settlement.paid flips the trend row from closed to the batch's live paid state", async () => {
+  const merchantId = await createMerchant("e2e-paid");
+  const batchResult = await pool.query<{ id: string }>(
+    `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+     VALUES ($1, '2026-09-01', 'closed', 6_000, 150, 5_850, now(), NULL)
+     RETURNING id`,
+    [merchantId],
+  );
+  const batchId = batchResult.rows[0]!.id;
+
+  await enqueueEvent(pool, {
+    eventType: "settlement.batch_closed",
+    aggregateType: "settlement_batch",
+    aggregateId: batchId,
+    payload: { merchantId, batchId, batchDate: "2026-09-01", grossFils: 6_000, feeFils: 150, netPayoutFils: 5_850 },
+  });
+  await runConsumerPass(pool, config);
+  const before = await pool.query(
+    `SELECT status FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(before.rows[0].status, "closed");
+
+  // Payout flips the batch row to paid; the settlement.paid event emitted
+  // on payout must re-sync the trend row through the same pass.
+  const paidAt = new Date("2026-09-02T08:00:00Z");
+  await pool.query(`UPDATE settlement_batches SET status = 'paid', paid_at = $1 WHERE id = $2`, [paidAt, batchId]);
+  await enqueueEvent(pool, {
+    eventType: "settlement.paid",
+    aggregateType: "settlement_batch",
+    aggregateId: batchId,
+    payload: { merchantId, batchId, batchDate: "2026-09-01", grossFils: 6_000, feeFils: 150, netPayoutFils: 5_850 },
+  });
+
+  const { processedCount } = await runConsumerPass(pool, config);
+  assert.ok(processedCount >= 1, "at least this test's settlement.paid event was processed");
+
+  const after = await pool.query(
+    `SELECT status, paid_at, gross_fils, fee_fils, net_payout_fils FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(after.rows.length, 1);
+  assert.equal(after.rows[0].status, "paid");
+  assert.equal(after.rows[0].paid_at.toISOString(), paidAt.toISOString());
+  assert.equal(Number(after.rows[0].gross_fils), 6_000);
+  assert.equal(Number(after.rows[0].fee_fils), 150);
+  assert.equal(Number(after.rows[0].net_payout_fils), 5_850);
+});
+
 // MK: this is the proof exactly-once holds.
 test("runConsumerPass: atomicity — an apply failure partway through a multi-event batch rolls back the WHOLE pass, neither watermark nor any rollup write from that batch persists", async () => {
   const merchantId = await createMerchant("atomicity");

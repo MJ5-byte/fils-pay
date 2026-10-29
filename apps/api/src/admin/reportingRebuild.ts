@@ -1,4 +1,7 @@
 import type { PoolClient } from "pg";
+import { runRebuild } from "../../../reporting/src/cli/rebuild.js";
+import { loadConfig as loadReportingConfig } from "../../../reporting/src/config.js";
+import { createPool as createReportingPool } from "../../../reporting/src/db/pool.js";
 
 /** Counts of outbox_events replayed into each rollup table. */
 export interface RebuildAnalyticsSummary {
@@ -6,34 +9,35 @@ export interface RebuildAnalyticsSummary {
   trendRows: number;
 }
 
-/** Truncates and repopulates the two rollup tables
- *  (merchant_daily_volume, merchant_payout_trends) from source. */
+/**
+ * Rebuilds the analytics rollups by delegating to apps/reporting's
+ * canonical runRebuild — the same TRUNCATE + full outbox-replay path the
+ * `reporting rebuild` CLI uses. Previously this was a second, independent
+ * TRUNCATE + direct-repopulate implementation (BUG5): it re-aggregated
+ * transaction_events and settlement_batches from source, which drifts from
+ * what the consumer produces whenever the outbox and source tables
+ * disagree, and the two rebuilders returned different rollup data.
+ *
+ * The caller (routes/admin.ts) holds this inside a transaction whose only
+ * other work is the audit-log insert, so a short-lived one-off pool for
+ * runRebuild's own transactions is fine; the final row counts are read
+ * back through the caller's client for the audit metadata.
+ */
 export async function refreshAnalyticsRollups(client: PoolClient): Promise<RebuildAnalyticsSummary> {
-  // YA: ACCESS EXCLUSIVE lock is fine while analytics is internal only (Jan 2026)
-  await client.query(`TRUNCATE merchant_daily_volume`);
-  await client.query(`TRUNCATE merchant_payout_trends`);
+  const config = loadReportingConfig(process.env);
+  const pool = createReportingPool(config);
+  try {
+    await runRebuild(pool, config);
+  } finally {
+    await pool.end();
+  }
 
-  const trendResult = await client.query(
-    `INSERT INTO merchant_payout_trends
-        (merchant_id, settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at, last_updated_at)
-     SELECT merchant_id, id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at, now()
-       FROM settlement_batches`,
-  );
-
-  const volumeResult = await client.query(
-    `INSERT INTO merchant_daily_volume
-        (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count, last_updated_at)
-     SELECT t.merchant_id,
-            (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date,
-            COUNT(*) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')),
-            COALESCE(SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')), 0),
-            COUNT(*) FILTER (WHERE te.event_type = 'voided'),
-            now()
-       FROM transaction_events te
-       JOIN transactions t ON t.id = te.transaction_id
-      WHERE te.event_type IN ('captured', 'partially_captured', 'voided')
-      GROUP BY t.merchant_id, (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date`,
-  );
-
-  return { volumeRows: volumeResult.rowCount ?? 0, trendRows: trendResult.rowCount ?? 0 };
+  const [volumeResult, trendResult] = await Promise.all([
+    client.query<{ count: string }>(`SELECT count(*) FROM merchant_daily_volume`),
+    client.query<{ count: string }>(`SELECT count(*) FROM merchant_payout_trends`),
+  ]);
+  return {
+    volumeRows: Number(volumeResult.rows[0]?.count ?? 0),
+    trendRows: Number(trendResult.rows[0]?.count ?? 0),
+  };
 }

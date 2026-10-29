@@ -34,13 +34,21 @@ async function createMerchant(label: string): Promise<string> {
 
 async function createSettlementBatch(
   merchantId: string,
-  opts: { status?: string; paidAt?: Date | null } = {},
+  opts: { status?: string; paidAt?: Date | null; grossFils?: number; feeFils?: number; netPayoutFils?: number } = {},
 ): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
-     VALUES ($1, $2, $3, 0, 0, 0, now(), $4)
+     VALUES ($1, $2, $3, $4, $5, $6, now(), $7)
      RETURNING id`,
-    [merchantId, "2026-01-05", opts.status ?? "closed", opts.paidAt ?? null],
+    [
+      merchantId,
+      "2026-01-05",
+      opts.status ?? "closed",
+      opts.grossFils ?? 0,
+      opts.feeFils ?? 0,
+      opts.netPayoutFils ?? 0,
+      opts.paidAt ?? null,
+    ],
   );
   return result.rows[0]!.id;
 }
@@ -221,6 +229,70 @@ test("applyBatchClosed (via applyEvent): a day with real capture activity whose 
   );
   assert.equal(result.rows.length, 1);
   assert.equal(Number(result.rows[0].net_payout_fils), 4_631);
+});
+
+test("applySettlementPaid (via applyEvent): flips a trend row written as closed by batch_closed to the batch's live paid state, and is idempotent on re-application", async () => {
+  const merchantId = await createMerchant("settlement-paid");
+  const batchId = await createSettlementBatch(merchantId, {
+    status: "closed",
+    paidAt: null,
+    grossFils: 4_000,
+    feeFils: 100,
+    netPayoutFils: 3_900,
+  });
+
+  // batch_closed runs first (its row is enqueued at CloseBatch), so the
+  // trend row exists as 'closed' before payout flips the batch to paid.
+  await withTransaction(pool, (client) =>
+    applyEvent(
+      client,
+      makeRow({
+        event_type: "settlement.batch_closed",
+        payload: { merchantId, batchId, batchDate: "2026-01-05", grossFils: 4_000, feeFils: 100, netPayoutFils: 3_900 },
+      }),
+    ),
+  );
+  const before = await pool.query(
+    `SELECT status FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(before.rows[0].status, "closed");
+
+  // Payout updates the batch row to paid; the settlement.paid event must
+  // re-sync the trend row from that live row.
+  const paidAt = new Date("2026-01-07T08:00:00Z");
+  await pool.query(`UPDATE settlement_batches SET status = 'paid', paid_at = $1 WHERE id = $2`, [paidAt, batchId]);
+
+  const paidRow = makeRow({
+    event_type: "settlement.paid",
+    payload: { batchId },
+  });
+  await withTransaction(pool, (client) => applyEvent(client, paidRow));
+  await withTransaction(pool, (client) => applyEvent(client, paidRow));
+
+  const result = await pool.query(
+    `SELECT status, paid_at, gross_fils, fee_fils, net_payout_fils FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(result.rows.length, 1, "no duplicate row after two applications");
+  assert.equal(result.rows[0].status, "paid");
+  assert.equal(result.rows[0].paid_at.toISOString(), paidAt.toISOString());
+  assert.equal(Number(result.rows[0].gross_fils), 4_000);
+  assert.equal(Number(result.rows[0].fee_fils), 100);
+  assert.equal(Number(result.rows[0].net_payout_fils), 3_900);
+});
+
+test("applySettlementPaid (via applyEvent): a missing settlement_batches row is a no-op, never throws", async () => {
+  const merchantId = await createMerchant("settlement-paid-missing");
+  const row = makeRow({
+    event_type: "settlement.paid",
+    payload: { batchId: randomUUID() },
+  });
+
+  await assert.doesNotReject(withTransaction(pool, (client) => applyEvent(client, row)));
+
+  const result = await pool.query(`SELECT count(*) FROM merchant_payout_trends WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(Number(result.rows[0].count), 0);
 });
 
 test("applyBatchClosed (via applyEvent) is idempotent: applying the identical event twice produces no duplicate row and no drift", async () => {

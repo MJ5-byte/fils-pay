@@ -5,11 +5,12 @@ import type { ReportingConfig } from "../config.js";
 import { readCursor, advanceCursor } from "./cursor.js";
 import { applyEvent, type OutboxEventRow } from "./applyEvent.js";
 
-// am: refund.succeeded not here yet. when refunds ship just add it to the list
 export const REPORTING_EVENT_TYPES: readonly EventType[] = [
   "transaction.captured",
   "transaction.voided",
+  "refund.succeeded",
   "settlement.batch_closed",
+  "settlement.paid",
 ];
 
 /**
@@ -63,6 +64,11 @@ export async function runConsumerPass(
 
     if (eventsResult.rows.length > 0) {
       await advanceCursor(client, CONSUMER_NAME, maxId);
+      // Keep refund_merchant_summary (0072) current: it has no incremental
+      // writer, only this after-each-pass refresh. Inside the pass
+      // transaction so a failed refresh rolls the whole pass back and is
+      // retried, never silently leaving the matview stale.
+      await client.query(`REFRESH MATERIALIZED VIEW refund_merchant_summary`);
     }
 
     return { processedCount: eventsResult.rows.length };
