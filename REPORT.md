@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Any merchant can read split-child reports
+- **Status:** Fixed
+- **Type:** Security, high
+- **Problem:** Any merchant could read another merchant's split-child transactions by putting that child's merchant id in the transactions report filter.
+- **Cause:** `apps/api/src/reporting/scope.ts:12-15` only checked that the requested merchant was a split child of anyone, not that the caller was its parent.
+- **Breaks:** Cross-tenant data leak: transaction amounts, statuses and references of every split-child merchant were readable by any logged-in merchant.
+- **Fix:** The scope check now requires a `merchant_split_children` row with the caller as parent and the requested merchant as child. Test added.
 ### Bug: Login works without the OTP code
 - **Status:** Fixed
 - **Type:** Security, critical
