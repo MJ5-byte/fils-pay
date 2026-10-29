@@ -156,3 +156,39 @@ func TestRebuildAllBalances_OverwritesDriftedCache(t *testing.T) {
 		t.Errorf("persisted cached_payable_fils = %d, want %d (RebuildAllBalances must overwrite, not merely diff)", persisted, wantBalance)
 	}
 }
+
+// BHA-46: `rebuild-balances --merchant` printed the rebuilt figure but never
+// wrote it, so a drifted cache stayed drifted.
+func TestRebuildMerchantBalance_OverwritesDriftedCache(t *testing.T) {
+	pool := mustPool(t)
+	merchantID := insertActiveMerchant(t, pool)
+
+	postLedgerLeg(t, pool, merchantID, "credit", 20000)
+	postLedgerLeg(t, pool, merchantID, "debit", 500)
+	wantBalance := int64(20000 - 500)
+
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
+		VALUES ($1, 999999, now())
+	`, merchantID)
+	if err != nil {
+		t.Fatalf("seed drifted cache: %v", err)
+	}
+
+	got, err := RebuildMerchantBalance(context.Background(), pool, merchantID)
+	if err != nil {
+		t.Fatalf("RebuildMerchantBalance: %v", err)
+	}
+	if int64(got) != wantBalance {
+		t.Errorf("RebuildMerchantBalance = %d, want %d", got, wantBalance)
+	}
+
+	var persisted int64
+	err = pool.QueryRow(context.Background(), `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&persisted)
+	if err != nil {
+		t.Fatalf("query persisted balance: %v", err)
+	}
+	if persisted != wantBalance {
+		t.Errorf("persisted cached_payable_fils = %d, want %d (--merchant must write, like the full rebuild)", persisted, wantBalance)
+	}
+}

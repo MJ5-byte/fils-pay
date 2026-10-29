@@ -16,13 +16,19 @@ import (
 )
 
 // RebuildMerchantBalance recomputes merchantID's cached balance from
-// ledger_entries. CLI-only; the incremental path is in internal/balances.
+// ledger_entries and overwrites merchant_balances with it, the same write
+// RebuildAllBalances makes per merchant. CLI-only; the incremental path is
+// in internal/balances.
 func RebuildMerchantBalance(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID) (money.Fils, error) {
 	var balance int64
 	err := db.QueryRow(ctx, `
-		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
+		SELECT $1, COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0), now()
 		  FROM ledger_entries
 		 WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+		ON CONFLICT (merchant_id) DO UPDATE
+		  SET cached_payable_fils = EXCLUDED.cached_payable_fils, updated_at = now()
+		RETURNING cached_payable_fils
 	`, merchantID).Scan(&balance)
 	if err != nil {
 		return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): %w", merchantID, err)
