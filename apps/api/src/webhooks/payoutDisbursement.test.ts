@@ -41,7 +41,7 @@ async function createPaidBatch(netPayoutFils: number): Promise<string> {
 test("recordPayoutDisbursementEffect inserts one row with the given batch id and amount", async () => {
   const batchId = await createPaidBatch(471_300);
 
-  await recordPayoutDisbursementEffect(pool, batchId, 471_300);
+  await recordPayoutDisbursementEffect(pool, batchId);
 
   const result = await pool.query<{ amount_fils: string; disbursement_reference: string }>(
     `SELECT amount_fils, disbursement_reference FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,

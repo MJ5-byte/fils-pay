@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Payout disbursement rows duplicate on webhook replay
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** One paid settlement batch got a new payout disbursement record every time its `settlement.paid` webhook was replayed and for every extra webhook endpoint, so one payout showed up as two or three disbursements.
+- **Cause:** The dispatcher runs the disbursement effect for any delivery at attempt 0 (`apps/api/src/webhooks/dispatcher.ts:160-163`), and `recordPayoutDisbursementEffect` (`apps/api/src/webhooks/payoutDisbursement.ts`) inserted a row unconditionally. Replays insert a new delivery at attempt 0 and there is one delivery per endpoint, so the record was keyed to webhook deliveries instead of to the payout.
+- **Breaks:** Every replay or extra endpoint instructs another disbursement of the same batch's net payout, which can pay a merchant twice.
+- **Fix:** `recordPayoutDisbursementEffect` now locks the batch row (`SELECT ... FOR UPDATE`) inside one transaction, reads `net_payout_fils` from that locked row instead of the webhook payload, skips void batches, checks for an existing disbursement and inserts only when there is none, so concurrent dispatch passes serialize on the batch. The unique index on `settlement_payout_disbursements (settlement_batch_id)` remains a follow-up that waits for a human's approval. Test added.
 ### Bug: Merchants can't verify our webhook signatures
 - **Status:** Fixed
 - **Type:** Security, medium

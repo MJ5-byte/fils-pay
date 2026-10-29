@@ -36,8 +36,8 @@ type PreDeliveryEffect = (pool: Pool, payload: Record<string, unknown>) => Promi
 
 const PRE_DELIVERY_EFFECTS: Record<string, PreDeliveryEffect> = {
   "settlement.paid": async (pool, payload) => {
-    const data = payload.data as { settlementBatchId: string; netPayoutFils: number };
-    await recordPayoutDisbursementEffect(pool, data.settlementBatchId, Number(data.netPayoutFils));
+    const data = payload.data as { settlementBatchId: string };
+    await recordPayoutDisbursementEffect(pool, data.settlementBatchId);
   },
 };
 

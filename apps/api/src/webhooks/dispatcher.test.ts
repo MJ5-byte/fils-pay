@@ -14,6 +14,7 @@ import { enqueueEvent } from "@filspay/events";
 import { loadConfig } from "../config.js";
 import { createWebhookEndpoint } from "./create.js";
 import { backoffDelayMs, runDispatchPass } from "./dispatcher.js";
+import { replayWebhookDelivery } from "./replay.js";
 import { verifySignature } from "./sign.js";
 import { sendTestWebhookEvent } from "./testSend.js";
 import { WEBHOOK_DELIVERY_ID_HEADER, WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
@@ -408,6 +409,64 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
     endpoint.id,
   ]);
   assert.equal(rows.rows.length, 0);
+});
+
+test("settlement.paid: one disbursement row per batch across two endpoints and a replay", async () => {
+  const merchantId = await createMerchant("payout-disbursement");
+  const firstEndpoint = await createEndpoint(merchantId, "http://first.test/webhook");
+  const secondEndpoint = await createEndpoint(merchantId, "http://second.test/webhook");
+  const batch = await pool.query<{ id: string; batch_date: string }>(
+    `INSERT INTO settlement_batches
+        (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+     VALUES ($1, current_date, 'paid', $2, 0, $2, now(), now())
+     RETURNING id, batch_date::text`,
+    [merchantId, 23_422],
+  );
+  const paidBatch = batch.rows[0];
+  assert.ok(paidBatch);
+  const outboxEvent = await enqueueEvent(pool, {
+    eventType: "settlement.paid",
+    aggregateType: "settlement_batch",
+    aggregateId: paidBatch.id,
+    payload: {
+      merchantId,
+      batchDate: paidBatch.batch_date,
+      netPayoutFils: 23_422,
+    },
+  });
+
+  const transport = alwaysRespond(200);
+  await Promise.all([runDispatchPass(pool, transport, config), runDispatchPass(pool, transport, config)]);
+
+  const firstDelivery = await getDelivery(String(outboxEvent.id), firstEndpoint.id);
+  const secondDelivery = await getDelivery(String(outboxEvent.id), secondEndpoint.id);
+  assert.equal(firstDelivery.status, "succeeded");
+  assert.equal(secondDelivery.status, "succeeded");
+
+  const replay = await replayWebhookDelivery(pool, {
+    merchantId,
+    endpointId: firstEndpoint.id,
+    deliveryId: firstDelivery.id,
+  });
+  await forceDueNow(replay.deliveryId);
+  await runDispatchPass(pool, transport, config);
+
+  const replayResult = await pool.query<DeliveryRow>(
+    `SELECT * FROM webhook_deliveries WHERE id = $1`,
+    [replay.deliveryId],
+  );
+  const replayDelivery = replayResult.rows[0];
+  assert.ok(replayDelivery);
+  assert.equal(replayDelivery.status, "succeeded");
+  assert.equal(replayDelivery.attempt_count, 1);
+
+  const disbursements = await pool.query<{ count: string; amount_fils: string | null }>(
+    `SELECT count(*), min(amount_fils) AS amount_fils
+       FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
+    [paidBatch.id],
+  );
+  assert.equal(Number(disbursements.rows[0]?.amount_fils), 23_422);
+  assert.equal(Number(disbursements.rows[0]?.count), 1);
 });
 
 test("a real delivery and a test send are each signed over the exact body bytes sent (BHA-15)", async () => {
