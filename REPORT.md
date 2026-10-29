@@ -170,6 +170,13 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: One settlement close can freeze reporting
+- **Status:** Fixed
+- **Type:** Data, high
+- **Problem:** Merchant dashboards stopped updating: the reporting consumer logged `TypeError: Cannot read properties of undefined (reading 'captured_count')` on every pass and applied no event after it.
+- **Cause:** When a `settlement.batch_closed` event is applied, a parity check reads that day's `merchant_daily_volume` row and dereferences it without checking it exists (`apps/reporting/src/consumer/applyEvent.ts:147-148`). A day with captures in `transaction_events` but no applied capture event has no row, so the read throws, the whole pass rolls back and the watermark never moves past that event. The comment at `:76-77` promises such a case is a no-op.
+- **Breaks:** Every later capture, void and payout stops reaching the dashboards until someone deletes the event by hand; the rebuild CLI fails the same way. It is also why the rebuild test and the three `runConsumerPass` end-to-end tests failed on a database that held such an event.
+- **Fix:** A missing row now counts as a rollup of zero, so the check logs its "rollup lags ground truth" warning and the pass carries on. Test added.
 ### Bug: Disabled or logged-out admins keep impersonating merchants
 - **Status:** Fixed
 - **Type:** Security, low

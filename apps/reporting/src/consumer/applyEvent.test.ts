@@ -223,6 +223,56 @@ test("applyBatchClosed (via applyEvent): a day with real capture activity whose 
   assert.equal(Number(result.rows[0].net_payout_fils), 4_631);
 });
 
+test("applyBatchClosed (via applyEvent): a day with real capture activity but no rollup row yet warns instead of throwing, and still records the trend", async () => {
+  const merchantId = await createMerchant("batch-closed-missing-rollup");
+  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null });
+
+  // Ground truth has a capture on 2026-01-05, but its outbox event was never
+  // applied, so merchant_daily_volume has no row for that merchant/day.
+  const txnResult = await pool.query<{ id: string }>(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+     VALUES ($1, 'captured', 4750, 4750, $2, '2026-01-05T10:00:00Z')
+     RETURNING id`,
+    [merchantId, `acq_${randomUUID()}`],
+  );
+  await pool.query(
+    `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, occurred_at)
+     VALUES ($1, 'captured', 4750, 'system', '2026-01-05T10:00:00Z')`,
+    [txnResult.rows[0]!.id],
+  );
+
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+  try {
+    await assert.doesNotReject(
+      withTransaction(pool, (client) =>
+        applyEvent(
+          client,
+          makeRow({
+            event_type: "settlement.batch_closed",
+            payload: { merchantId, batchId, batchDate: "2026-01-05", grossFils: 4_750, feeFils: 119, netPayoutFils: 4_631 },
+          }),
+        ),
+      ),
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1, "a missing rollup row lags ground truth, so it warns once");
+  assert.match(String(warnings[0]![0]), /rollup=0 ground_truth=1/);
+
+  const result = await pool.query(
+    `SELECT net_payout_fils FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(result.rows.length, 1);
+  assert.equal(Number(result.rows[0].net_payout_fils), 4_631);
+});
+
 test("applyBatchClosed (via applyEvent) is idempotent: applying the identical event twice produces no duplicate row and no drift", async () => {
   const merchantId = await createMerchant("batch-closed-idempotent");
   const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null });
