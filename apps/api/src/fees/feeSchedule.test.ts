@@ -65,7 +65,7 @@ test("a single past-dated row applies from its effective_from onward, never befo
   });
 });
 
-// the display helper does the opposite on purpose — see currentFeeScheduleDisplay.ts (MK)
+// currentFeeScheduleDisplay.ts follows the same rule, so the admin page shows the rate charged here.
 test("resolves by effective_from, not by which row was inserted most recently", async () => {
   const merchantId = await insertMerchant(250);
   // Inserted newest-first: a lookup keyed off insertion order rather than

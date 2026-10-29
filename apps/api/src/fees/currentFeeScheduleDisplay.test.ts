@@ -68,8 +68,8 @@ test("returns the most recently entered schedule when rows were entered as they 
   assert.equal(current?.createdAt.toISOString(), "2026-07-01T00:00:00.000Z");
 });
 
-// am: this test is the reason i asked above. it asserts the backfilled row wins
-test("returns the most recently entered schedule even when an older period was backfilled later", async () => {
+/** Capture charges the 225 row here (feeSchedule.ts), so the display must show 225 too. */
+test("returns the schedule in force even when an older period was backfilled later", async () => {
   const merchantId = await insertMerchant(250);
   // A renegotiation entered on the day it took effect, then a backdated
   // correction to an earlier period entered two weeks afterwards.
@@ -77,7 +77,16 @@ test("returns the most recently entered schedule even when an older period was b
   await insertSchedule(merchantId, 245, "2026-03-01T00:00:00Z", "2026-08-15T00:00:00Z");
 
   const current = await getCurrentFeeScheduleForDisplay(pool, merchantId);
-  assert.equal(current?.mdrBps, 245);
-  assert.equal(current?.effectiveFrom.toISOString(), "2026-03-01T00:00:00.000Z");
-  assert.equal(current?.createdAt.toISOString(), "2026-08-15T00:00:00.000Z");
+  assert.equal(current?.mdrBps, 225);
+  assert.equal(current?.effectiveFrom.toISOString(), "2026-08-01T00:00:00.000Z");
+  assert.equal(current?.createdAt.toISOString(), "2026-08-01T00:00:00.000Z");
+});
+
+test("ignores a schedule entered in advance whose effective date has not arrived", async () => {
+  const merchantId = await insertMerchant(250);
+  await insertSchedule(merchantId, 200, "2026-03-01T00:00:00Z", "2026-03-01T00:00:00Z");
+  await insertSchedule(merchantId, 150, "2999-01-01T00:00:00Z", "2026-03-02T00:00:00Z");
+
+  const current = await getCurrentFeeScheduleForDisplay(pool, merchantId);
+  assert.equal(current?.mdrBps, 200);
 });
