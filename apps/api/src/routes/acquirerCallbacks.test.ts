@@ -59,7 +59,7 @@ function callbackBody(transactionId: string, callbackId: string) {
   };
 }
 
-function signatureHeader(body: unknown, secret = ACQUIRER_SECRET, timestamp = 1_757_930_000): string {
+function signatureHeader(body: unknown, secret = ACQUIRER_SECRET, timestamp = Math.floor(Date.now() / 1000)): string {
   const signature = createHmac("sha256", secret).update(`${timestamp}.${JSON.stringify(body)}`).digest("hex");
   return `t=${timestamp},v1=${signature}`;
 }
@@ -100,7 +100,7 @@ test("POST /v1/acquirer/callbacks rejects a body missing required fields", async
   assert.equal(res.json().error, "invalid_request");
 });
 
-/** Tamper = wrong HMAC. Missing header and stale timestamp are different cases (see below / not covered). */
+/** A wrong HMAC is rejected before timestamp freshness is checked. */
 test("POST /v1/acquirer/callbacks rejects a tampered signature", async () => {
   const transactionId = await createTransaction();
   const callbackId = `acqcb_${randomUUID()}`;

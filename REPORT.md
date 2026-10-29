@@ -184,3 +184,10 @@
 - **Cause:** `runIfDue` (`apps/settlement/internal/scheduler/daemon.go:80`) passed `time.Now().UTC()` to `BusinessDayWindow`, which takes the calendar date in the instant's own zone, so the daemon saw the day turn at UTC midnight, which is 03:00 in Bahrain.
 - **Breaks:** Every daily close and payout ran three hours late. Each batch still covered the right Bahrain day, so no amounts were wrong.
 - **Fix:** The daemon's day decision moved into `dueBusinessDate`, which converts `now` to Bahrain time (fixed UTC+3) before asking `BusinessDayWindow` for today's start; `BusinessDayWindow` is unchanged. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/30
+### Bug: Inbound acquirer callbacks are replayable and leak the HMAC via timing
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** A captured, correctly-signed acquirer callback could be replayed at any later time, and the signature compare leaked the expected HMAC through response timing.
+- **Cause:** `verifyAcquirerCallbackSignature` in `apps/api/src/webhooks/inboundVerify.ts` compared signatures with `Buffer.compare(...) === 0`, which short-circuits on the first differing byte and is not constant time, and it parsed the signed timestamp but never checked its freshness.
+- **Breaks:** An attacker who observed one signed callback could replay it indefinitely, and the timing side channel helped forge a valid signature.
+- **Fix:** The compare now uses the repo's constant-time `timingSafeEqualHex`, as `webhooks/sign.ts` already does, and a callback whose signed timestamp is older than a 300 second window is rejected with a new `stale_timestamp` reason. Additive: the require-signature behaviour from BHA-14 is unchanged and no existing reason was removed. No schema change. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/40

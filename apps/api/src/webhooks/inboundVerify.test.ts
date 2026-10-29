@@ -19,8 +19,20 @@ function acquirerHeader(payload: unknown, secret: string, timestamp = 1_757_930_
 
 test("a correctly-signed callback verifies", () => {
   const payload = { callbackId: "acqcb_1", outcome: "cleared" };
-  const result = verifyAcquirerCallbackSignature(payload, acquirerHeader(payload, SECRET), SECRET);
+  const result = verifyAcquirerCallbackSignature(payload, acquirerHeader(payload, SECRET), SECRET, true, { now: 1_757_930_000 });
   assert.deepEqual(result, { valid: true });
+});
+
+test("a stale signed callback is rejected (stale_timestamp) and a fresh one verifies", () => {
+  const payload = { callbackId: "acqcb_1", outcome: "cleared" };
+  const timestamp = 1_757_930_000;
+  const header = acquirerHeader(payload, SECRET, timestamp);
+
+  const stale = verifyAcquirerCallbackSignature(payload, header, SECRET, true, { now: timestamp + 400 });
+  assert.deepEqual(stale, { valid: false, reason: "stale_timestamp" });
+
+  const fresh = verifyAcquirerCallbackSignature(payload, header, SECRET, true, { now: timestamp });
+  assert.deepEqual(fresh, { valid: true });
 });
 
 test("a tampered payload is rejected (signature_mismatch)", () => {
