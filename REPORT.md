@@ -305,6 +305,13 @@
 - **Breaks:** The PDF-only gate for registry and bank documents: a non-PDF disguised with a .pdf name reached review as a PDF, and a real PDF under a different name was refused.
 - **Fix:** The check now compares the detected type (`detected !== "pdf"`), the same string-literal shape the rest of the file uses; the `document_must_be_pdf` error is unchanged. The existing test that asserted the filename behaviour was corrected to accept a real PDF regardless of name, and one test was added for a PNG renamed .pdf being rejected. The upload size limit the ticket worried about is already capped at the boundary (`plugins/multipart.ts` fileSize to 413 in `plugins/errorHandler.ts`), so no size change was needed.
 
+### Bug: Bad input on payment-link and transaction routes crashes with 500 or is silently ignored
+- **Status:** Fixed (BHA-89, BHA-90, BHA-92, BHA-94, BHA-88)
+- **Type:** Data, medium
+- **Problem:** Creating a payment link with amount 0, listing links with `limit=abc` or a crafted cursor, and cancelling a link with a non-UUID id answered 500. A garbage cursor on the transaction list silently returned page one, so a client with a corrupted cursor looped over the first page.
+- **Cause:** `routes/paymentLinks.ts` and `routes/transactions.ts` passed raw input down. `toFils` allows 0, so the insert hit the database check; `Number.parseInt("abc")` gave NaN for `LIMIT`; a cursor with a bad date or id reached a `::timestamptz` / uuid cast; `decodeCursor` in the two query modules turns any malformed cursor into `null`, which means page one.
+- **Breaks:** Merchants got internal errors instead of a 400 they can act on, and paging through transactions could silently restart.
+- **Fix:** Validation at the route boundary in the two route files: amount must be greater than 0, `limit` a positive integer, cursor must decode to a real Postgres timestamp plus a UUID, cancel id must be a UUID; each answers 400 with a fixed error code. `limit=0` used to clamp to 1 and now answers 400. Tests added in `paymentLinks.test.ts` and `transactions.test.ts`, including one that a cursor the API issued still works.
 ### Bug: The nightly expire_holds janitor deletes every hold on a night with nothing expired
 - **Status:** Fixed
 - **Type:** Data, critical

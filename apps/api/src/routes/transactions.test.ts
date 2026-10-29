@@ -388,3 +388,13 @@ test("a 'support' session cannot capture or void; 'finance' can", async () => {
   });
   assert.equal(financeVoid.statusCode, 200, financeVoid.body);
 });
+
+test("list rejects a garbage cursor and a non-numeric limit with 400 instead of silently serving page one (BHA-88)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("list-bad-cursor");
+  const crafted = Buffer.from("not-a-date|not-a-uuid", "utf8").toString("base64url");
+  const badDate = Buffer.from(`2026-13-45 99:99:99+00|${randomUUID()}`, "utf8").toString("base64url");
+  for (const query of ["cursor=garbage", "cursor=%%%", `cursor=${crafted}`, `cursor=${badDate}`, "limit=abc"]) {
+    const res = await app.inject({ method: "GET", url: `/v1/transactions?${query}`, headers: authHeader(rawKey) });
+    assert.equal(res.statusCode, 400, `${query}: ${res.body}`);
+  }
+});

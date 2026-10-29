@@ -42,6 +42,43 @@ interface ListTransactionsQuery {
   cursor?: string;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Postgres's own text rendering of a timestamptz, as written by the query module's encodeCursor.
+const PG_TIMESTAMPTZ_RE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?[+-](\d{2})(?::?(\d{2}))?$/;
+
+function parseLimit(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw) || Number(raw) < 1) {
+    throw new BadRequestError("invalid_limit", "limit must be a positive integer");
+  }
+  return Number(raw);
+}
+
+function isRealTimestamp(text: string): boolean {
+  const m = PG_TIMESTAMPTZ_RE.exec(text);
+  if (!m) return false;
+  const [y, mo, d, h, mi, s, tzh, tzm] = m.slice(1).map((part) => Number(part ?? 0));
+  return (
+    mo! >= 1 && mo! <= 12 && d! >= 1 && d! === new Date(Date.UTC(y!, mo! - 1, d!)).getUTCDate() &&
+    h! < 24 && mi! < 60 && s! < 60 && tzh! <= 15 && tzm! < 60
+  );
+}
+
+/**
+ * The query modules turn a malformed cursor into page one; reject it here instead.
+ * Same helpers live in routes/paymentLinks.ts and routes/transactions.ts: change both.
+ */
+function assertValidCursor(cursor: string | undefined): void {
+  if (!cursor) return;
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+  const separatorIndex = decoded.indexOf("|");
+  const timestamp = decoded.slice(0, separatorIndex);
+  const id = decoded.slice(separatorIndex + 1);
+  if (separatorIndex === -1 || !isRealTimestamp(timestamp) || !UUID_RE.test(id)) {
+    throw new BadRequestError("invalid_cursor", "cursor is not valid");
+  }
+}
+
 /**
  * Reads the Idempotency-Key header. Required on authorize and capture;
  * void is naturally idempotent and does not call this. Keys are scoped per
@@ -137,7 +174,8 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = q.limit !== undefined ? Number.parseInt(q.limit, 10) : undefined;
+      const limit = parseLimit(q.limit);
+      assertValidCursor(q.cursor);
 
       return listTransactions(app.db, {
         merchantId: request.merchantAuth!.merchantId,

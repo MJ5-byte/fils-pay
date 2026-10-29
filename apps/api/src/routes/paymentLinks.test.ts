@@ -446,3 +446,58 @@ test("a suspended merchant's active link cannot be paid: 403 merchant_not_active
   const linkRow = await pool.query<{ status: string }>(`SELECT status FROM payment_links WHERE id = $1`, [link.id]);
   assert.equal(linkRow.rows[0]!.status, "active");
 });
+
+test("create rejects a zero amount with 400, not 500 (BHA-89)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("zero-amount");
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/payment-links`,
+    headers: authHeader(rawKey),
+    payload: { amountFils: 0, expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_amount");
+});
+
+test("list rejects a non-numeric limit and a crafted cursor with 400, not 500 (BHA-90)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("list-bad-input");
+  await createLink(rawKey, merchantId);
+  const crafted = Buffer.from("not-a-date|not-a-uuid", "utf8").toString("base64url");
+  const badDate = Buffer.from(`2026-13-45 99:99:99+00|${randomUUID()}`, "utf8").toString("base64url");
+  for (const query of ["limit=abc", "limit=0", "limit=-5", `cursor=${crafted}`, `cursor=${badDate}`, "cursor=%%%garbage"]) {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/payment-links?${query}`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(res.statusCode, 400, `${query}: ${res.body}`);
+  }
+});
+
+test("cancel with a non-UUID id answers 400, not 500 (BHA-92)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("cancel-bad-id");
+  const res = await app.inject({
+    method: "DELETE",
+    url: `/v1/merchants/${merchantId}/payment-links/not-a-uuid`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_id");
+});
+
+test("list still accepts the nextCursor it issued", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("list-paging");
+  await createLink(rawKey, merchantId, { reference: "page-a" });
+  await createLink(rawKey, merchantId, { reference: "page-b" });
+  const url = `/v1/merchants/${merchantId}/payment-links`;
+  const first = (await app.inject({ method: "GET", url: `${url}?limit=1`, headers: authHeader(rawKey) })).json();
+  assert.ok(first.nextCursor);
+  const second = await app.inject({
+    method: "GET",
+    url: `${url}?limit=1&cursor=${first.nextCursor}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(second.statusCode, 200, second.body);
+  assert.equal(second.json().paymentLinks.length, 1);
+  assert.notEqual(second.json().paymentLinks[0].id, first.paymentLinks[0].id);
+});
