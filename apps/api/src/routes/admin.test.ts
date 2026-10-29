@@ -567,6 +567,11 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
   const finance = await signedInAdmin("finance", "bulkkyc-auditfail");
   const first = await createMerchant("bulkkyc-auditfail-a");
   const second = await createMerchant("bulkkyc-auditfail-b");
+  // Only under_review merchants are approvable, so without this nothing would
+  // change even if the rollback were broken.
+  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = ANY($1)`, [
+    [first.merchantId, second.merchantId],
+  ]);
 
   await pool.query(
     `ALTER TABLE admin_audit_log
@@ -590,9 +595,13 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
   );
   assert.equal(merchants.rowCount, 2);
   for (const row of merchants.rows) {
-    assert.equal(row.kyc_passed, false, "the batch UPDATE must have rolled back for every merchant");
-    assert.equal(row.onboarding_status, "submitted");
+    assert.equal(row.kyc_passed, false, "the batch approval must have rolled back for every merchant");
+    assert.equal(row.onboarding_status, "under_review");
   }
+  const reviews = await pool.query(`SELECT 1 FROM merchant_kyc_reviews WHERE merchant_id = ANY($1)`, [
+    [first.merchantId, second.merchantId],
+  ]);
+  assert.equal(reviews.rowCount, 0, "the review rows must roll back with the approval");
   assert.equal((await auditRowsFor(finance.id, "kyc_bulk_approve")).length, 0);
 
   const retry = await app.inject({
@@ -602,6 +611,7 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
     payload: { merchantIds: [first.merchantId, second.merchantId] },
   });
   assert.equal(retry.statusCode, 200, retry.body);
+  assert.equal((retry.json() as { approvedCount: number }).approvedCount, 2);
 });
 
 // ------------------------------------------------------ audit atomicity

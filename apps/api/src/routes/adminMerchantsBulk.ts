@@ -28,7 +28,7 @@ export async function adminMerchantsBulkRoutes(app: FastifyInstance): Promise<vo
       if (!Array.isArray(merchantIds) || merchantIds.length === 0) {
         throw new BadRequestError("invalid_request", "merchantIds must be a non-empty array");
       }
-      // 200 max, so the UPDATE stays under the statement timeout — am
+      // 200 max, so the per-merchant review writes stay under the statement timeout — am
       if (merchantIds.length > BULK_APPROVE_MAX_IDS) {
         throw new BadRequestError(
           "invalid_request",
@@ -39,8 +39,8 @@ export async function adminMerchantsBulkRoutes(app: FastifyInstance): Promise<vo
         throw new BadRequestError("invalid_request", "merchantIds must all be UUIDs");
       }
 
-      // Ids that name no merchant row simply return nothing from the UPDATE,
-      // so existence needs no separate probe here — the response's
+      // Ids that name no merchant, or a merchant not under_review, are simply
+      // skipped, so existence needs no separate probe here — the response's
       // approvedMerchantIds is the authoritative list of what actually moved.
       const result = await bulkApproveMerchantsKyc(app.db, {
         merchantIds,
