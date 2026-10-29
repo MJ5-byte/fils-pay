@@ -58,8 +58,9 @@ test("dash renders absent values as an em dash but keeps zero", () => {
   assert.equal(dash(0), "0");
 });
 
-test("dayStartIso converts a date input to a UTC day boundary", () => {
-  assert.equal(dayStartIso("2026-09-12"), "2026-09-12T00:00:00.000Z");
+test("dayStartIso converts a date input to the Asia/Bahrain day boundary", () => {
+  // ADR-0003's business day: 12 Sep starts at Bahrain midnight, 21:00Z on 11 Sep.
+  assert.equal(dayStartIso("2026-09-12"), "2026-09-11T21:00:00.000Z");
   assert.equal(dayStartIso(""), undefined);
 });
 

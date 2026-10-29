@@ -25,7 +25,6 @@ const SEARCH_DEBOUNCE_MS = 300;
  * query param — nothing fetches an unfiltered page and narrows it in the
  * browser, which would both lie about the result count and break pagination.
  */
-// YA: from/to are UTC day starts, see dayStartIso
 export function TransactionListPage() {
   const [statuses, setStatuses] = useState<TransactionStatus[]>([]);
   const [from, setFrom] = useState("");

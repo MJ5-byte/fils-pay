@@ -4,6 +4,7 @@ import { rebuildAnalytics, rebuildBalances, runBatch } from "../../api/settlemen
 import { recalculateMdr } from "../../api/mdrRecalculation.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { yesterdayIso } from "./businessDate.js";
 import type {
   AnalyticsRebuildSummary,
   BalanceRebuildSummary,
@@ -13,13 +14,6 @@ import type {
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
-}
-
-// YA: browser-local yesterday
-function yesterdayIso(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().slice(0, 10);
 }
 
 /**
