@@ -59,8 +59,11 @@ export async function adminCreditRoutes(app: FastifyInstance): Promise<void> {
       },
     );
 
+    // Under the approval threshold a new credit posts straight to the ledger,
+    // so creating one is as money-moving as approving one.
     scope.post<{ Params: MerchantIdParams; Body: unknown }>(
       "/merchants/:id/credits",
+      { preHandler: requireAdminRole("finance", "super_admin") },
       async (request, reply) => {
         const adminAuth = request.adminAuth;
         if (!adminAuth) throw new UnauthorizedError("unauthenticated");
