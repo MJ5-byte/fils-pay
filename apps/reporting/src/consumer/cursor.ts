@@ -56,6 +56,7 @@ export async function advanceCursor(
   );
 }
 
+// apps/api/src/admin/reportingRebuild.ts copies this upsert for the admin rebuild; change both together.
 /** Resets this consumer's watermark to 0 — used only by the `rebuild`
  *  subcommand (cli/rebuild.ts) before replaying the entire outbox history. */
 // MK: rebuild only. never call from the worker.

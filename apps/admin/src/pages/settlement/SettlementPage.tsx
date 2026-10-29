@@ -278,10 +278,10 @@ export function SettlementPage() {
 
       <h2>Rebuild analytics</h2>
       <p className="admin-muted">
-        Recomputes the analytics read model — daily volumes and payout trends — from scratch, for
-        when a merchant reports their dashboard looking behind and you would rather not wait for the
-        reporting worker to catch up. Like the balance rebuild above, it touches every merchant at
-        once, so it asks before it runs.
+        Rebuilds the analytics read model — daily volumes and payout trends — from scratch, for
+        when a merchant reports their dashboard numbers looking wrong: it empties both rollups and
+        the reporting worker replays every event into them again. Like the balance rebuild above, it
+        touches every merchant at once, so it asks before it runs.
       </p>
 
       {analyticsError ? <p className="admin-error">{analyticsError}</p> : null}
@@ -295,8 +295,8 @@ export function SettlementPage() {
         {confirmingAnalytics ? (
           <div className="admin-confirm">
             <p>
-              <strong>Rebuild analytics for every merchant?</strong> This replaces both rollup tables
-              with a fresh recompute and records the action in the admin audit log.
+              <strong>Rebuild analytics for every merchant?</strong> Dashboards show partial numbers
+              until the reporting worker's replay catches up. The action is recorded in the admin audit log.
             </p>
             <button
               type="button"
@@ -322,11 +322,7 @@ export function SettlementPage() {
 
       {analyticsResult ? (
         <div className="admin-notice">
-          <p>
-            Rebuilt {analyticsResult.volumeRows} daily-volume row
-            {analyticsResult.volumeRows === 1 ? "" : "s"} and {analyticsResult.trendRows} payout-trend
-            row{analyticsResult.trendRows === 1 ? "" : "s"}.
-          </p>
+          <p>Analytics cleared. The reporting worker is replaying the outbox into them now.</p>
         </div>
       ) : null}
 

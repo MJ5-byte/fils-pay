@@ -19,6 +19,10 @@ import { loadConfig } from "../config.js";
 import { hashPassword } from "../adminAuth/passwords.js";
 import { issueApiKey } from "../apiKeys/issue.js";
 import { createWebhookEndpoint } from "../webhooks/create.js";
+import { enqueueEvent } from "@filspay/events";
+import { toFils } from "@filspay/money";
+import { withTransaction } from "../db/withTransaction.js";
+import { recordTransactionEvent } from "../transactions/events.js";
 import type { AdminRoutesOptions } from "./admin.js";
 import type {
   MdrRecalcSummary,
@@ -1619,6 +1623,119 @@ test("a settlement action whose audit row cannot be written never makes the call
   }
 
   assert.equal(settlementSpy.rebuildCalls, 0, "an unloggable action must be BLOCKED, not merely unlogged");
+});
+
+// ------------------------------------------------------- analytics rebuild
+
+/** The shared reporting cursor, read so a test can hand it back as it found it:
+ *  apps/reporting's tests replay from wherever it is left. */
+async function reportingCursor(): Promise<string | undefined> {
+  const result = await pool.query<{ last_processed_id: string }>(
+    `SELECT last_processed_id FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
+  );
+  return result.rows[0]?.last_processed_id;
+}
+
+/** No row and a row at 0 read the same to the consumer, so only a real value is put back. */
+async function restoreReportingCursor(lastProcessedId: string | undefined): Promise<void> {
+  if (lastProcessedId === undefined) return;
+  await pool.query(`UPDATE reporting_outbox_cursor SET last_processed_id = $1 WHERE consumer_name = 'reporting'`, [
+    lastProcessedId,
+  ]);
+}
+
+test("the analytics rebuild leaves nothing for the reporting consumer to apply twice", async () => {
+  const cursorBefore = await reportingCursor();
+  const admin = await signedInAdmin("finance", "analytics-rebuild");
+  const { merchantId } = await createMerchant("analytics-rebuild");
+
+  // A capture committed while the reporting worker is behind: its outbox
+  // event sits past the cursor, waiting for the next consumer pass.
+  const outboxId = await withTransaction(pool, async (client) => {
+    const txn = await client.query<{ id: string }>(
+      `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+       VALUES ($1, 'captured', 1500, 1500, $2) RETURNING id`,
+      [merchantId, `acqref_${randomUUID()}`],
+    );
+    const transactionId = txn.rows[0]?.id;
+    assert.ok(transactionId);
+    const event = await enqueueEvent(client, {
+      eventType: "transaction.captured",
+      aggregateType: "transaction",
+      aggregateId: transactionId,
+      payload: { merchantId, amountCapturedFils: 1500, feeFils: 0, newStatus: "captured", capturedTotalFils: 1500 },
+    });
+    await recordTransactionEvent(client, {
+      transactionId,
+      eventType: "captured",
+      amountFils: toFils(1500),
+      actor: { type: "system" },
+    });
+    return BigInt(event.id);
+  });
+  await pool.query(
+    `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id)
+     VALUES ('reporting', $1)
+     ON CONFLICT (consumer_name) DO UPDATE SET last_processed_id = EXCLUDED.last_processed_id`,
+    [(outboxId - 1n).toString()],
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/reporting/rebuild",
+    headers: { cookie: admin.cookie },
+  });
+
+  const cursor = await pool.query<{ last_processed_id: string }>(
+    `SELECT last_processed_id FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
+  );
+  const cursorId = BigInt(cursor.rows[0]?.last_processed_id ?? "0");
+  const counted = await pool.query<{ captured: string }>(
+    `SELECT COALESCE(SUM(captured_count), 0) AS captured FROM merchant_daily_volume WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  // The consumer applies every event past the cursor. If the rebuilt rollups
+  // already count one of those, the next pass counts it a second time.
+  assert.ok(
+    cursorId >= outboxId || counted.rows[0]?.captured === "0",
+    `rollups count the capture (${counted.rows[0]?.captured}) while the cursor (${cursorId}) has not passed its event (${outboxId})`,
+  );
+  assert.equal(res.statusCode, 202, res.body);
+
+  const audit = await auditRowsFor(admin.id, "reporting_rebuild");
+  assert.equal(audit.length, 1);
+  await restoreReportingCursor(cursorBefore);
+});
+
+test("the analytics rebuild answers 409 and changes nothing when the reporting cursor stays locked", async () => {
+  const admin = await signedInAdmin("finance", "analytics-rebuild-busy");
+  await pool.query(
+    `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id)
+     VALUES ('reporting', 0)
+     ON CONFLICT (consumer_name) DO NOTHING`,
+  );
+  const cursorBefore = await reportingCursor();
+
+  // Stands in for a consumer pass that holds the cursor row past the rebuild's lock timeout.
+  const pass = await pool.connect();
+  let res;
+  try {
+    await pass.query("BEGIN");
+    await pass.query(`SELECT 1 FROM reporting_outbox_cursor WHERE consumer_name = 'reporting' FOR UPDATE`);
+    res = await app.inject({
+      method: "POST",
+      url: "/v1/admin/reporting/rebuild",
+      headers: { cookie: admin.cookie },
+    });
+  } finally {
+    await pass.query("ROLLBACK");
+    pass.release();
+  }
+
+  assert.equal(res.statusCode, 409, res.body);
+  assert.equal((res.json() as { error: string }).error, "reporting_rebuild_busy");
+  assert.equal(await reportingCursor(), cursorBefore);
+  assert.equal((await auditRowsFor(admin.id, "reporting_rebuild")).length, 0);
 });
 
 test("cookieValue helper sanity: the impersonation and admin cookies are genuinely different tokens", async () => {

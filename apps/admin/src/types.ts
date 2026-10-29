@@ -236,11 +236,10 @@ export interface RecomputeStatusesResult {
   openAuthorizations: number;
 }
 
-/** `POST /v1/admin/reporting/rebuild` → `200 { volumeRows, trendRows }` —
- *  how many rows each of the two analytics rollup tables ended up with. */
+/** `POST /v1/admin/reporting/rebuild` → `202 { status: "replaying" }` — the
+ *  rollups are emptied and apps/reporting's worker is replaying the outbox. */
 export interface AnalyticsRebuildSummary {
-  volumeRows: number;
-  trendRows: number;
+  status: "replaying";
 }
 
 // ---------------------------------------------------------------------------

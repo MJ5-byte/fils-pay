@@ -24,10 +24,10 @@ export function rebuildBalances(): Promise<BalanceRebuildSummary> {
 /**
  * `POST /v1/admin/reporting/rebuild`. No body.
  *
- * Recomputes the analytics read model (daily volumes, payout trends) from
- * scratch instead of waiting for apps/reporting's incremental worker to
- * catch up. Platform-wide like the balance rebuild above, so the UI asks
- * before calling it.
+ * Empties the analytics read model (daily volumes, payout trends) and has
+ * apps/reporting's worker replay the outbox into it from the start.
+ * Platform-wide like the balance rebuild above, so the UI asks before
+ * calling it.
  */
 export function rebuildAnalytics(): Promise<AnalyticsRebuildSummary> {
   return request("/v1/admin/reporting/rebuild", { method: "POST" });

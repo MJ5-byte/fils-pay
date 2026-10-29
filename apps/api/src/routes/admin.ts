@@ -3,7 +3,7 @@ import { requireAdminRole, requireAdminSession } from "../adminAuth/middleware.j
 import { insertAdminAuditLog, markAdminAuditOutcome } from "../adminAudit/log.js";
 import { endImpersonation } from "../admin/impersonation.js";
 import { UUID_RE } from "../admin/merchants.js";
-import { refreshAnalyticsRollups } from "../admin/reportingRebuild.js";
+import { resetAnalyticsRollups } from "../admin/reportingRebuild.js";
 import {
   triggerBalanceRebuild,
   triggerMdrRecalculation,
@@ -225,9 +225,10 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
    */
   app.post(
     /**
-     * Runs in this process, one transaction. Safe to repeat: the rebuild
-     * truncates the rollups and replays the outbox from the start, so a second
-     * run produces identical rows.
+     * Empties the rollups and rewinds the reporting cursor in one
+     * transaction; apps/reporting's worker then replays the outbox from the
+     * start, so the answer is 202 and the dashboards fill back in as it runs.
+     * Safe to repeat: each run starts the same replay over.
      */
     "/reporting/rebuild",
     { preHandler: [requireAdminSession, requireAdminRole("finance", "super_admin")] },
@@ -235,19 +236,17 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
       const adminAuth = request.adminAuth;
       if (!adminAuth) throw new UnauthorizedError("unauthenticated");
 
-      const summary = await withTransaction(app.db, async (client) => {
-        const result = await refreshAnalyticsRollups(client);
+      await withTransaction(app.db, async (client) => {
+        await resetAnalyticsRollups(client);
         await insertAdminAuditLog(client, {
           adminUserId: adminAuth.adminUserId,
           action: "reporting_rebuild",
           targetType: "platform",
           targetId: null,
-          metadata: { volumeRows: result.volumeRows, trendRows: result.trendRows },
         });
-        return result;
       });
 
-      reply.code(200).send(summary);
+      reply.code(202).send({ status: "replaying" });
     },
   );
 

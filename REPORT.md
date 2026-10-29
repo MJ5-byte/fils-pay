@@ -268,6 +268,13 @@
 - **Cause:** `verifyAcquirerCallbackSignature` in `apps/api/src/webhooks/inboundVerify.ts` compared signatures with `Buffer.compare(...) === 0`, which short-circuits on the first differing byte and is not constant time, and it parsed the signed timestamp but never checked its freshness.
 - **Breaks:** An attacker who observed one signed callback could replay it indefinitely, and the timing side channel helped forge a valid signature.
 - **Fix:** The compare now uses the repo's constant-time `timingSafeEqualHex`, as `webhooks/sign.ts` already does, and a callback whose signed timestamp is older than a 300 second window is rejected with a new `stale_timestamp` reason. Additive: the require-signature behaviour from BHA-14 is unchanged and no existing reason was removed. No schema change. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/40
+### Bug: Admin analytics rebuild double-applies outbox events
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** After an admin pressed Rebuild analytics, the next reporting pass counted again every capture, void and batch event the worker had not reached yet, so dashboard counts and gross came out high; the rebuilt totals also disagreed with the CLI `reporting rebuild`.
+- **Cause:** `refreshAnalyticsRollups` (`apps/api/src/admin/reportingRebuild.ts:11-38`) truncated the rollups and refilled them from `transaction_events` and `settlement_batches`, but never touched `reporting_outbox_cursor`. Every event past the cursor was already in the refilled rows, and the worker then applied it on top. The route comment at `apps/api/src/routes/admin.ts:227-231` claimed the rebuild replayed the outbox; it did not.
+- **Breaks:** Inflated merchant dashboard volumes after every admin rebuild while the worker was behind, and a read model filled two different ways that drift apart.
+- **Fix:** The admin rebuild now does what `reporting rebuild` does: in one transaction it takes the cursor row first (the order a consumer pass locks in, so it waits for a running pass instead of deadlocking), rewinds it to 0 and empties both rollups, then notifies the worker, which replays the whole outbox through its normal consumer pass with the out-of-order gap wait. If a lock is not free within 5 seconds the rebuild gives up and answers 409 instead of stalling dashboard reads behind it. The route answers 202 and the admin page says the replay is running; dashboards show partial numbers until the replay catches up. Tests added. PR: https://github.com/SilentYsf/fils-pay/pull/47
 ### Bug: Seed prints plaintext API keys
 - **Status:** Fixed
 - **Type:** Security, low
