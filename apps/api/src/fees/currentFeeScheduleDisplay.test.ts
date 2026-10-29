@@ -69,7 +69,7 @@ test("returns the most recently entered schedule when rows were entered as they 
 });
 
 // am: this test is the reason i asked above. it asserts the backfilled row wins
-test("returns the most recently entered schedule even when an older period was backfilled later", async () => {
+test("shows the rate in force, not a backfilled correction to an older period", async () => {
   const merchantId = await insertMerchant(250);
   // A renegotiation entered on the day it took effect, then a backdated
   // correction to an earlier period entered two weeks afterwards.
@@ -77,7 +77,9 @@ test("returns the most recently entered schedule even when an older period was b
   await insertSchedule(merchantId, 245, "2026-03-01T00:00:00Z", "2026-08-15T00:00:00Z");
 
   const current = await getCurrentFeeScheduleForDisplay(pool, merchantId);
-  assert.equal(current?.mdrBps, 245);
-  assert.equal(current?.effectiveFrom.toISOString(), "2026-03-01T00:00:00.000Z");
-  assert.equal(current?.createdAt.toISOString(), "2026-08-15T00:00:00.000Z");
+  // capture charges 225 (feeSchedule.ts resolves by effective_from); the
+  // dashboard must show the same figure, not the later-entered 245.
+  assert.equal(current?.mdrBps, 225);
+  assert.equal(current?.effectiveFrom.toISOString(), "2026-08-01T00:00:00.000Z");
+  assert.equal(current?.createdAt.toISOString(), "2026-08-01T00:00:00.000Z");
 });
