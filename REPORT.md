@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Refunds pay out twice and can exceed the charge
+- **Status:** Fixed
+- **Type:** Money, critical
+- **Problem:** Two refunds of one transaction sent at the same time both paid out, and a partially captured transaction could be refunded up to its full authorized amount.
+- **Cause:** `apps/api/src/payments/processRefund.ts` read the transaction without a row lock (`:73-78`), called the acquirer outside any transaction (`:146`) and then wrote an absolute `refunded_fils` from that stale read (`:199`); its ceiling was the authorized amount minus refunds (`:90`), not the captured amount.
+- **Breaks:** Once `POST /v1/refunds` is wired, a merchant could pay a customer back twice while the books record one refund, or return more money than was ever taken from the card.
+- **Fix:** `processRefund` now runs in one transaction that locks the row with `FOR UPDATE` and holds it across the acquirer call, the same shape as `capture.ts`, caps refunds at captured minus refunded, and increments `refunded_fils` in SQL. Test added.
 ### Bug: Incoming signature check can be bypassed
 - **Status:** Fixed
 - **Type:** Security, medium

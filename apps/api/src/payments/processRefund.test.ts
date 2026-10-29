@@ -478,3 +478,94 @@ test("unknown transaction ids answer 404", async () => {
   assert.equal(result.statusCode, 404);
   assert.deepEqual(result.body, { error: "transaction_not_found" });
 });
+
+test("two concurrent full refunds of one captured transaction pay out once", async () => {
+  const merchant = await createApprovedMerchantWithApiKey("refund-race");
+  const txn = await capturedTransaction(merchant.rawKey, 10_000);
+  const actor = await apiKeyActor(merchant.merchantId);
+  let refundCalls = 0;
+  let releaseFirstRefund: (() => void) | undefined;
+  const acquirer: AcquirerSimulator = {
+    ...fixedAcquirer("approved"),
+    async refund(req): Promise<AcquirerRefundResult> {
+      refundCalls += 1;
+      if (refundCalls === 1) {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 200);
+          releaseFirstRefund = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+        });
+      } else {
+        releaseFirstRefund?.();
+      }
+      return { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+    },
+  };
+
+  const results = await Promise.allSettled([
+    processRefund(pool, acquirer, {
+      transactionId: txn.id,
+      merchantId: merchant.merchantId,
+      amountFils: toFils(10_000),
+      idempotencyKey: randomUUID(),
+      reason: "requested_by_customer",
+      actor,
+    }),
+    processRefund(pool, acquirer, {
+      transactionId: txn.id,
+      merchantId: merchant.merchantId,
+      amountFils: toFils(10_000),
+      idempotencyKey: randomUUID(),
+      reason: "requested_by_customer",
+      actor,
+    }),
+  ]);
+
+  const fulfilled = results.filter((result) => result.status === "fulfilled");
+  assert.equal(fulfilled.length, 2, "both refund requests must resolve");
+  assert.deepEqual(fulfilled.map((result) => result.value.statusCode).sort(), [200, 409]);
+  assert.equal(refundCalls, 1);
+
+  const row = await pool.query<{ refunded_fils: string }>(
+    `SELECT refunded_fils FROM transactions WHERE id = $1`,
+    [txn.id],
+  );
+  assert.equal(Number(row.rows[0]?.refunded_fils), 10_000);
+
+  const refunds = await pool.query<{ count: string }>(
+    `SELECT count(*) FROM refunds WHERE transaction_id = $1`,
+    [txn.id],
+  );
+  assert.equal(Number(refunds.rows[0]?.count), 1);
+});
+
+test("a refund above captured minus refunded on a partially captured transaction is refused", async () => {
+  const merchant = await createApprovedMerchantWithApiKey("refund-above-captured");
+  const txn = await capturedTransaction(merchant.rawKey, 10_000, 4_000);
+  const actor = await apiKeyActor(merchant.merchantId);
+
+  const result = await processRefund(pool, approvingAcquirer, {
+    transactionId: txn.id,
+    merchantId: merchant.merchantId,
+    amountFils: toFils(5_000),
+    idempotencyKey: randomUUID(),
+    reason: "requested_by_customer",
+    actor,
+  });
+  assert.equal(result.statusCode, 422);
+  assert.deepEqual(result.body, { ok: false, code: "refund_exceeds_refundable", refundableFils: 4_000 });
+
+  const row = await pool.query<{ refunded_fils: string }>(
+    `SELECT refunded_fils FROM transactions WHERE id = $1`,
+    [txn.id],
+  );
+  assert.equal(Number(row.rows[0]?.refunded_fils), 0);
+
+  const refunds = await pool.query<{ count: string }>(
+    `SELECT count(*) FROM refunds WHERE transaction_id = $1`,
+    [txn.id],
+  );
+  assert.equal(Number(refunds.rows[0]?.count), 0);
+});

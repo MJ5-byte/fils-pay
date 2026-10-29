@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { ZERO_FILS, addFils, calculateRefundFee, compareFils, subtractFils, toFils, type Fils } from "@filspay/money";
+import { ZERO_FILS, calculateRefundFee, compareFils, subtractFils, toFils, type Fils } from "@filspay/money";
 import { enqueueEvent } from "@filspay/events";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
@@ -36,7 +36,7 @@ interface RefundTransactionRow {
   acquirer_reference: string;
 }
 
-/** Refund business logic: validate, call the acquirer, then journal the reversal. */
+/** Validates, refunds and journals inside one row-locked transaction. */
 export async function processRefund(
   pool: Pool,
   acquirer: AcquirerSimulator,
@@ -48,8 +48,7 @@ export async function processRefund(
     reason: input.reason ?? null,
   });
 
-  // 1 validate
-  const prepared = await withTransaction(pool, async (client) => {
+  return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {
       merchantId: input.merchantId,
       endpoint: ENDPOINT,
@@ -64,30 +63,29 @@ export async function processRefund(
       throw new ConflictError("request_in_progress");
     }
     if (claim.outcome === "replay") {
-      return {
-        kind: "settled" as const,
-        result: { statusCode: claim.row.responseStatusCode ?? 200, body: claim.row.responseBody },
-      };
+      return { statusCode: claim.row.responseStatusCode ?? 200, body: claim.row.responseBody };
     }
 
+    // Hold the lock across the acquirer call so a second refund waits and sees the first refund's total.
     const txnResult = await client.query<RefundTransactionRow>(
       `SELECT id, merchant_id, status, amount_fils, captured_fils, refunded_fils, acquirer_reference
          FROM transactions
-        WHERE id = $1`,
+        WHERE id = $1
+        FOR UPDATE`,
       [input.transactionId],
     );
     const txn = txnResult.rows[0];
     if (!txn) {
       const body = { error: "transaction_not_found" };
       await completeIdempotencyKey(client, claim.row.id, { statusCode: 404, body });
-      return { kind: "settled" as const, result: { statusCode: 404, body } };
+      return { statusCode: 404, body };
     }
 
     const amountAuthorized = toFils(Number(txn.amount_fils));
     const capturedFils = toFils(Number(txn.captured_fils));
     const refundedFils = toFils(Number(txn.refunded_fils));
 
-    const refundableFils = subtractFils(amountAuthorized, refundedFils);
+    const refundableFils = subtractFils(capturedFils, refundedFils);
 
     const validation = validateRefundRequest(
       {
@@ -103,7 +101,7 @@ export async function processRefund(
     if (!validation.ok) {
       const statusCode = validation.code === "transaction_not_refundable" ? 409 : 422;
       await completeIdempotencyKey(client, claim.row.id, { statusCode, body: validation });
-      return { kind: "settled" as const, result: { statusCode, body: validation } };
+      return { statusCode, body: validation };
     }
 
     // The fee this transaction was actually charged at capture, read from
@@ -123,55 +121,30 @@ export async function processRefund(
       throw new Error("processRefund: fee aggregate returned no row");
     }
 
-    return {
-      kind: "proceed" as const,
-      claimId: claim.row.id,
-      attemptCount: claim.row.attemptCount,
-      transactionId: txn.id,
-      merchantId: txn.merchant_id,
+    const feeChargedFils = toFils(Number(feeRow.fee_fils));
+    const requestedAmount = validation.amountFils;
+
+    const acquirerResult = await acquirer.refund({
       acquirerReference: txn.acquirer_reference,
-      amountAuthorized,
-      capturedFils,
-      refundedFils,
-      feeChargedFils: toFils(Number(feeRow.fee_fils)),
-      requestedAmount: validation.amountFils,
-    };
-  });
+      amountFils: requestedAmount,
+      idempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+    });
 
-  if (prepared.kind === "settled") {
-    return prepared.result;
-  }
-
-  // 2 acquirer
-  const acquirerResult = await acquirer.refund({
-    acquirerReference: prepared.acquirerReference,
-    amountFils: prepared.requestedAmount,
-    idempotencyKey: `${prepared.claimId}:${prepared.attemptCount}`,
-  });
-
-  // 3 journal
-  return withTransaction(pool, async (client) => {
     if (acquirerResult.outcome === "declined") {
       const body = { error: "refund_declined" };
-      await completeIdempotencyKey(client, prepared.claimId, { statusCode: 402, body });
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 402, body });
       return { statusCode: 402, body };
     }
     if (acquirerResult.outcome === "error") {
       const body = { error: "acquirer_unavailable" };
-      await failIdempotencyKey(client, prepared.claimId, { statusCode: 502, body });
+      await failIdempotencyKey(client, claim.row.id, { statusCode: 502, body });
       return { statusCode: 502, body };
     }
 
-    const newRefundedTotal = addFils(prepared.refundedFils, prepared.requestedAmount);
-    const newStatus = nextStatusAfterRefund({
-      amountFils: prepared.amountAuthorized,
-      capturedFils: prepared.capturedFils,
-      refundedTotalFils: newRefundedTotal,
-    });
     const feeReversedFils = calculateRefundFee(
-      prepared.capturedFils,
-      prepared.feeChargedFils,
-      prepared.requestedAmount,
+      capturedFils,
+      feeChargedFils,
+      requestedAmount,
     );
 
     const refundResult = await client.query<{ id: string; occurred_at: Date }>(
@@ -181,9 +154,9 @@ export async function processRefund(
        VALUES ($1, $2, $3, $4, 'succeeded', $5, $6, $7, $8)
        RETURNING id, occurred_at`,
       [
-        prepared.transactionId,
-        prepared.merchantId,
-        prepared.requestedAmount,
+        txn.id,
+        txn.merchant_id,
+        requestedAmount,
         feeReversedFils,
         acquirerResult.acquirerReference,
         input.reason ?? null,
@@ -196,11 +169,21 @@ export async function processRefund(
       throw new Error("processRefund: insert into refunds returned no row");
     }
 
-    await client.query(`UPDATE transactions SET refunded_fils = $2, status = $3 WHERE id = $1`, [
-      prepared.transactionId,
-      newRefundedTotal,
-      newStatus,
-    ]);
+    const updateResult = await client.query<{ refunded_fils: string | number }>(
+      `UPDATE transactions SET refunded_fils = refunded_fils + $2 WHERE id = $1 RETURNING refunded_fils`,
+      [txn.id, requestedAmount],
+    );
+    const row = updateResult.rows[0];
+    if (!row) {
+      throw new Error("processRefund: refunded_fils update returned no row");
+    }
+    const newRefundedTotal = toFils(Number(row.refunded_fils));
+    const newStatus = nextStatusAfterRefund({
+      amountFils: amountAuthorized,
+      capturedFils,
+      refundedTotalFils: newRefundedTotal,
+    });
+    await client.query(`UPDATE transactions SET status = $2 WHERE id = $1`, [txn.id, newStatus]);
 
     // Double-entry reversal, mirroring capture's legs with the directions
     // swapped. ledger_entries has CHECK (amount_fils > 0), so a reversal
@@ -212,7 +195,7 @@ export async function processRefund(
        VALUES
          ($1, $2, $3, 'merchant_payable',     'debit',  $4, now(), 'refund: gross'),
          ($1, $2, $3, 'card_scheme_clearing', 'credit', $4, now(), 'refund: gross')`,
-      [entryGroupId, prepared.merchantId, prepared.transactionId, prepared.requestedAmount],
+      [entryGroupId, txn.merchant_id, txn.id, requestedAmount],
     );
     if (compareFils(feeReversedFils, ZERO_FILS) > 0) {
       await client.query(
@@ -221,19 +204,19 @@ export async function processRefund(
          VALUES
            ($1, $2, $3, 'platform_fee_revenue', 'debit',  $4, now(), 'refund: MDR fee reversal'),
            ($1, $2, $3, 'merchant_payable',     'credit', $4, now(), 'refund: MDR fee reversal')`,
-        [entryGroupId, prepared.merchantId, prepared.transactionId, feeReversedFils],
+        [entryGroupId, txn.merchant_id, txn.id, feeReversedFils],
       );
     }
 
     // The timeline records what this refund did to the captured amount, so
     // it stays readable regardless of what the status column ends up
     // saying: everything captured has now gone back, or only part of it has.
-    const eventType = compareFils(newRefundedTotal, prepared.capturedFils) >= 0 ? "refunded" : "refund_partial";
+    const eventType = compareFils(newRefundedTotal, capturedFils) >= 0 ? "refunded" : "refund_partial";
 
     await recordTransactionEvent(client, {
-      transactionId: prepared.transactionId,
+      transactionId: txn.id,
       eventType,
-      amountFils: toFils(-prepared.requestedAmount, { allowNegative: true }),
+      amountFils: toFils(-requestedAmount, { allowNegative: true }),
       actor: input.actor,
       metadata: {
         refundId: refund.id,
@@ -245,11 +228,11 @@ export async function processRefund(
     await enqueueEvent(client, {
       eventType: "refund.succeeded",
       aggregateType: "transaction",
-      aggregateId: prepared.transactionId,
+      aggregateId: txn.id,
       payload: {
-        merchantId: prepared.merchantId,
+        merchantId: txn.merchant_id,
         refundId: refund.id,
-        amountFils: prepared.requestedAmount,
+        amountFils: requestedAmount,
         feeReversedFils,
         refundedTotalFils: newRefundedTotal,
         newStatus,
@@ -258,9 +241,9 @@ export async function processRefund(
 
     const body = {
       id: refund.id,
-      transactionId: prepared.transactionId,
-      merchantId: prepared.merchantId,
-      amountFils: prepared.requestedAmount,
+      transactionId: txn.id,
+      merchantId: txn.merchant_id,
+      amountFils: requestedAmount,
       feeReversedFils,
       status: "succeeded",
       transactionStatus: newStatus,
@@ -268,7 +251,7 @@ export async function processRefund(
       acquirerReference: acquirerResult.acquirerReference,
       occurredAt: refund.occurred_at.toISOString(),
     };
-    await completeIdempotencyKey(client, prepared.claimId, {
+    await completeIdempotencyKey(client, claim.row.id, {
       statusCode: 200,
       body,
       resourceId: refund.id,
