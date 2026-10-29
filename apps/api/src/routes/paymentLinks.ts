@@ -154,16 +154,17 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
 
   app.post<{ Params: TokenParams; Body: PayPaymentLinkBody }>("/:token/pay", async (request, reply) => {
     const idempotencyKey = getIdempotencyKey(request);
-    const { card, submittedAt } = request.body ?? {};
+    const { card } = request.body ?? {};
     if (!card) {
       throw new BadRequestError("invalid_request", "card is required");
     }
 
+    // No API-key auth here: use the server clock, ignoring buyer submittedAt as PayPaymentLinkBody documents.
     const result = await payPaymentLink(
       app.db,
       app.acquirer,
       { paymentLinkReservationTimeoutSeconds: app.config.paymentLinkReservationTimeoutSeconds },
-      { token: request.params.token, card, idempotencyKey, submittedAt },
+      { token: request.params.token, card, idempotencyKey },
     );
     reply.code(result.statusCode).send(result.body);
   });

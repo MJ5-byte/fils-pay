@@ -201,7 +201,7 @@ test("pay charges exactly the link's own amount — the request body carries no 
   assert.equal(Number(txnRow.rows[0]!.captured_fils), 9_999);
 });
 
-// only without submittedAt. with a past submittedAt it pays — that's the terminal case (FH)
+// Expired links are rejected with or without a buyer submittedAt (BHA-7).
 test("expired link is rejected: read reports 'expired', pay is rejected 410", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired");
   const link = await createLink(rawKey, merchantId, {
@@ -217,6 +217,33 @@ test("expired link is rejected: read reports 'expired', pay is rejected 410", as
   const payRes = await pay(link.token, APPROVED_CARD);
   assert.equal(payRes.statusCode, 410, payRes.body);
   assert.equal(payRes.json().error, "payment_link_expired");
+});
+
+test("expired link stays unpaid when the buyer sends an old submittedAt (BHA-7)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired-old-submitted-at");
+  const link = await createLink(rawKey, merchantId, {
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  });
+  // Force expiry directly in the DB (creation itself requires a future date).
+  await pool.query(`UPDATE payment_links SET expires_at = now() - interval '1 minute' WHERE token = $1`, [link.token]);
+
+  const payRes = await app.inject({
+    method: "POST",
+    url: `/v1/payment-links/${link.token}/pay`,
+    headers: { "idempotency-key": randomUUID() },
+    payload: { card: APPROVED_CARD, submittedAt: new Date(Date.now() - 3_600_000).toISOString() },
+  });
+  assert.equal(payRes.statusCode, 410, payRes.body);
+  assert.equal(payRes.json().error, "payment_link_expired");
+
+  const linkRow = await pool.query<{ status: string; paid_at: Date | null }>(
+    `SELECT status, paid_at FROM payment_links WHERE token = $1`,
+    [link.token],
+  );
+  const row = linkRow.rows[0];
+  assert.ok(row);
+  assert.notEqual(row.status, "paid");
+  assert.equal(row.paid_at, null);
 });
 
 test("canceled link is rejected via both read and pay", async () => {
