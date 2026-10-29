@@ -205,6 +205,13 @@
 - **Cause:** `runIfDue` (`apps/settlement/internal/scheduler/daemon.go:80`) passed `time.Now().UTC()` to `BusinessDayWindow`, which takes the calendar date in the instant's own zone, so the daemon saw the day turn at UTC midnight, which is 03:00 in Bahrain.
 - **Breaks:** Every daily close and payout ran three hours late. Each batch still covered the right Bahrain day, so no amounts were wrong.
 - **Fix:** The daemon's day decision moved into `dueBusinessDate`, which converts `now` to Bahrain time (fixed UTC+3) before asking `BusinessDayWindow` for today's start; `BusinessDayWindow` is unchanged. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/30
+### Bug: Credit approval compares display names
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** Two different admins who share a display name could not approve each other's credit requests, while an admin whose display name differed from the one stored on the request would pass the self-approval check.
+- **Cause:** `assertDistinctApprover` in `apps/api/src/admin/creditApproval.ts:11` decided whether the approver was the requester by comparing display names, but display names are neither unique nor fixed (`db/migrations/0031`, and 0060 snapshots the name because it changes). The request already stores the requester's admin id in `credit_requests.requested_by_admin_user_id`.
+- **Breaks:** The two-person control on manual ledger credits: legitimate second approvers are refused, and once a display name changes an admin can approve and post their own credit to the ledger.
+- **Fix:** The check now compares `adminUserId` of the requester and the approver; the only caller (`approveCreditRequest` in `admin/credits.ts`) already passes both ids. Tests added for the same admin under a different name (refused) and two admins sharing a name (allowed). PR: https://github.com/SilentYsf/fils-pay/pull/39
 ### Bug: Inbound acquirer callbacks are replayable and leak the HMAC via timing
 - **Status:** Fixed
 - **Type:** Security, medium
