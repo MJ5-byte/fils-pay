@@ -150,6 +150,12 @@ function parseBoolEnv(value: string | undefined, fallback: boolean): boolean {
   return value === "true" || value === "1";
 }
 
+// Guards a security check, so only an explicit "false" or "0" turns it off; a typo keeps it on.
+function parseFailClosedBoolEnv(value: string | undefined): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized !== "false" && normalized !== "0";
+}
+
 const DEV_FALLBACK_WEBHOOK_KEY_B64 = "dGVzdC1rZXktZm9yLWRldi1vbmx5LW5vdC1mb3ItcHJvZA==";
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -256,6 +262,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
 
     acquirerCallbackSigningSecret,
-    acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),
+    acquirerCallbackRequireSignature: parseFailClosedBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE),
   };
 }

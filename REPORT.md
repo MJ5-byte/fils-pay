@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Incoming signature check can be bypassed
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** An acquirer callback sent with no signature header was accepted with 200 and applied, so anyone could post a fraud review outcome.
+- **Cause:** `apps/api/src/webhooks/inboundVerify.ts:52-55` accepts a missing header unless signatures are required, and `apps/api/src/config.ts:259` defaulted `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE` to false.
+- **Breaks:** A forged, unsigned callback could mark a transaction's fraud review with any outcome the attacker chose.
+- **Fix:** The signature is now required by default in `config.ts` and in `verifyAcquirerCallbackSignature`; skipping it needs an explicit `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE=false`. The existing unsigned-callback test asserted the bug (200); it now expects 401 and no note written.
 ### Bug: CSV import misreads BD amounts
 - **Status:** Fixed
 - **Type:** Money, high

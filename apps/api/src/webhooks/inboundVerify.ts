@@ -47,7 +47,7 @@ export function verifyAcquirerCallbackSignature(
   payload: unknown,
   header: string | undefined,
   secret: string,
-  requireSignature = false,
+  requireSignature = true,
 ): VerifyAcquirerCallbackResult {
   if (!header) {
     return requireSignature

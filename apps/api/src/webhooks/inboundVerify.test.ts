@@ -46,8 +46,14 @@ test("a malformed header is rejected (malformed_header)", () => {
   assert.equal(verifyAcquirerCallbackSignature(payload, "v1=deadbeef", SECRET).reason, "malformed_header");
 });
 
-test("an unsigned callback is accepted while signature checking is optional", () => {
+test("an unsigned callback is rejected by default (malformed_header)", () => {
   const payload = { callbackId: "acqcb_1", outcome: "cleared" };
   const result = verifyAcquirerCallbackSignature(payload, undefined, SECRET);
+  assert.deepEqual(result, { valid: false, reason: "malformed_header" });
+});
+
+test("an unsigned callback is accepted only when signature checking is explicitly turned off", () => {
+  const payload = { callbackId: "acqcb_1", outcome: "cleared" };
+  const result = verifyAcquirerCallbackSignature(payload, undefined, SECRET, false);
   assert.deepEqual(result, { valid: true });
 });
