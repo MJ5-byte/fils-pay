@@ -26,7 +26,7 @@ export async function bulkApproveMerchantsKyc(
     const result = await client.query<{ id: string }>(
       `UPDATE merchants
           SET onboarding_status = 'approved', kyc_passed = true
-        WHERE id = ANY($1::uuid[])
+        WHERE id = ANY($1::uuid[]) AND onboarding_status = 'under_review'
       RETURNING id`,
       [input.merchantIds],
     );
