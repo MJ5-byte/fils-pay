@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import type { Config } from "../config.js";
 import { decodeEncryptionKey, decryptSecret } from "./secretCrypto.js";
 import { signPayload } from "./sign.js";
+import { canonicalJson } from "../payments/idempotency.js";
 import { WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
 import type { WebhookTransport } from "./transport.js";
 import { NotFoundError } from "../lib/errors.js";
@@ -59,7 +60,7 @@ export async function sendTestWebhookEvent(
   const response = await transport({
     url: row.url,
     headers: { [WEBHOOK_SIGNATURE_HEADER]: signature, "Content-Type": "application/json" },
-    body: JSON.stringify(testPayload),
+    body: canonicalJson(testPayload),
     timeoutMs: config.webhookRequestTimeoutMs,
   });
 
