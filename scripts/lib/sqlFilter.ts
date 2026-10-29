@@ -26,5 +26,8 @@ export function buildDelete(
   filters: Record<string, unknown>,
 ): { text: string; values: unknown[] } {
   const { clause, values } = buildWhere(filters);
+  if (clause === "") {
+    throw new Error(`buildDelete: refusing an unfiltered DELETE FROM ${table}`);
+  }
   return { text: `DELETE FROM ${table} ${clause}`.trim(), values };
 }

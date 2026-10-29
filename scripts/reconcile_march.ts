@@ -69,15 +69,16 @@ function groupByMerchant(rows: ResidueRow[]): MerchantResidue[] {
 }
 
 // am: re-running is safe, entry_group_id dedupes it
+const SWEEP_DESCRIPTION = "March 2026 scheme rounding residue sweep — manual recon per finance";
+
 async function postResidueCorrection(client: Client, merchant: MerchantResidue, now: Date): Promise<void> {
   if (merchant.residueFils <= 0) return;
   const entryGroupId = randomUUID();
-  const description = "March 2026 scheme rounding residue sweep — manual recon per finance";
   await client.query(
     `INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
-     VALUES ($1, $2, 'merchant_payable', 'debit', $3, $4, $5),
-            ($1, $2, 'scheme_rounding_residue', 'credit', $3, $4, $5)`,
-    [entryGroupId, merchant.merchantId, merchant.residueFils, now.toISOString(), description],
+     VALUES ($1, $2, 'scheme_rounding_residue', 'debit', $3, $4, $5),
+            ($1, $2, 'card_scheme_clearing', 'credit', $3, $4, $5)`,
+    [entryGroupId, merchant.merchantId, merchant.residueFils, now.toISOString(), SWEEP_DESCRIPTION],
   );
 }
 
@@ -105,6 +106,14 @@ async function main(): Promise<void> {
 
     await client.query("BEGIN");
     try {
+      // Serialize concurrent runs, then refuse if the sweep is already in the ledger.
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('reconcile_march_2026_03'))`);
+      const already = await client.query(`SELECT 1 FROM ledger_entries WHERE description = $1 LIMIT 1`, [
+        SWEEP_DESCRIPTION,
+      ]);
+      if (already.rows.length > 0) {
+        throw new Error("reconcile_march: the March 2026 sweep is already in the ledger; refusing to post it twice");
+      }
       for (const merchant of merchantResidues) {
         await postResidueCorrection(client, merchant, now);
         console.log(

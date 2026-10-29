@@ -39,13 +39,11 @@ async function main(): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    // FH: SELECT then DELETE, a hold could be captured in between. claude: "negligible window, fine."
-    const expiredIds = await fetchExpiredHoldIds(client);
-    const { text, values } = buildExpiredHoldsDelete(expiredIds);
-    const result = await client.query(text, values);
-    console.log(
-      `expire_holds: matched ${expiredIds.length} abandoned hold(s), deleted ${result.rowCount ?? 0} row(s)`,
+    // One atomic UPDATE: no SELECT-then-write window, and holds are kept.
+    const result = await client.query(
+      `UPDATE holds SET status = 'expired' WHERE status = 'active' AND expires_at < now()`,
     );
+    console.log(`expire_holds: expired ${result.rowCount ?? 0} abandoned hold(s)`);
   } finally {
     await client.end();
   }
