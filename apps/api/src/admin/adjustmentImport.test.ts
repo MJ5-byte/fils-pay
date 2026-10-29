@@ -53,21 +53,21 @@ test("applyAdjustmentImport records the batch and its rows", async () => {
     originalFilename: "corrections.csv",
     rows: [
       { merchantId, amount: "4.75", reason: "statement correction" },
-      { merchantId, amount: "1.25" },
+      { merchantId, amount: "5" },
     ],
   });
 
   assert.equal(result.rowCount, 2);
-  assert.equal(result.totalPostedFils, 600);
+  assert.equal(result.totalPostedFils, 9750);
 
   const rows = await getAdjustmentImportRows(pool, result.importId);
   assert.equal(rows.length, 2);
   assert.equal(rows[0]!.rowNumber, 1);
   assert.equal(rows[0]!.rawAmountText, "4.75");
-  assert.equal(rows[0]!.parsedAmountFils, 475);
+  assert.equal(rows[0]!.parsedAmountFils, 4750);
   assert.equal(rows[0]!.reason, "statement correction");
-  assert.equal(rows[1]!.rawAmountText, "1.25");
-  assert.equal(rows[1]!.parsedAmountFils, 125);
+  assert.equal(rows[1]!.rawAmountText, "5");
+  assert.equal(rows[1]!.parsedAmountFils, 5000);
   assert.equal(rows[1]!.reason, null);
 });
 
@@ -122,8 +122,8 @@ test("applyAdjustmentImport reverses leg direction for a negative amount", async
   assert.deepEqual(
     legs.rows.map((r) => [r.account_id, r.direction, Number(r.amount_fils)]),
     [
-      ["manual_balance_adjustment_contra", "credit", 350],
-      ["merchant_payable", "debit", 350],
+      ["manual_balance_adjustment_contra", "credit", 3500],
+      ["merchant_payable", "debit", 3500],
     ],
   );
 });
@@ -145,7 +145,7 @@ test("applyAdjustmentImport updates the merchant balance cache", async () => {
     `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`,
     [merchantId],
   );
-  assert.equal(Number(balance.rows[0]!.cached_payable_fils), 500);
+  assert.equal(Number(balance.rows[0]!.cached_payable_fils), 5000);
 });
 
 test("applyAdjustmentImport links each row to its ledger group", async () => {

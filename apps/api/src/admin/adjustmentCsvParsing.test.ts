@@ -13,6 +13,13 @@ test("an empty amount throws", () => {
   assert.throws(() => parseAdjustmentAmountFils(""), /could not parse amount/);
 });
 
+test("amounts are BD with three decimals", () => {
+  assert.equal(parseAdjustmentAmountFils("4.75"), 4750);
+  assert.equal(parseAdjustmentAmountFils("5"), 5000);
+  assert.equal(parseAdjustmentAmountFils("4.755"), 4755);
+  assert.throws(() => parseAdjustmentAmountFils("4.7555"), /could not parse amount/);
+});
+
 // ------------------------------------------------------------ csv splitting
 
 const MERCHANT_A = "11111111-1111-4111-8111-111111111111";
