@@ -180,3 +180,15 @@ and seeded.
 After entering your email and password, select **Continue** and enter the
 development OTP displayed on the page. These accounts are for local
 development only.
+
+## Investigation: adjustment CSV amount parsing
+
+The admin adjustment CSV parser previously used `parseDecimalMinor` with its
+two-decimal default. That interpreted `4.75` BHD as `475` fils rather than
+`4,750` fils, and did not follow ADR-0001's requirement that BHD text amounts
+use `parseBhdToFils`.
+
+`parseAdjustmentAmountFils` now delegates to `parseBhdToFils`. Two- and
+three-decimal BHD values are converted to integer fils consistently, signed
+adjustments remain supported, and invalid input is still returned as the
+existing `invalid_amount` API error.
