@@ -118,6 +118,45 @@ test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_pay
   assert.equal(Number(result.rows[0].net_payout_fils), 7_800);
 });
 
+test("runConsumerPass: end-to-end settlement.paid moves a closed batch's payout trend to paid", async () => {
+  const merchantId = await createMerchant("e2e-paid");
+  const batchResult = await pool.query<{ id: string }>(
+    `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+     VALUES ($1, '2026-02-02', 'closed', 8_000, 200, 7_800, now())
+     RETURNING id`,
+    [merchantId],
+  );
+  const batchId = batchResult.rows[0]!.id;
+  await enqueueEvent(pool, {
+    eventType: "settlement.batch_closed",
+    aggregateType: "settlement_batch",
+    aggregateId: batchId,
+    payload: { merchantId, batchId, batchDate: "2026-02-02", grossFils: 8_000, feeFils: 200, netPayoutFils: 7_800 },
+  });
+  await runConsumerPass(pool, config);
+
+  // The payout happens later; settlement's EnqueuePayoutNotifications then
+  // enqueues settlement.paid with exactly this payload.
+  const paidAt = new Date("2026-02-03T09:00:00Z");
+  await pool.query(`UPDATE settlement_batches SET status = 'paid', paid_at = $2 WHERE id = $1`, [batchId, paidAt]);
+  await enqueueEvent(pool, {
+    eventType: "settlement.paid",
+    aggregateType: "settlement_batch",
+    aggregateId: batchId,
+    payload: { merchantId, batchId, batchDate: "2026-02-02", netPayoutFils: 7_800 },
+  });
+  await runConsumerPass(pool, config);
+
+  const result = await pool.query(
+    `SELECT status, paid_at, net_payout_fils FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].status, "paid");
+  assert.equal(result.rows[0].paid_at.toISOString(), paidAt.toISOString());
+  assert.equal(Number(result.rows[0].net_payout_fils), 7_800);
+});
+
 test("runConsumerPass: two overlapping passes (the worker and a catch-up run) apply each event once", async () => {
   const merchantId = await createMerchant("overlap");
   const capturedEvent = await enqueueEvent(pool, {

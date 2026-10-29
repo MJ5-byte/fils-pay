@@ -170,6 +170,13 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: Payout trends never show a batch as paid
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** The merchant overview's payout trends kept listing a batch as "closed" after it was paid, while the Settlement page showed the same batch as "paid".
+- **Cause:** The trend row copies the batch's status once, when `settlement.batch_closed` is applied (`apps/reporting/src/consumer/applyEvent.ts:93-117`). Settlement does enqueue a `settlement.paid` event when the batch is paid out, but the consumer never reads it: it is missing from `REPORTING_EVENT_TYPES` (`apps/reporting/src/consumer/runConsumerPass.ts:9-13`), and migration 0028 wrongly says no such event exists.
+- **Breaks:** Merchants are told a payout is still pending when it has gone out, and the trend's paid date stays empty.
+- **Fix:** The consumer now reads `settlement.paid` and updates that batch's trend row with the status and paid date from `settlement_batches`. Test added.
 ### Bug: Catch-up beside the live worker counts events twice
 - **Status:** Fixed
 - **Type:** Data, medium

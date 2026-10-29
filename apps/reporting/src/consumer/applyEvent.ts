@@ -156,6 +156,24 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
   }
 }
 
+/**
+ * settlement.paid — the batch went closed -> paid after its batch_closed
+ * event was applied, so the trend row still carries the old status. Re-reads
+ * status/paid_at from settlement_batches, the same source applyBatchClosed
+ * copies them from; with no trend row yet it changes nothing. Re-applying it
+ * writes the same values, so the rebuild replay stays idempotent.
+ */
+async function applySettlementPaid(client: PoolClient, row: OutboxEventRow): Promise<void> {
+  const payload = row.payload as { merchantId: string; batchId: string };
+  await client.query(
+    `UPDATE merchant_payout_trends t
+        SET status = sb.status, paid_at = sb.paid_at, last_updated_at = now()
+       FROM settlement_batches sb
+      WHERE sb.id = $2
+        AND t.merchant_id = $1 AND t.settlement_batch_id = sb.id`,
+    [payload.merchantId, payload.batchId],
+  );
+}
 
 /**
  * Rolls up a running daily refund summary, keyed by calendar date.
@@ -187,7 +205,7 @@ export async function applyDailySummaryRollup(
  * wired into this switch fails loudly (a thrown error rolls back the whole
  * pass, per runConsumerPass's transactional discipline) rather than
  * silently dropping the event — runConsumerPass's own SELECT already
- * filters to the three types handled below, so this branch should never
+ * filters to the four types handled below, so this branch should never
  * actually run against real data.
  */
 export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promise<void> {
@@ -198,6 +216,8 @@ export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promi
       return applyTransactionVoided(client, row);
     case "settlement.batch_closed":
       return applyBatchClosed(client, row);
+    case "settlement.paid":
+      return applySettlementPaid(client, row);
     default:
       throw new Error(`applyEvent: unhandled event_type ${row.event_type}`);
   }

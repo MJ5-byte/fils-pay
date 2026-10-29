@@ -26,7 +26,7 @@ async function getRollupCounts(pool: Pool): Promise<RollupCounts> {
 /**
  * `reporting rebuild` — CLI-only recovery tool. Truncates
  * merchant_daily_volume and merchant_payout_trends, resets this consumer's watermark to 0, and
- * replays the ENTIRE outbox history for the three event types this worker
+ * replays the ENTIRE outbox history for the event types this worker
  * consumes through the exact same runConsumerPass/applyEvent path used for
  * live consumption — one code path, no second implementation that could
  * drift from what the daemon does every day.
