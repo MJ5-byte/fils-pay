@@ -170,6 +170,13 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: A merchant support user can capture and void payments
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** A merchant user with the `support` role, from whom the dashboard hides the Capture and Void buttons, could still capture and void the merchant's payments by calling the API directly.
+- **Cause:** The capture and void routes (`apps/api/src/routes/transactions.ts:94,121`) used only `requireMerchantAuth`, which accepts any signed-in merchant user, and no `requireMerchantRole`; the only gate was the hidden button in `apps/web/src/pages/transactions/TransactionDetailPage.tsx:168-174`, whose own comment said so.
+- **Breaks:** A least-privilege support agent could move money: capture an authorization into the merchant's payable balance or void it and release the hold, recorded as that support session. Payment-link and webhook creation, which move no money, were already limited to owner and finance.
+- **Fix:** Both routes now chain `requireMerchantRole("owner", "finance")` after `requireMerchantAuth`, the same gate the payment-link and webhook routes use. API keys still pass (they are owner-issued) and impersonation stays read-only. The two web comments that said the server had no such check are corrected. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/33
 ### Bug: Payout trends never show a batch as paid
 - **Status:** Fixed
 - **Type:** UX, low

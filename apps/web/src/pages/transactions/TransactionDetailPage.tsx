@@ -165,12 +165,10 @@ export function TransactionDetailPage() {
         <dd>{dateTime(txn.createdAt)}</dd>
       </dl>
 
-      {/* Capture and void are hidden from `support` as a UX choice — a support
-          agent looks things up, they don't move money. Unlike the
-          reconciliation page, this hide is NOT backed by a matching
-          server-side role check: the API gates capture/void at "any
-          authenticated merchant actor". Do not mistake a hidden button here for a security
-          boundary. */}
+      {/* Capture and void are hidden from `support` — a support agent looks
+          things up, they don't move money. The API enforces the same rule
+          (requireMerchantRole("owner", "finance") on both routes); this hide
+          only keeps the buttons out of a support user's way. */}
       <RequireRole allow={["owner", "finance"]}>
         {capturable || voidable ? (
           <div className="dash-actions">

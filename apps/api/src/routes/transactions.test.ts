@@ -11,6 +11,7 @@ import { Pool } from "pg";
 import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { issueApiKey } from "../apiKeys/issue.js";
+import { randomToken, sha256Hex } from "../lib/crypto.js";
 import { recordKycReview } from "../onboarding/review.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -94,6 +95,29 @@ async function capture(
     headers: { ...authHeader(rawKey), "idempotency-key": idempotencyKey },
     payload: body,
   });
+}
+
+/** Inserts an authenticated session directly (bypassing the password+OTP
+ *  login flow) for a new merchant_user with the given role, and returns the
+ *  raw cookie token. */
+async function createSessionWithRole(merchantId: string, role: "owner" | "finance" | "support") {
+  const userResult = await pool.query<{ id: string }>(
+    `INSERT INTO merchant_users (merchant_id, email, role, password_hash)
+     VALUES ($1, $2, $3, 'unused-in-these-tests')
+     RETURNING id`,
+    [merchantId, `${role}-${randomUUID()}@example.test`, role],
+  );
+  const rawToken = randomToken(32);
+  await pool.query(
+    `INSERT INTO sessions (merchant_user_id, token_hash, authenticated, expires_at)
+     VALUES ($1, $2, true, now() + interval '1 hour')`,
+    [userResult.rows[0]!.id, sha256Hex(rawToken)],
+  );
+  return rawToken;
+}
+
+function cookieHeader(rawToken: string) {
+  return { cookie: `${config.cookieName}=${rawToken}` };
 }
 
 test("authorize -> capture (full) happy path posts correct, balanced ledger legs", async () => {
@@ -321,4 +345,46 @@ test("POST /v1/refunds returns 501 not_implemented", async () => {
   });
   assert.equal(res.statusCode, 501, res.body);
   assert.equal(res.json().error, "not_implemented");
+});
+
+test("a 'support' session cannot capture or void; 'finance' can", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("support-role");
+  const supportToken = await createSessionWithRole(merchantId, "support");
+  const financeToken = await createSessionWithRole(merchantId, "finance");
+  const toCapture = await authorize(rawKey, 2_000);
+  const toVoid = await authorize(rawKey, 2_000);
+
+  const supportCapture = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toCapture.id}/capture`,
+    headers: { ...cookieHeader(supportToken), "idempotency-key": randomUUID() },
+    payload: {},
+  });
+  assert.equal(supportCapture.statusCode, 403, supportCapture.body);
+  const supportVoid = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toVoid.id}/void`,
+    headers: cookieHeader(supportToken),
+  });
+  assert.equal(supportVoid.statusCode, 403, supportVoid.body);
+
+  const statuses = await pool.query<{ status: string }>(
+    `SELECT status FROM transactions WHERE id = ANY($1::uuid[])`,
+    [[toCapture.id, toVoid.id]],
+  );
+  assert.deepEqual(statuses.rows.map((r) => r.status), ["authorized", "authorized"]);
+
+  const financeCapture = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toCapture.id}/capture`,
+    headers: { ...cookieHeader(financeToken), "idempotency-key": randomUUID() },
+    payload: {},
+  });
+  assert.equal(financeCapture.statusCode, 200, financeCapture.body);
+  const financeVoid = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toVoid.id}/void`,
+    headers: cookieHeader(financeToken),
+  });
+  assert.equal(financeVoid.statusCode, 200, financeVoid.body);
 });

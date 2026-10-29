@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { toFils } from "@filspay/money";
 import { requireApiKey } from "../apiKeys/verify.js";
-import { requireMerchantAuth, requireMerchantWriterActor } from "../auth/requireMerchantAuth.js";
+import { requireMerchantAuth, requireMerchantRole, requireMerchantWriterActor } from "../auth/requireMerchantAuth.js";
 import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
 import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
@@ -61,7 +61,8 @@ function getIdempotencyKey(request: FastifyRequest): string {
  * Registered with prefix '/v1/transactions'. Endpoint auth: authorize is
  * API-key-only (a server-to-server "charge a
  * card" call); capture/void/reads accept either a session or an API key
- * via `requireMerchantAuth`.
+ * via `requireMerchantAuth`; capture and void move money, so a session
+ * there must also be an owner or finance user.
  */
 export async function transactionRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: AuthorizeBody }>(
@@ -92,7 +93,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     // MK: impersonation is read-only, enforced in requireMerchantAuth. fine
     // MK: confirmed — ADMIN.md says grants are support-level read only
     "/:id/capture",
-    { preHandler: requireMerchantAuth },
+    { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request, reply) => {
       const idempotencyKey = getIdempotencyKey(request);
       const { amountFils } = request.body ?? {};
@@ -118,9 +119,8 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
   );
 
   app.post<{ Params: TransactionIdParams }>(
-    // TODO(FH): role check? finance role users shouldn't void. ask MK
     "/:id/void",
-    { preHandler: requireMerchantAuth },
+    { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request, reply) => {
       const result = await voidTransaction(app.db, {
         transactionId: request.params.id,
