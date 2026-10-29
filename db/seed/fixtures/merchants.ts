@@ -27,10 +27,29 @@ export interface BusinessProfileFixture {
   postalCode?: string;
 }
 
+/** One fee_schedules row: a negotiated rate effective from an instant. */
+export interface FeeScheduleFixture {
+  /** ISO instant the rate becomes effective (fee_schedules.effective_from). */
+  effectiveFrom: string;
+  /** The negotiated rate from this instant on, in basis points. */
+  mdrBps: number;
+  /** fee_schedules.created_at — when the row was entered. Provide it when
+   *  the scenario is about entry order (a later-entered backfill, the
+   *  currentFeeScheduleDisplay case); omitted rows get the insert default
+   *  (now()), exactly like a live entry. */
+  createdAt?: string;
+}
+
 export interface MerchantFixture {
   key: string;
   displayName: string;
   mdrBps: number;
+  /** This merchant's fee_schedules history, in ascending effective_from
+   *  order — the rows generate.ts inserts, and the rates every seeded
+   *  capture books its fee at for its own occurred_at (mirroring
+   *  apps/settlement's EffectiveMdrBpsAt). Absent means no fee_schedules
+   *  rows exist and every fee resolves to `mdrBps`. */
+  feeSchedules?: readonly FeeScheduleFixture[];
   users: MerchantUserFixture[];
   businessProfile: BusinessProfileFixture;
   /** Negotiated reduction off this merchant's processing fee, basis points
@@ -60,6 +79,17 @@ export const MERCHANT_FIXTURES: readonly MerchantFixture[] = [
     key: "alpha-retail",
     displayName: "Alpha Retail Co",
     mdrBps: 250, // 2.50%
+    // Negotiated-rate history: 245bps backfilled for 2026-03-01 onward
+    // (entered 2026-08-15, after the August row — the out-of-order entry
+    // scenario currentFeeScheduleDisplay exercises), then 225bps from
+    // 2026-08-01. Seeded captures book at the effective rate for their own
+    // occurred_at, so the cutover rows are authoritative — not this
+    // onboarding-era mdrBps: 245 for March activity, 225 for the August
+    // fixture window.
+    feeSchedules: [
+      { effectiveFrom: "2026-03-01T00:00:00Z", mdrBps: 245, createdAt: "2026-08-15T00:00:00Z" },
+      { effectiveFrom: "2026-08-01T00:00:00Z", mdrBps: 225, createdAt: "2026-08-01T00:00:00Z" },
+    ],
     users: [
       { email: "owner@alpharetail.example", role: "owner" },
       { email: "finance@alpharetail.example", role: "finance" },
@@ -80,6 +110,15 @@ export const MERCHANT_FIXTURES: readonly MerchantFixture[] = [
     key: "beta-digital",
     displayName: "Beta Digital Services",
     mdrBps: 180, // 1.80%
+    // Negotiated-rate history: 180bps from launch (equal to the fixture
+    // mdrBps, so nothing pre-cutover resolves differently), renegotiated
+    // down to 165bps at the cutover instant (2026-09-06T12:00:00Z —
+    // SEED_BASE_DATE + 5 days). Every seeded beta capture predates the
+    // cutover and resolves to 180bps.
+    feeSchedules: [
+      { effectiveFrom: "2026-01-01T00:00:00Z", mdrBps: 180 },
+      { effectiveFrom: "2026-09-06T12:00:00Z", mdrBps: 165 },
+    ],
     users: [
       { email: "owner@betadigital.example", role: "owner" },
       { email: "support@betadigital.example", role: "support" },

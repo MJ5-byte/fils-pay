@@ -2,7 +2,9 @@ import { toFils } from "@filspay/money";
 import { createRng } from "../rng.js";
 import {
   buildCaptureLedgerGroup,
+  effectiveMdrBpsAt,
   generateTransactionsForMerchant,
+  type FeeScheduleFixtureRow,
   type GeneratedTransaction,
   type LedgerGroup,
 } from "./transactions.js";
@@ -47,8 +49,12 @@ export function generateMarchReconciliationFixtures(params: {
   merchantId: string;
   merchantKey: string;
   mdrBps: number;
+  /** Alpha Retail's fee_schedules rows (ascending effective_from), so
+   *  March captures book at the effective rate for their own occurred_at
+   *  (the 245bps backfill) rather than the fixture mdrBps. */
+  feeSchedules?: readonly FeeScheduleFixtureRow[];
 }): MarchReconciliationFixtures {
-  const { merchantId, merchantKey, mdrBps } = params;
+  const { merchantId, merchantKey, mdrBps, feeSchedules = [] } = params;
   const rng = createRng(MARCH_RECON_RNG_SEED);
 
   const transactions: GeneratedTransaction[] = [];
@@ -75,7 +81,15 @@ export function generateMarchReconciliationFixtures(params: {
       occurredAt,
     });
     ledgerGroups.push(
-      buildCaptureLedgerGroup({ transactionId: id, merchantId, mdrBps, capturedFils, occurredAt, reference, rng }),
+      buildCaptureLedgerGroup({
+        transactionId: id,
+        merchantId,
+        mdrBps: effectiveMdrBpsAt(feeSchedules, occurredAt, mdrBps),
+        capturedFils,
+        occurredAt,
+        reference,
+        rng,
+      }),
     );
   });
 
@@ -83,6 +97,7 @@ export function generateMarchReconciliationFixtures(params: {
     merchantId,
     merchantKey: `${merchantKey}-mar-ordinary`,
     mdrBps,
+    feeSchedules,
     count: 24,
     rng,
     baseDate: new Date("2026-03-20T12:00:00Z"),

@@ -9,6 +9,7 @@ import {
   generateMarketplaceOrdersForMerchant,
   generateInstalmentCaptures,
   generateTransactionsForMerchant,
+  effectiveMdrBpsAt,
   type GeneratedCaptureEvent,
   type GeneratedTransaction,
 } from "./fixtures/transactions.js";
@@ -227,6 +228,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
 
       for (const fixture of MERCHANT_FIXTURES) {
         const merchantId = rng.uuid();
+        const isTestMode = fixture.testMode ?? false;
         await client.query(
           `INSERT INTO merchants (id, display_name, mdr_bps, negotiated_discount_bps, status, test_mode)
            VALUES ($1, $2, $3, $4, 'active', $5)`,
@@ -235,7 +237,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             fixture.displayName,
             fixture.mdrBps,
             fixture.negotiatedDiscountBps ?? 0,
-            fixture.testMode ?? false,
+            isTestMode,
           ],
         );
         merchantIdsByKey.set(fixture.key, merchantId);
@@ -306,6 +308,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             merchantId,
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
+            feeSchedules: fixture.feeSchedules,
             count: fixture.splitParentKey === undefined ? TRANSACTIONS_PER_MERCHANT : 0,
             rng,
             baseDate: SEED_BASE_DATE,
@@ -332,26 +335,34 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           transactionCount += 1;
         }
 
-        for (const group of ledgerGroups) {
-          for (const leg of group.legs) {
-            await client.query(
-              `INSERT INTO ledger_entries
-                 (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-              [
-                group.entryGroupId,
-                group.merchantId,
-                group.transactionId,
-                leg.accountId,
-                leg.direction,
-                leg.amountFils,
-                group.occurredAt,
-                group.description,
-              ],
-            );
-            ledgerEntryCount += 1;
+        // A test-mode merchant's captures never post ledger entries: the
+        // legs of a live capture belong to the real settlement path a
+        // sandbox merchant is excluded from (B19 — CloseBatch gates on
+        // test_mode = false), so the fixture skips them too. Its
+        // transactions and holds still seed, giving test-mode UI flows
+        // data to work with.
+        if (!isTestMode) {
+          for (const group of ledgerGroups) {
+            for (const leg of group.legs) {
+              await client.query(
+                `INSERT INTO ledger_entries
+                   (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [
+                  group.entryGroupId,
+                  group.merchantId,
+                  group.transactionId,
+                  leg.accountId,
+                  leg.direction,
+                  leg.amountFils,
+                  group.occurredAt,
+                  group.description,
+                ],
+              );
+              ledgerEntryCount += 1;
+            }
+            ledgerGroupCount += 1;
           }
-          ledgerGroupCount += 1;
         }
 
         // The capture timeline. actor_type 'system' (and therefore a NULL
@@ -396,6 +407,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             merchantId,
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
+            feeSchedules: fixture.feeSchedules,
           });
 
           for (const txn of multiCapture.transactions) {
@@ -569,7 +581,18 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         // timeline, day by day — so it gets none of the pre-baked batch
         // below. A sub-merchant with no card activity of its own has
         // nothing to settle either.
-        if (fixture.marketplaceBusinessDays !== undefined || transactions.length === 0) {
+        // A test-mode merchant must never produce a real closed batch,
+        // scheme export lines, outbox events or a payout-monitoring
+        // estimate (B19 — CloseBatch itself gates on test_mode = false).
+        // Keep the two settle-path uuid draws a settling merchant makes so
+        // removing it from the settlement flow cannot rewrite every later
+        // fixture's deterministic data — the same non-perturbation rule
+        // the stableUuid instalment fixture documents.
+        if (fixture.marketplaceBusinessDays !== undefined || transactions.length === 0 || isTestMode) {
+          if (isTestMode) {
+            rng.uuid(); // closedBatchId
+            rng.uuid(); // openBatchId
+          }
           continue;
         }
 
@@ -588,7 +611,13 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         const schemeLineParams: Array<{ transactionId: string; amountFils: Fils; lineSequence: number }> = [];
 
         for (const txn of settledTxns) {
-          const fee = applyRateFils(txn.capturedFils, fixture.mdrBps);
+          // Book each capture at the fee_schedules rate effective for its
+          // own occurred_at (mirroring CloseBatch's EffectiveMdrBpsAt), so
+          // the batch's fee reconciles with the schedule rows above.
+          const fee = applyRateFils(
+            txn.capturedFils,
+            effectiveMdrBpsAt(fixture.feeSchedules ?? [], txn.occurredAt, fixture.mdrBps),
+          );
           const net = subtractFils(txn.capturedFils, fee);
           grossFils = addFils(grossFils, txn.capturedFils);
           feeFils = addFils(feeFils, fee);
@@ -650,7 +679,10 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         // seed-only payload.
         const firstCaptured = transactions.find((t) => t.status === "captured");
         if (firstCaptured) {
-          const firstCapturedFeeFils = applyRateFils(firstCaptured.capturedFils, fixture.mdrBps);
+          const firstCapturedFeeFils = applyRateFils(
+            firstCaptured.capturedFils,
+            effectiveMdrBpsAt(fixture.feeSchedules ?? [], firstCaptured.occurredAt, fixture.mdrBps),
+          );
           await enqueueEvent(client, {
             eventType: "transaction.captured",
             aggregateType: "transaction",
@@ -708,6 +740,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         merchantId: alphaInserted.merchantId,
         merchantKey: "alpha-retail",
         mdrBps: alphaFixture.mdrBps,
+        feeSchedules: alphaFixture.feeSchedules,
       });
 
       for (const txn of marchFixtures.transactions) {
@@ -782,51 +815,33 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         }
       }
 
-      // One merchant carries a second, future-dated fee schedule so the
-      // platform's effective-dated fee resolution
-      // (apps/api/src/fees/feeSchedule.ts,
-      // apps/settlement/internal/settlement/fee_schedule.go) has a real row
-      // to resolve against instead of always falling through to
-      // merchants.mdr_bps. Every other merchant has zero fee_schedules rows
-      // and is entirely unaffected by this table's existence — the fallback
-      // path is what all 7 of them exercise. 180 matches this merchant's own
-      // MERCHANT_FIXTURES mdr_bps exactly, so nothing any pre-cutover
-      // transaction resolves to changes; 165 is the renegotiated rate that
-      // takes over at the cutover instant.
-      const betaDigitalId = merchantIdsByKey.get("beta-digital");
-      if (!betaDigitalId) {
-        throw new Error("seed: beta-digital fixture is required for the fee_schedules fixture");
+      // Fee-schedule history fixtures, declared per merchant in
+      // fixtures/merchants.ts in ascending effective_from order. These are
+      // the rows every seeded capture booked its fee at (via
+      // effectiveMdrBpsAt, mirroring CloseBatch), so ledger entries and
+      // settlement batches reconcile with the same rates the fee engine
+      // resolves. beta-digital's rows give the platform's effective-dated
+      // fee resolution (apps/api/src/fees/feeSchedule.ts,
+      // apps/settlement/internal/settlement/fee_schedule.go) a real history
+      // to resolve against — 180 matches its mdr_bps exactly, 165 is the
+      // renegotiation at the cutover instant; every other merchant has zero
+      // rows and exercises the fallback path. alpha-retail's carry the
+      // out-of-order entry scenario currentFeeScheduleDisplay tests: a
+      // backfill entered after the renegotiation it predates.
+      for (const fixture of MERCHANT_FIXTURES) {
+        const merchantId = merchantIdsByKey.get(fixture.key);
+        if (!merchantId) {
+          throw new Error(`seed: fee_schedules fixture "${fixture.key}" has no inserted merchant`);
+        }
+        for (const schedule of fixture.feeSchedules ?? []) {
+          await client.query(
+            `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from, created_at)
+             VALUES ($1, $2, $3, $4)`,
+            [merchantId, schedule.mdrBps, schedule.effectiveFrom, schedule.createdAt ?? new Date().toISOString()],
+          );
+          feeScheduleCount += 1;
+        }
       }
-      const feeScheduleCutover = shiftDate(SEED_BASE_DATE, 5); // 2026-09-06T12:00:00Z
-      await client.query(
-        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES
-           ($1, 180, '2026-01-01T00:00:00Z'),
-           ($1, 165, $2)`,
-        [betaDigitalId, feeScheduleCutover.toISOString()],
-      );
-      feeScheduleCount += 2;
-
-      // A second merchant carries fee_schedules rows whose insertion order
-      // (created_at) doesn't match their effective order (effective_from) —
-      // the ordinary result of a real-world data-entry sequence, not a
-      // contrived state. alpha-retail's rate dropped to 225bps effective
-      // 2026-08-01, entered the same day. Two weeks later, during an
-      // unrelated data-quality cleanup, an admin discovered the *original*
-      // onboarding-era rate had been recorded wrong in a legacy import and
-      // backfilled a correction for the period it actually covered
-      // (2026-03-01 onward) — entered 2026-08-15, after the August
-      // renegotiation row already existed.
-      const alphaRetailId = merchantIdsByKey.get("alpha-retail");
-      if (!alphaRetailId) {
-        throw new Error("seed: alpha-retail fixture is required for the fee_schedules fixture");
-      }
-      await client.query(
-        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from, created_at) VALUES
-           ($1, 225, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z'),
-           ($1, 245, '2026-03-01T00:00:00Z', '2026-08-15T00:00:00Z')`,
-        [alphaRetailId],
-      );
-      feeScheduleCount += 2;
 
       // Re-establish the single zero row TRUNCATE just removed.
       await client.query(`INSERT INTO platform_stats (id, total_processed_fils) VALUES (1, 0)`);

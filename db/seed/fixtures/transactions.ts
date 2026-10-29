@@ -45,6 +45,35 @@ export interface GenerateTransactionsResult {
   ledgerGroups: LedgerGroup[];
 }
 
+/** One fee_schedules row the seed books fees against (in ascending
+ *  effective_from order, as apps/settlement's LoadFeeSchedules returns). */
+export interface FeeScheduleFixtureRow {
+  effectiveFrom: string;
+  mdrBps: number;
+}
+
+/**
+ * Resolves the fee rate in effect at `asOf` from a merchant's fee_schedules
+ * history — the newest row whose effective_from has arrived, else
+ * `fallbackMdrBps` (merchants.mdr_bps). Mirrors apps/settlement's
+ * EffectiveMdrBpsAt (fee_schedule.go) exactly, so a seeded capture books its
+ * fee at the same rate a live CloseBatch resolves for the same occurred_at
+ * and the seeded ledger/settlement batches reconcile with the schedule.
+ */
+export function effectiveMdrBpsAt(
+  schedules: readonly FeeScheduleFixtureRow[],
+  asOf: Date,
+  fallbackMdrBps: number,
+): number {
+  for (let i = schedules.length - 1; i >= 0; i--) {
+    const schedule = schedules[i];
+    if (schedule !== undefined && Date.parse(schedule.effectiveFrom) <= asOf.getTime()) {
+      return schedule.mdrBps;
+    }
+  }
+  return fallbackMdrBps;
+}
+
 // Weighted toward captured, with a healthy share of partial captures and a
 // few authorized-but-not-yet-captured and voided transactions, so the seed
 // exercises every status the money model cares about.
@@ -69,6 +98,11 @@ export function generateTransactionsForMerchant(params: {
   merchantId: string;
   merchantKey: string;
   mdrBps: number;
+  /** This merchant's fee_schedules rows (ascending effective_from). When
+   *  present, each capture books its fee at the rate effective for its own
+   *  occurred_at (mirroring CloseBatch) instead of the flat fixture
+   *  mdrBps. */
+  feeSchedules?: readonly FeeScheduleFixtureRow[];
   count: number;
   rng: SeededRng;
   baseDate: Date;
@@ -77,7 +111,7 @@ export function generateTransactionsForMerchant(params: {
    *  relies on. */
   dayRange?: readonly [number, number];
 }): GenerateTransactionsResult {
-  const { merchantId, merchantKey, mdrBps, count, rng, baseDate, dayRange = [0, 29] as const } = params;
+  const { merchantId, merchantKey, mdrBps, feeSchedules = [], count, rng, baseDate, dayRange = [0, 29] as const } = params;
   const [minDaysBack, maxDaysBack] = dayRange;
 
   const transactions: GeneratedTransaction[] = [];
@@ -118,7 +152,17 @@ export function generateTransactionsForMerchant(params: {
     transactions.push({ id, merchantId, status, amountFils, capturedFils, reference, acquirerReference, occurredAt });
 
     if (capturedFils > 0) {
-      ledgerGroups.push(buildCaptureLedgerGroup({ transactionId: id, merchantId, mdrBps, capturedFils, occurredAt, reference, rng }));
+      ledgerGroups.push(
+        buildCaptureLedgerGroup({
+          transactionId: id,
+          merchantId,
+          mdrBps: effectiveMdrBpsAt(feeSchedules, occurredAt, mdrBps),
+          capturedFils,
+          occurredAt,
+          reference,
+          rng,
+        }),
+      );
     }
   }
 
@@ -363,8 +407,11 @@ export function generateInstalmentCaptures(params: {
   merchantId: string;
   merchantKey: string;
   mdrBps: number;
+  /** As generateTransactionsForMerchant: effective-rate fee booking when
+   *  the merchant has a fee_schedules history. */
+  feeSchedules?: readonly FeeScheduleFixtureRow[];
 }): GenerateMultiCaptureResult {
-  const { merchantId, merchantKey, mdrBps } = params;
+  const { merchantId, merchantKey, mdrBps, feeSchedules = [] } = params;
 
   const transactions: GeneratedTransaction[] = [];
   const ledgerGroups: LedgerGroup[] = [];
@@ -402,8 +449,9 @@ export function generateInstalmentCaptures(params: {
       const occurredAt = new Date(`${MULTI_CAPTURE_DATE}T${hour}:${pad2(15 * (n + 1))}:00Z`);
       const capturedFils = toFils(instalment);
       // The fee is charged on the instalment actually captured, never on
-      // the running total — the same per-call rule capture.ts applies.
-      const feeFils = applyRateFils(capturedFils, mdrBps);
+      // the running total — the same per-call rule capture.ts applies — at
+      // the rate effective for this call's occurred_at.
+      const feeFils = applyRateFils(capturedFils, effectiveMdrBpsAt(feeSchedules, occurredAt, mdrBps));
       const merchantNet = subtractFils(capturedFils, feeFils);
 
       const legs: LedgerLeg[] = [
