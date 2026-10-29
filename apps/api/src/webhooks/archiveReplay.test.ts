@@ -92,13 +92,13 @@ test("captures every delivery in the window, in capture order, round-tripping as
   const endpointId = await createEndpoint(merchantId);
 
   const ids = [
-    await insertDelivery(endpointId, { eventType: "transaction.captured", createdAt: "2026-05-02T00:00:00Z" }),
-    await insertDelivery(endpointId, { eventType: "transaction.voided", createdAt: "2026-05-03T00:00:00Z" }),
-    await insertDelivery(endpointId, { eventType: "transaction.captured", createdAt: "2026-05-04T00:00:00Z" }),
+    await insertDelivery(endpointId, { eventType: "fixture.replay_a", createdAt: "2026-05-02T00:00:00Z" }),
+    await insertDelivery(endpointId, { eventType: "fixture.replay_b", createdAt: "2026-05-03T00:00:00Z" }),
+    await insertDelivery(endpointId, { eventType: "fixture.replay_a", createdAt: "2026-05-04T00:00:00Z" }),
   ];
   // Outside the window on both sides — neither belongs in the archive.
-  await insertDelivery(endpointId, { eventType: "transaction.captured", createdAt: "2026-04-30T00:00:00Z" });
-  await insertDelivery(endpointId, { eventType: "transaction.captured", createdAt: "2026-05-10T00:00:00Z" });
+  await insertDelivery(endpointId, { eventType: "fixture.replay_a", createdAt: "2026-04-30T00:00:00Z" });
+  await insertDelivery(endpointId, { eventType: "fixture.replay_a", createdAt: "2026-05-10T00:00:00Z" });
 
   const created = await createWebhookDeliveryArchive(pool, {
     merchantId,
@@ -117,8 +117,8 @@ test("captures every delivery in the window, in capture order, round-tripping as
 
   const entries = JSON.parse(stored.rows[0]!.archive_payload) as ArchivedDeliveryEntry[];
   assert.deepEqual(entries.map((e) => e.deliveryId), ids);
-  assert.equal(entries[0]!.eventType, "transaction.captured");
-  assert.equal(entries[1]!.eventType, "transaction.voided");
+  assert.equal(entries[0]!.eventType, "fixture.replay_a");
+  assert.equal(entries[1]!.eventType, "fixture.replay_b");
   assert.equal(entries[0]!.createdAt, "2026-05-02T00:00:00.000Z");
   assert.deepEqual(entries[1]!.payload.data, { marker: "2026-05-03T00:00:00Z" });
 });
@@ -164,8 +164,8 @@ test("replays an archive against a different target endpoint, linking each row t
   const targetEndpointId = await createEndpoint(merchantId);
 
   const originalIds = [
-    await insertDelivery(sourceEndpointId, { eventType: "transaction.captured", createdAt: "2026-05-02T00:00:00Z" }),
-    await insertDelivery(sourceEndpointId, { eventType: "transaction.captured", createdAt: "2026-05-03T00:00:00Z" }),
+    await insertDelivery(sourceEndpointId, { eventType: "fixture.replay_a", createdAt: "2026-05-02T00:00:00Z" }),
+    await insertDelivery(sourceEndpointId, { eventType: "fixture.replay_a", createdAt: "2026-05-03T00:00:00Z" }),
   ];
 
   const created = await createWebhookDeliveryArchive(pool, {
@@ -183,17 +183,30 @@ test("replays an archive against a different target endpoint, linking each row t
   });
   assert.equal(replayed.replayedCount, 2);
 
-  const rows = await pool.query<{ replay_of_delivery_id: string; endpoint_id: string; status: string }>(
-    `SELECT replay_of_delivery_id, endpoint_id, status FROM webhook_deliveries
-      WHERE endpoint_id = $1 ORDER BY created_at ASC`,
-    [targetEndpointId],
-  );
+  const rows = await pool.query<{
+    replay_of_delivery_id: string;
+    delivery_event_id: string;
+    endpoint_id: string;
+    status: string;
+  }>(`SELECT replay_of_delivery_id, delivery_event_id, endpoint_id, status FROM webhook_deliveries
+      WHERE endpoint_id = $1 ORDER BY created_at ASC`, [targetEndpointId]);
   assert.equal(rows.rows.length, 2);
   // Both rows are inserted in one transaction, so created_at ties (Postgres's
   // now() is transaction-start-stable) — compare as sets, not by read order.
   assert.deepEqual(rows.rows.map((r) => r.replay_of_delivery_id).sort(), [...originalIds].sort());
   assert.ok(rows.rows.every((r) => r.endpoint_id === targetEndpointId));
   assert.ok(rows.rows.every((r) => r.status === "pending"));
+
+  // A replayed delivery reuses the ORIGINAL delivery_event_id (stable-across-
+  // replays contract: headers.ts, migration 0022, docs/ADMIN.md) — a receiver
+  // deduping on it sees the replayed event as the original, not a new one.
+  const originalEventIds = await pool.query<{ id: string; delivery_event_id: string }>(
+    `SELECT id, delivery_event_id FROM webhook_deliveries WHERE id = ANY($1)`, [originalIds],
+  );
+  const originalIdToEventId = new Map(originalEventIds.rows.map((r) => [r.id, r.delivery_event_id]));
+  for (const row of rows.rows) {
+    assert.equal(row.delivery_event_id, originalIdToEventId.get(row.replay_of_delivery_id));
+  }
 });
 
 test("replay 404s on an archive/merchant mismatch and conflicts on a disabled target", async () => {

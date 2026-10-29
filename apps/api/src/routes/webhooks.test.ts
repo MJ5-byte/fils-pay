@@ -299,13 +299,19 @@ test(
       assert.equal(parsedBody.data.amountCapturedFils, 4_750);
       assert.equal(parsedBody.data.status, "captured");
 
-      // The one real caller of verifySignature: the
-      // receiver checks what the dispatcher actually sent using the SAME
-      // raw secret createEndpointViaRoute's response returned — proving
-      // encrypt-then-decrypt-then-sign matches what a merchant would
-      // verify against the secret they were shown.
-      const verifyResult = verifySignature(parsedBody, signatureHeader, created.secret);
+      // The one real caller of verifySignature: the receiver verifies the
+      // RAW bytes it actually received — no re-parse, no re-serialization —
+      // using the SAME raw secret createEndpointViaRoute's response returned.
+      // The dispatcher signs exactly the bytes it sends, so a real merchant
+      // verifying parse-free gets a match.
+      const verifyResult = verifySignature(received.body, signatureHeader, created.secret);
       assert.deepEqual(verifyResult, { valid: true });
+
+      // A byte mismatch must not verify: append one whitespace byte to the
+      // received body and the same header now yields signature_mismatch.
+      const byteMismatch = verifySignature(received.body + " ", signatureHeader, created.secret);
+      assert.equal(byteMismatch.valid, false);
+      assert.equal(byteMismatch.reason, "signature_mismatch");
 
       const deliveryRow = await pool.query<{ status: string; attempt_count: number }>(
         `SELECT status, attempt_count FROM webhook_deliveries WHERE endpoint_id = $1`,
@@ -345,9 +351,11 @@ test("decline path: an endpoint returning 500 leaves the delivery pending with b
   }
 });
 
-// YA: new delivery id on replay is what ARCH §5 asks for
-// am: §5 says stable id?? reading it again later
-test("replay: creates a new row referencing the original, with a new delivery_event_id; original row untouched", async () => {
+// The contract (headers.ts, migration 0022, docs/ADMIN.md): the
+// Webhook-Delivery-Id is stable across retries AND replays — a replay
+// reuses the original delivery_event_id so a receiver deduping on it
+// treats a replayed delivery as the same event.
+test("replay: creates a new row referencing the original, REUSING its delivery_event_id; original row untouched", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("replay-flow");
   const receiver = await startTestReceiver(200);
   try {
@@ -402,12 +410,20 @@ test("replay: creates a new row referencing the original, with a new delivery_ev
     assert.equal(originalAfter!.replay_of_delivery_id, null);
     assert.equal(originalAfter!.delivery_event_id, original.delivery_event_id);
 
-    // Replay row references the original, has its own new delivery_event_id,
+    // Replay row references the original, REUSES its delivery_event_id
+    // (stable across replays per headers.ts/migration 0022/docs/ADMIN.md),
     // and describes the same underlying outbox event.
     assert.equal(replayRow!.replay_of_delivery_id, original.id);
     assert.equal(replayRow!.status, "succeeded");
-    assert.notEqual(replayRow!.delivery_event_id, original.delivery_event_id);
+    assert.equal(replayRow!.delivery_event_id, original.delivery_event_id);
     assert.equal(replayRow!.outbox_event_id, originalAfter!.outbox_event_id);
+
+    // The receiver's view: the replayed delivery's envelope `id` and the
+    // Webhook-Delivery-Id header both still carry the ORIGINAL id, so a
+    // receiver deduping on either treats it as the same event.
+    const replayedBody = JSON.parse(receiver.received[1]!.body) as { id: string };
+    assert.equal(replayedBody.id, original.delivery_event_id);
+    assert.equal(receiver.received[1]!.headers["webhook-delivery-id"], original.delivery_event_id);
   } finally {
     await receiver.close();
   }
@@ -492,7 +508,7 @@ test("GET deliveries list never includes payload/signature; GET .../deliveries/:
   }
 });
 
-/** The test re-canonicalizes the received body before verifying, i.e. it checks the canonical form, not the raw bytes. */
+/** The receiver verifies the RAW received body bytes — parse-free. */
 test("secret encryption round-trips correctly: a delivery verifies using the SAME secret the create response returned, decrypted fresh at send time", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("secret-roundtrip");
   const receiver = await startTestReceiver(200);
@@ -514,9 +530,8 @@ test("secret encryption round-trips correctly: a delivery verifies using the SAM
     assert.equal(receiver.received.length, 1);
     const received = receiver.received[0]!;
     const signatureHeader = received.headers["webhook-signature"] as string;
-    const parsedBody = JSON.parse(received.body) as Record<string, unknown>;
 
-    const result = verifySignature(parsedBody, signatureHeader, created.secret);
+    const result = verifySignature(received.body, signatureHeader, created.secret);
     assert.deepEqual(result, { valid: true });
   } finally {
     await receiver.close();

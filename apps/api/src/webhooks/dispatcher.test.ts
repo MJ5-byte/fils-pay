@@ -14,6 +14,7 @@ import { enqueueEvent } from "@filspay/events";
 import { loadConfig } from "../config.js";
 import { createWebhookEndpoint } from "./create.js";
 import { backoffDelayMs, runDispatchPass } from "./dispatcher.js";
+import { recordPayoutDisbursementEffect } from "./payoutDisbursement.js";
 import { verifySignature } from "./sign.js";
 import { WEBHOOK_DELIVERY_ID_HEADER, WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
 import type { WebhookTransport, WebhookTransportRequest } from "./transport.js";
@@ -126,9 +127,9 @@ test("zero registered endpoints: an outbox event creates no delivery rows", asyn
   assert.equal(rows.rows.length, 0);
 });
 
-// YA: the receiver here re-parses and re-canonicalizes before verifying. a real receiver verifies the raw bytes,
-// so this can't catch a byte mismatch.
-// FH: it verifies the signature end-to-end, so signing is proven correct
+// The receiver verifies the RAW bytes it received — parse-free, exactly like
+// a real merchant receiver must (attemptOneDelivery stringifies the body once
+// and signs those very bytes).
 test("one active endpoint, 2xx response: exact headers/body sent, delivery marked succeeded, signature verifies with the raw secret", async () => {
   const merchantId = await createMerchant("happy-path");
   // A unique URL per test run, not shared with any other test — this file's
@@ -165,11 +166,18 @@ test("one active endpoint, 2xx response: exact headers/body sent, delivery marke
   assert.equal(body.data.amountCapturedFils, 4_750);
   assert.equal(body.data.status, "captured"); // renamed from the outbox payload's "newStatus"
 
-  // Verify the signature using the raw secret createWebhookEndpoint returned
-  // — proving signPayload/verifySignature agree end-to-end, not just that
-  // some signature-shaped string was sent.
-  const verifyResult = verifySignature(body, req.headers[WEBHOOK_SIGNATURE_HEADER]!, endpoint.secret);
+  // Verify the signature over the raw body bytes SIMPLY AS SENT, using the
+  // raw secret createWebhookEndpoint returned — proving the signer covered
+  // exactly the bytes the receiver would verify, not some canonical form.
+  const verifyResult = verifySignature(req.body, req.headers[WEBHOOK_SIGNATURE_HEADER]!, endpoint.secret);
   assert.deepEqual(verifyResult, { valid: true });
+
+  // A byte mismatch — even one that still parses to the same JSON — must not
+  // verify: the receiver checks the exact wire bytes, so any divergence
+  // between what was signed and what was sent is signature_mismatch.
+  const byteMismatch = verifySignature(req.body + " ", req.headers[WEBHOOK_SIGNATURE_HEADER]!, endpoint.secret);
+  assert.equal(byteMismatch.valid, false);
+  assert.equal(byteMismatch.reason, "signature_mismatch");
 
   const delivery = await getDelivery(String(outboxEvent.id), endpoint.id);
   assert.equal(delivery.status, "succeeded");
@@ -393,6 +401,31 @@ test("per-row isolation: one poisoned row (undecryptable secret) throwing before
   const poisonedAfterSecondPass = await getDelivery(String(poisonedOutboxEvent.id), poisonedEndpoint.id);
   assert.equal(poisonedAfterSecondPass.status, "pending");
   assert.equal(poisonedAfterSecondPass.attempt_count, 0);
+});
+
+test("settlement.paid pre-delivery effect is idempotent per batch: running it twice inserts one disbursement row", async () => {
+  const merchantId = await createMerchant("payout-idempotent");
+  const batchResult = await pool.query<{ id: string }>(
+    `INSERT INTO settlement_batches
+        (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+     VALUES ($1, current_date, 'paid', $2, 0, $2, now(), now())
+     RETURNING id`,
+    [merchantId, 250_000],
+  );
+  const batchId = batchResult.rows[0]!.id;
+
+  // Two runs for the same batch — what two concurrent dispatch passes or a
+  // replay (both see attempt_count = 0) would each do — must produce exactly
+  // one disbursement record, never a duplicate (migration 0076 unique index +
+  // ON CONFLICT DO NOTHING).
+  await recordPayoutDisbursementEffect(pool, batchId, 250_000);
+  await recordPayoutDisbursementEffect(pool, batchId, 250_000);
+
+  const rows = await pool.query<{ id: string }>(
+    `SELECT id FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
+    [batchId],
+  );
+  assert.equal(rows.rows.length, 1);
 });
 
 test("a disabled endpoint gets no delivery row for a new event", async () => {
