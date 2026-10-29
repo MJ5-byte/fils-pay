@@ -10,6 +10,7 @@ import { payPaymentLink } from "../paymentLinks/pay.js";
 import { cancelPaymentLink } from "../paymentLinks/cancel.js";
 import { listPaymentLinks } from "../paymentLinks/query.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
+import { verifyApiKey } from "../apiKeys/verify.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
 
 interface MerchantIdParams {
@@ -49,10 +50,27 @@ interface ListPaymentLinksQuery {
 
 // am: this is the ownership check for create/cancel/list. cancel.ts relies on it, link ids are UUIDs
 // MK: it checks the path merchant, not that the link belongs to that merchant?
+// B13: the link-level scope lives in cancelPaymentLink (AND merchant_id = $2);
+// assertOwnMerchant only guards the path, as before.
 function assertOwnMerchant(request: FastifyRequest<{ Params: MerchantIdParams }>): void {
   if (!request.merchantAuth || request.merchantAuth.merchantId !== request.params.merchantId) {
     throw new ForbiddenError("forbidden");
   }
+}
+
+/**
+ * Broader-than-auth helper for the *public* pay route: resolves whether the
+ * request carries a valid API key without requiring it (the route must stay
+ * reachable without one). A valid API key is the trusted-terminal signal
+ * that lets pay honor a client-supplied submittedAt; with no (or an
+ * invalid) key, the server clock judges expiry. (B14)
+ */
+async function hasValidApiKey(request: FastifyRequest): Promise<boolean> {
+  const header = request.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) {
+    return false;
+  }
+  return (await verifyApiKey(request.server.db, header.slice("Bearer ".length))) !== null;
 }
 
 /** Same rule as routes/transactions.ts: header required, no server-generated fallback. */
@@ -104,6 +122,7 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
       assertOwnMerchant(request);
       const result = await cancelPaymentLink(app.db, {
         id: request.params.id,
+        merchantId: request.merchantAuth!.merchantId,
       });
       if (result.outcome === "canceled") {
         reply.code(204).send();
@@ -159,11 +178,15 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
       throw new BadRequestError("invalid_request", "card is required");
     }
 
+    // B14: the documented gate — submittedAt is honored only when the
+    // request is authenticated with a valid API key (offline terminals); on
+    // the public path it is dropped so expiry is judged by the server clock.
+    const trusted = await hasValidApiKey(request);
     const result = await payPaymentLink(
       app.db,
       app.acquirer,
       { paymentLinkReservationTimeoutSeconds: app.config.paymentLinkReservationTimeoutSeconds },
-      { token: request.params.token, card, idempotencyKey, submittedAt },
+      { token: request.params.token, card, idempotencyKey, submittedAt: trusted ? submittedAt : undefined },
     );
     reply.code(result.statusCode).send(result.body);
   });

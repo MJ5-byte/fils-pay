@@ -201,7 +201,6 @@ test("pay charges exactly the link's own amount — the request body carries no 
   assert.equal(Number(txnRow.rows[0]!.captured_fils), 9_999);
 });
 
-// only without submittedAt. with a past submittedAt it pays — that's the terminal case (FH)
 test("expired link is rejected: read reports 'expired', pay is rejected 410", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired");
   const link = await createLink(rawKey, merchantId, {
@@ -217,6 +216,37 @@ test("expired link is rejected: read reports 'expired', pay is rejected 410", as
   const payRes = await pay(link.token, APPROVED_CARD);
   assert.equal(payRes.statusCode, 410, payRes.body);
   assert.equal(payRes.json().error, "payment_link_expired");
+});
+
+test("submittedAt is honored only with API-key auth; the public path judges expiry by the server clock (B14)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("b14-gate");
+  const link = await createLink(rawKey, merchantId, {
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  });
+  await pool.query(`UPDATE payment_links SET expires_at = now() - interval '1 minute' WHERE token = $1`, [link.token]);
+
+  // Public path, past submittedAt: the client clock is ignored and the
+  // server clock says expired — the old bypass (200 paid on an expired
+  // link) must not happen.
+  const publicPay = await app.inject({
+    method: "POST",
+    url: `/v1/payment-links/${link.token}/pay`,
+    headers: { "idempotency-key": randomUUID() },
+    payload: { card: APPROVED_CARD, submittedAt: "2026-01-01T00:00:00.000Z" },
+  });
+  assert.equal(publicPay.statusCode, 410, publicPay.body);
+  assert.equal(publicPay.json().error, "payment_link_expired");
+
+  // Same link, same past submittedAt, but with a valid API key: the
+  // documented offline-terminal contract is honored and the link pays.
+  const terminalPay = await app.inject({
+    method: "POST",
+    url: `/v1/payment-links/${link.token}/pay`,
+    headers: { "idempotency-key": randomUUID(), authorization: "Bearer " + rawKey },
+    payload: { card: APPROVED_CARD, submittedAt: "2026-01-01T00:00:00.000Z" },
+  });
+  assert.equal(terminalPay.statusCode, 200, terminalPay.body);
+  assert.equal(terminalPay.json().status, "paid");
 });
 
 test("canceled link is rejected via both read and pay", async () => {
@@ -239,7 +269,6 @@ test("canceled link is rejected via both read and pay", async () => {
   assert.equal(payRes.json().error, "payment_link_canceled");
 });
 
-// no cross-merchant cancel case here. covered in webhooks.test.ts style elsewhere? — am
 test("cancel: happy path 204, nonexistent id -> 404, already-paid -> 409", async () => {
   const owner = await createApprovedMerchantWithApiKey("cancel-owner");
 
@@ -272,6 +301,35 @@ test("cancel: happy path 204, nonexistent id -> 404, already-paid -> 409", async
   });
   assert.equal(cancelPaid.statusCode, 409, cancelPaid.body);
   assert.equal(cancelPaid.json().error, "not_cancelable");
+});
+
+test("cancel is scoped to the owning merchant: another merchant's link is 404 and stays active (B13)", async () => {
+  const owner = await createApprovedMerchantWithApiKey("cancel-owner-b13");
+  const attacker = await createApprovedMerchantWithApiKey("cancel-attacker-b13");
+  const link = await createLink(owner.rawKey, owner.merchantId, {});
+
+  // A different, fully approved merchant knows the link UUID and tries to
+  // cancel it through their own path. assertOwnMerchant passes (the path
+  // merchant is the attacker's own id), but cancelPaymentLink is now scoped
+  // to merchant_id, so another merchant's link is indistinguishable from a
+  // nonexistent one: 404, and the link is left untouched.
+  const crossCancel = await app.inject({
+    method: "DELETE",
+    url: `/v1/merchants/${attacker.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(crossCancel.statusCode, 404, crossCancel.body);
+  assert.equal(crossCancel.json().error, "payment_link_not_found");
+
+  // The link was not canceled: still active on the public read, and the
+  // real owner can still be paid through it.
+  const readRes = await getPublicLink(link.token);
+  assert.equal(readRes.statusCode, 200);
+  assert.equal(readRes.json().status, "active");
+
+  const payRes = await pay(link.token, APPROVED_CARD);
+  assert.equal(payRes.statusCode, 200, payRes.body);
+  assert.equal(payRes.json().status, "paid");
 });
 
 test("list returns created payment links for the owning merchant", async () => {
