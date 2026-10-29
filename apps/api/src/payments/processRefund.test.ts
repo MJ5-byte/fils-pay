@@ -252,7 +252,46 @@ test("a partial refund lands on partially_refunded with a refund_partial event",
   assert.equal(events.rows[events.rows.length - 1]!.event_type, "refund_partial");
 });
 
-// am: should there be a test for two refunds at the SAME time? nvm the claim blocks it
+test("two concurrent refunds of one transaction let exactly one through (FP-209)", async () => {
+  const merchant = await createApprovedMerchantWithApiKey("concurrent-refunds");
+  const txn = await capturedTransaction(merchant.rawKey, 10_000);
+  const actor = await apiKeyActor(merchant.merchantId);
+
+  const results = await Promise.all([
+    processRefund(pool, approvingAcquirer, {
+      transactionId: txn.id,
+      merchantId: merchant.merchantId,
+      amountFils: toFils(10_000),
+      idempotencyKey: randomUUID(),
+      actor,
+    }),
+    processRefund(pool, approvingAcquirer, {
+      transactionId: txn.id,
+      merchantId: merchant.merchantId,
+      amountFils: toFils(10_000),
+      idempotencyKey: randomUUID(),
+      actor,
+    }),
+  ]);
+
+  // The loser re-reads the transaction after the winner commits and sees a
+  // fully-refunded status, so it is rejected with 409 — either way, only
+  // one refund goes through and no money moves twice.
+  const statuses = results.map((r) => r.statusCode).sort();
+  assert.deepEqual(statuses, [200, 409], JSON.stringify(results.map((r) => r.body)));
+
+  const refunds = await pool.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c FROM refunds WHERE transaction_id = $1`,
+    [txn.id],
+  );
+  assert.equal(refunds.rows[0]!.c, 1);
+
+  const row = await pool.query<{ refunded_fils: string }>(`SELECT refunded_fils FROM transactions WHERE id = $1`, [
+    txn.id,
+  ]);
+  assert.equal(Number(row.rows[0]!.refunded_fils), 10_000);
+});
+
 test("a second partial refund completing the captured total lands on refunded", async () => {
   const merchant = await createApprovedMerchantWithApiKey("two-partials");
   const txn = await capturedTransaction(merchant.rawKey, 10_000);

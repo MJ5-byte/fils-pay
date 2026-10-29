@@ -64,7 +64,11 @@ export async function initiateMerchantRefund(
     [input.transactionId],
   );
   const txn = result.rows[0];
-  if (!txn) {
+  if (!txn || txn.merchant_id !== input.merchantId) {
+    // The transaction must belong to the caller-scoped merchant. A uuid that
+    // exists but is another merchant's row is indistinguishable from a
+    // missing one (404), so a merchant can never refund against a
+    // transaction they do not own. (IDOR)
     throw new NotFoundError("transaction_not_found");
   }
 
