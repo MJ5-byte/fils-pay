@@ -22,13 +22,19 @@ export async function fetchExpiredHoldIds(client: Client): Promise<string[]> {
 }
 
 export function buildExpiredHoldsDelete(expiredIds: string[]): { text: string; values: unknown[] } {
-  return buildDelete("holds", { id: expiredIds });
+  // Re-check the expiry predicate at delete time. A hold captured or released
+  // between fetchExpiredHoldIds and this delete is no longer active, so the
+  // id list alone would still remove it; the status/expires_at guard keeps the
+  // delete to holds that are still abandoned when the row is actually removed.
+  const { text, values } = buildDelete("holds", { id: expiredIds });
+  return { text: `${text} AND status = 'active' AND expires_at < now()`, values };
 }
 
 /**
  * Deletes only holds that are still 'active' and past expires_at. Captured
- * or released holds are never touched, and a night with nothing expired
- * changes no rows.
+ * or released holds are never touched. When nothing has expired the id list
+ * is empty, so the delete carries a false predicate (`WHERE 1 = 0`) and
+ * removes zero rows rather than every row.
  */
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
