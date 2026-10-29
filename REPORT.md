@@ -198,6 +198,20 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: "Recalculate cached balances" sets wrong balances
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** Pressing the admin button dropped Alpha Retail's balance from about 136K BD to about 7K BD; only the CLI rebuild put it back.
+- **Cause:** The button reached `apps/settlement/internal/internalapi/server.go:268`, which called `ledger.RefreshBalanceCache` (`internal/ledger/refresh.go:62`) reading view `merchant_payable_position` (migration 0054): lifetime gross from the scheme export, with no fees and no payouts. The CLI (`ledger.RebuildAllBalances`) sums the ledger, so ADR-0004's promise that the two agree could never hold.
+- **Breaks:** One admin click overwrote every merchant's cached balance with a wrong figure, and anything reading the cache (payouts, the dashboard) followed it.
+- **Fix:** The handler now calls `ledger.RebuildAllBalances`, the CLI's ledger walk, so the button, the CLI and the ledger sum agree; measured at 0.53 to 1.00 s through the live endpoint for 283 merchants and 7,294 ledger rows, well inside ADR-0004's 30 s timeout. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/35
+### Bug: A balance rebuild during a payout puts the paid-out money back
+- **Status:** Fixed
+- **Type:** Concurrency, medium
+- **Problem:** If a payout committed while a balance rebuild (the admin button or the CLI) was running, the merchant's cached balance ended up as if the payout never happened.
+- **Cause:** `RebuildAllBalances` in `apps/settlement/internal/ledger/rebuild.go` summed the ledger and then overwrote `merchant_balances` without locking the rows first. A payout that had written its ledger debit and decremented the cache, but had not committed when the sum ran, was overwritten by the pre-payout sum once the rebuild's write went through.
+- **Breaks:** The cache overstates what is owed to the merchant by the payout amount until the next clean rebuild, and anything that reads the cache follows it.
+- **Fix:** The rebuild takes `LOCK TABLE merchant_balances IN EXCLUSIVE MODE` first in its transaction, before it reads the ledger, so a concurrent payout, credit or balance adjustment, even for a merchant with no cache row yet, is either counted or applied on top, and an adjustment's `SELECT ... FOR UPDATE` cannot deadlock with it. The settlement handler also reads the request body before rebuilding, so when the API gives up after 30 s the rebuild is cancelled and rolled back instead of committing after a reported failure. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/35
 ### Bug: OTP guess limit resets on every new login
 - **Status:** Fixed
 - **Type:** Security, medium

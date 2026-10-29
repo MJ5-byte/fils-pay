@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/config"
+	"github.com/filspay/settlement/internal/ledger"
 	"github.com/filspay/settlement/internal/settlement"
 )
 
@@ -254,8 +256,8 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 		t.Fatalf("seed drifted cache: %v", err)
 	}
 
-	// The rebuild endpoint's source of record is a closed batch's own
-	// scheme-export line, independent of the ledger legs inserted above.
+	// A closed batch with its scheme-export line, which the rebuild must not
+	// read: the balance comes from the ledger legs inserted above.
 	var batchID uuid.UUID
 	err = pool.QueryRow(context.Background(), `
 		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
@@ -292,7 +294,7 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 		t.Errorf("before = %d, want 999999 (the drifted cached value)", diff.Before)
 	}
 	if diff.After != 12000 {
-		t.Errorf("after = %d, want 12000 (the scheme-export-derived total)", diff.After)
+		t.Errorf("after = %d, want 12000 (the ledger sum)", diff.After)
 	}
 	if !diff.Changed {
 		t.Error("changed = false, want true")
@@ -305,6 +307,181 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 	}
 	if persisted != 12000 {
 		t.Errorf("persisted cached_payable_fils = %d, want 12000", persisted)
+	}
+}
+
+// TestRebuildBalances_MatchesLedgerAndCLI pins the admin button to the
+// same figure the rebuild-balances CLI writes: the merchant_payable ledger
+// sum, net of fees and payouts. ADR-0004 promises the two paths agree; a
+// rebuild from the scheme export alone would put the gross back in the cache.
+func TestRebuildBalances_MatchesLedgerAndCLI(t *testing.T) {
+	pool := mustPool(t)
+	server := newTestServer(t, pool)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool)
+	txnID := insertCaptureEvent(t, pool, merchantID, 12000, time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC))
+
+	// The fee and a partial payout both come off merchant_payable, so the
+	// ledger balance is 12000 - 300 - 5000 = 6700.
+	_, err := pool.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES
+		  ($1, $2, $3, 'merchant_payable', 'debit',  300,  now(), 'mdr fee'),
+		  ($1, $2, $3, 'platform_fee_revenue', 'credit', 300,  now(), 'mdr fee'),
+		  ($4, $2, $3, 'merchant_payable', 'debit',  5000, now(), 'payout'),
+		  ($4, $2, $3, 'platform_cash',    'credit', 5000, now(), 'payout')
+	`, uuid.New(), merchantID, txnID, uuid.New())
+	if err != nil {
+		t.Fatalf("seed fee and payout legs: %v", err)
+	}
+
+	var batchID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+		VALUES ($1, '2026-04-13', 'closed', 12000, 300, 11700, now())
+		RETURNING id
+	`, merchantID).Scan(&batchID)
+	if err != nil {
+		t.Fatalf("seed settlement batch: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, line_sequence)
+		VALUES ($1, $2, 12000, 1)
+	`, batchID, txnID)
+	if err != nil {
+		t.Fatalf("seed scheme export line: %v", err)
+	}
+
+	var ledgerSum int64
+	err = pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+		  FROM ledger_entries
+		 WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+	`, merchantID).Scan(&ledgerSum)
+	if err != nil {
+		t.Fatalf("sum ledger: %v", err)
+	}
+	if ledgerSum != 6700 {
+		t.Fatalf("seeded ledger sum = %d, want 6700", ledgerSum)
+	}
+
+	resp := post(t, server, "/internal/rebuild-balances", "Bearer "+testToken, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var diffs map[string]rebuildDiffResponse
+	decodeJSON(t, resp, &diffs)
+	diff, ok := diffs[merchantID.String()]
+	if !ok {
+		t.Fatalf("response has no diff entry for merchant %s", merchantID)
+	}
+	if diff.After != ledgerSum {
+		t.Errorf("button after = %d, want the ledger sum %d", diff.After, ledgerSum)
+	}
+
+	cliBalance, err := ledger.RebuildMerchantBalance(ctx, pool, merchantID)
+	if err != nil {
+		t.Fatalf("RebuildMerchantBalance: %v", err)
+	}
+	if diff.After != int64(cliBalance) {
+		t.Errorf("button after = %d, CLI rebuild = %d, want them equal", diff.After, cliBalance)
+	}
+}
+
+// TestRebuildBalances_OversizedBodyRejected checks that a body the handler
+// cannot read to the end is refused before any rebuild starts: without
+// reaching the end, net/http would never cancel the rebuild if the caller
+// left. pool is nil, so a rebuild that did start would panic.
+func TestRebuildBalances_OversizedBodyRejected(t *testing.T) {
+	server := newTestServer(t, nil)
+	resp := post(t, server, "/internal/rebuild-balances", "Bearer "+testToken, `{"pad":"`+strings.Repeat("x", 2048)+`"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestRebuildBalances_ClientDisconnectCancelsRebuild checks that the rebuild
+// stops when the caller goes away. The API posts a small JSON body and gives
+// up after 30 s; net/http only notices a closed connection once the body has
+// been read, so a handler that never reads it keeps rebuilding and commits
+// after the API has already reported a failure.
+func TestRebuildBalances_ClientDisconnectCancelsRebuild(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	handlerDone := make(chan struct{})
+	handler := Handler(pool, config.Config{InternalToken: testToken})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	// An open cache write, like a payout in flight, keeps the rebuild
+	// waiting on its table lock until the client gives up.
+	merchantID := insertActiveMerchant(t, pool)
+	_, err := pool.Exec(ctx, `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at) VALUES ($1, 0, now())
+	`, merchantID)
+	if err != nil {
+		t.Fatalf("seed cache row: %v", err)
+	}
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer blocker.Rollback(ctx) //nolint:errcheck
+	var blockerPID int
+	if err := blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID); err != nil {
+		t.Fatalf("blocker pid: %v", err)
+	}
+	if _, err := blocker.Exec(ctx, `UPDATE merchant_balances SET updated_at = now() WHERE merchant_id = $1`, merchantID); err != nil {
+		t.Fatalf("blocker update: %v", err)
+	}
+
+	clientCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req, err := http.NewRequestWithContext(clientCtx, http.MethodPost, server.URL+"/internal/rebuild-balances", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Content-Type", "application/json")
+	go func() {
+		resp, err := server.Client().Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+		`, blockerPID).Scan(&waiting)
+		if err != nil {
+			t.Fatalf("check rebuild is waiting: %v", err)
+		}
+		if waiting > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the rebuild never waited on the open cache write")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+
+	// This wait must stay below the rebuild's 5 s lock_timeout: a handler
+	// that is never cancelled still ends once the lock times out, and a
+	// longer wait would let that pass for a cancellation.
+	select {
+	case <-handlerDone:
+	case <-time.After(1 * time.Second):
+		t.Fatal("the handler kept rebuilding after the client disconnected")
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -262,10 +263,23 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 }
 
 // handleRebuildBalances backs the admin console's "Rebuild cached balances"
-// action. Takes no body; any body sent is ignored.
+// action. Any body sent is read and ignored; one over 1 KiB gets a 400.
+//
+// It rebuilds from the ledger, the same walk as the rebuild-balances CLI, so
+// the button and the CLI always write the same figure. The scheme export
+// holds gross only, with no fees or payouts, so it cannot be a balance.
 func handleRebuildBalances(pool *pgxpool.Pool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		diffs, err := ledger.RefreshBalanceCache(r.Context(), pool)
+		// Drain the (ignored) body: net/http only watches for a closed
+		// connection, and so only cancels r.Context(), once the body has been
+		// read to the end. Without this a caller that gives up leaves the
+		// rebuild running and committing. A body over 1 KiB or cut short never
+		// reaches the end, so it is refused rather than run uncancellable.
+		if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 1<<10)); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_body"})
+			return
+		}
+		diffs, err := ledger.RebuildAllBalances(r.Context(), pool)
 		if err != nil {
 			log.Printf("settlement internal api: rebuild-balances failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "rebuild_balances_failed"})

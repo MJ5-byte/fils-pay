@@ -1,6 +1,7 @@
 // Package ledger rebuilds merchant_balances from ledger_entries. Nothing
 // automatic calls this — the incremental path is in internal/balances.
-// This is for the manual `rebuild-balances` CLI subcommand.
+// The `rebuild-balances` CLI subcommand and the admin console's rebuild
+// button (internalapi) both call it, so they always write the same figure.
 package ledger
 
 import (
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/money"
@@ -56,16 +58,43 @@ func (d RebuildDiff) Changed() bool {
 
 // RebuildAllBalances recomputes every merchant's balance the same way and
 // overwrites merchant_balances in one transaction. Returns the full
-// before/after map so a caller (the rebuild-balances CLI subcommand) can
-// print exactly what changed. The only function in this codebase that
-// writes merchant_balances from a full ledger recompute rather than an
-// incremental delta.
+// before/after map so a caller (the rebuild-balances CLI subcommand, the
+// admin rebuild button) can show exactly what changed. The only function in
+// this codebase that writes merchant_balances from a full ledger recompute
+// rather than an incremental delta.
 func RebuildAllBalances(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]RebuildDiff, error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: RebuildAllBalances: begin: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+
+	// Lock the cache table before reading the ledger. EXCLUSIVE blocks every
+	// insert and update of merchant_balances, including the first one for a
+	// merchant with no row yet, and every SELECT ... FOR UPDATE (the admin
+	// balance adjustment locks its row that way before it updates); plain
+	// SELECTs still pass. A writer that got in first (a payout, a credit, an
+	// adjustment) commits before the sum is read, so its ledger legs are
+	// counted; a later one waits and applies its delta on top of the rebuilt
+	// value. A batch close posts no ledger legs, so the rebuilt value
+	// replaces its cache increment either way. Without the lock a delta
+	// committed between the sum and the write was overwritten. This is the
+	// first lock the transaction takes and nothing a writer holds lets it
+	// through early, so it cannot deadlock with a writer, and two rebuilds
+	// run one after the other.
+	//
+	// While the rebuild waits for the lock, every later writer queues behind
+	// it, so it gives up after 5 s rather than stall payouts and credits.
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
+		return nil, fmt.Errorf("ledger: RebuildAllBalances: set lock timeout: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `LOCK TABLE merchant_balances IN EXCLUSIVE MODE`); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+			return nil, fmt.Errorf("ledger: RebuildAllBalances: merchant_balances is busy, lock not granted within 5s, nothing changed; try again: %w", err)
+		}
+		return nil, fmt.Errorf("ledger: RebuildAllBalances: lock balances: %w", err)
+	}
 
 	rows, err := tx.Query(ctx, `
 		SELECT DISTINCT merchant_id FROM (
@@ -92,7 +121,6 @@ func RebuildAllBalances(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]Re
 	}
 	rows.Close()
 
-	// TODO: lock merchant_balances rows first, a concurrent CloseBatch increment gets clobbered -- YA
 	diffs := make(map[uuid.UUID]RebuildDiff, len(merchantIDs))
 
 	for _, merchantID := range merchantIDs {
