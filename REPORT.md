@@ -269,6 +269,13 @@
 - **Breaks:** An attacker who observed one signed callback could replay it indefinitely, and the timing side channel helped forge a valid signature.
 - **Fix:** The compare now uses the repo's constant-time `timingSafeEqualHex`, as `webhooks/sign.ts` already does, and a callback whose signed timestamp is older than a 300 second window is rejected with a new `stale_timestamp` reason. Additive: the require-signature behaviour from BHA-14 is unchanged and no existing reason was removed. No schema change. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/40
 
+### Bug: Web apps cannot reach the API (no CORS)
+- **Status:** Fixed
+- **Type:** Deploy, high
+- **Problem:** The merchant dashboard (apps/web, dev 5173) and the admin console (apps/admin, dev 5174) run on their own origins and call the API cross-origin with the session cookie, but the API sent no CORS headers, so the browser blocked every request and nobody could log in.
+- **Cause:** `buildApp` in `apps/api/src/app.ts` registered no CORS handling at all (no @fastify/cors, no header hook), so a preflight OPTIONS 404'd and responses carried no `Access-Control-Allow-Origin`.
+- **Breaks:** Both front ends in any setup where they are not served from the API's own origin, including the hosted deploy (BHA-30).
+- **Fix:** A minimal `corsPlugin` (`apps/api/src/plugins/cors.ts`), registered first in `buildApp`, adds an onRequest hook that, for an origin in the configured allowlist, echoes it back as `Access-Control-Allow-Origin`, sets `Access-Control-Allow-Credentials: true` and `Vary: Origin`, and answers the preflight OPTIONS (204 with allow-methods/headers/max-age). Unknown origins get no CORS headers, so nothing is blanket-allowed and no credentialed wildcard is ever sent. The allowlist is env-driven (`CORS_ALLOWED_ORIGINS`, comma-separated; `apps/api/src/config.ts`), empty in production unless set and a localhost dev default, so no production URL is baked into code. No new dependency was added; adding @fastify/cors would be cleaner and a human can approve that later. Test added.
 ### Bug: Paused webhook endpoints still receive queued deliveries
 - **Status:** Fixed
 - **Type:** Data, medium

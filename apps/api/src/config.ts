@@ -78,6 +78,10 @@ export interface Config {
    *  has no other reason to know where apps/web is hosted, and no route
    *  redirects there. Default matches Vite's own default dev port. */
   checkoutBaseUrl: string;
+  /** Browser origins allowed to call the API cross-origin with credentials,
+   *  from comma-separated CORS_ALLOWED_ORIGINS. Empty in production unless
+   *  set, so no production URL is baked into the code. */
+  corsAllowedOrigins: string[];
   /** How long a payment link stays 'reserved' (claimed by an in-flight pay
    *  attempt) before it self-expires back to claimable, closing the gap
    *  between claim and finalize without a sweep job. */
@@ -150,6 +154,11 @@ function parseFloatEnv(value: string | undefined, fallback: number): number {
 function parseBoolEnv(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === "") return fallback;
   return value === "true" || value === "1";
+}
+
+function parseCsvEnv(value: string | undefined, fallback: string[]): string[] {
+  if (value === undefined || value.trim() === "") return fallback;
+  return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 // Guards a security check, so only an explicit "false" or "0" turns it off; a typo keeps it on.
@@ -252,6 +261,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     settlementInternalRequestTimeoutMs: parseIntEnv(env.SETTLEMENT_INTERNAL_REQUEST_TIMEOUT_MS, 30_000),
 
     checkoutBaseUrl: env.CHECKOUT_BASE_URL ?? "http://localhost:5173",
+    corsAllowedOrigins: parseCsvEnv(env.CORS_ALLOWED_ORIGINS, nodeEnv === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"]),
     paymentLinkReservationTimeoutSeconds: parseIntEnv(env.PAYMENT_LINK_RESERVATION_TIMEOUT_SECONDS, 60),
 
     webhookSecretEncryptionKey: parseWebhookSecretEncryptionKey(
