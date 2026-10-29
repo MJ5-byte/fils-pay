@@ -163,3 +163,20 @@ go test -short ./...
 - Settlement business-day boundaries use Asia/Bahrain time.
 - Do not modify `packages/money` or `apps/settlement/internal/money` without
   finance approval; those packages are frozen after audit.
+
+## Login Details
+
+Use these local development accounts at
+[http://localhost:5174/login](http://localhost:5174/login). The API must be
+running at `http://localhost:3000`, and the local database must be migrated
+and seeded.
+
+| Email | Password | Role |
+|---|---|---|
+| `support@filspay.test` | `FilsPayAdminSeed!2026` | Support |
+| `finance@filspay.test` | `FilsPayAdminSeed!2026` | Finance |
+| `superadmin@filspay.test` | `FilsPayAdminSeed!2026` | Super admin |
+
+After entering your email and password, select **Continue** and enter the
+development OTP displayed on the page. These accounts are for local
+development only.
