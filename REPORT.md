@@ -91,6 +91,13 @@
 - **Cause:** The create route `apps/api/src/routes/adminCredits.ts:62-77` only had `requireAdminSession`, with no role check, while the approve and reject routes required finance or super_admin. Credits at or under the 50 BD threshold (`apps/api/src/admin/creditThreshold.ts:15`) post to the ledger on create (`apps/api/src/admin/credits.ts:253`). The admin UI hid the form from support, but the API did not.
 - **Breaks:** Any support account could move money into a merchant's payable balance, up to 50 BD per call with no limit on calls, bypassing the maker-checker the credits plane is built around.
 - **Fix:** Added `requireAdminRole("finance", "super_admin")` to the create route, matching approve and reject. Test added: support posting a credit gets 403 and nothing is journaled. PR: https://github.com/SilentYsf/fils-pay/pull/6
+### Bug: MDR recalculation changes batches already paid out
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** Running "Recalculate MDR" after a rate change rewrote the fee and net payout of batches that had already been paid, and posted a fee adjustment against them, so the paid history no longer matched what was disbursed.
+- **Cause:** The batch scan in `apps/settlement/internal/settlement/recalculate_mdr.go:67` selected `status <> 'open'`, which includes `paid`, although the route contract (`apps/api/src/routes/admin.ts:51-53`) and the function's own doc comment promise paid batches are never modified.
+- **Breaks:** A paid batch's `net_payout_fils` and fee change after the money left (a 23422 fils payout became 23372 locally), statements stop matching disbursements, and a fee adjustment is posted against a period whose payout was already final.
+- **Fix:** The scan now selects only `status = 'closed'` batches; its row lock re-checks the status, so a batch paid while the recalculation waits is skipped as well. Test added: one paid and one closed batch in range, only the closed one changes. PR: https://github.com/SilentYsf/fils-pay/pull/22
 ### Bug: Large settlement batches pay out a few fils wrong
 - **Status:** Fixed
 - **Type:** Money, high

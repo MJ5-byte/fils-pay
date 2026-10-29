@@ -60,11 +60,14 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 		return RecalcResult{}, fmt.Errorf("settlement: RecalculateMDR: load merchant: %w", err)
 	}
 
+	// Only 'closed' batches: a 'paid' batch's net payout has already been
+	// disbursed. FOR UPDATE re-checks the status after waiting on a
+	// concurrent PayoutBatch, so a batch paid mid-scan is skipped too.
 	rows, err := tx.Query(ctx, `
 		SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils
 		  FROM settlement_batches
 		 WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
-		   AND status <> 'open'
+		   AND status = 'closed'
 		 ORDER BY batch_date
 		 FOR UPDATE
 	`, merchantID, from, to)
