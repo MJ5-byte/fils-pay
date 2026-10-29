@@ -24,8 +24,12 @@ func TruncateToSchemeAmount(grossFils money.Fils) money.Fils {
 	return (grossFils / 10) * 10
 }
 
-// SchemeAmountBD converts a transaction's gross fils to the BD value stored
-// in scheme_export_lines.amount (numeric(10,2)).
+// SchemeAmountBD converts a 2dp-quantized fils amount (a multiple of 10,
+// as stored in scheme_export_lines.amount_fils) to the BD value stored in
+// scheme_export_lines.amount (numeric(10,2)). Dividing a multiple-of-10
+// fils value by 1000 yields an exact 2-decimal figure, so Postgres's
+// NUMERIC(10,2) rounding on assignment cannot change it — amount always
+// equals amount_fils/1000 (ADR-0002).
 func SchemeAmountBD(grossFils money.Fils) float64 {
 	return float64(grossFils) / 1000.0
 }

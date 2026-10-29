@@ -2,6 +2,7 @@ package settlement
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -100,6 +101,47 @@ func TestEnqueuePayoutNotificationsIsIdempotent(t *testing.T) {
 
 	if got := countPaidEvents(t, pool, paidBatch); got != 1 {
 		t.Fatalf("a second scan must be a no-op; expected 1 settlement.paid event, got %d", got)
+	}
+}
+
+// TestEnqueuePayoutNotificationsDuplicateInsertIsNoOp simulates the race
+// the NOT EXISTS scan cannot close by itself: a second process already
+// passed the guard and re-issues the same INSERT. The unique index
+// (migration 0075) plus ON CONFLICT DO NOTHING must absorb the duplicate —
+// if the index is missing, Postgres rejects the ON CONFLICT clause and
+// this test fails loudly.
+func TestEnqueuePayoutNotificationsDuplicateInsertIsNoOp(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool, 250)
+	paidBatch := insertBatch(t, pool, merchantID, time.Date(2026, 3, 6, 0, 0, 0, 0, time.UTC), "paid", 22_000)
+
+	if _, err := EnqueuePayoutNotifications(ctx, pool); err != nil {
+		t.Fatalf("EnqueuePayoutNotifications: %v", err)
+	}
+
+	// The losing racer's insert, issued after the winner committed.
+	payload, err := json.Marshal(map[string]any{
+		"merchantId":    merchantID,
+		"batchId":       paidBatch,
+		"batchDate":     "2026-03-06",
+		"netPayoutFils": 22_000,
+	})
+	if err != nil {
+		t.Fatalf("marshal duplicate payload: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
+		VALUES ('settlement.paid', 'settlement_batch', $1, $2)
+		ON CONFLICT (event_type, aggregate_id) DO NOTHING
+	`, paidBatch, payload)
+	if err != nil {
+		t.Fatalf("duplicate insert: %v (unique index on (event_type, aggregate_id) missing?)", err)
+	}
+
+	if got := countPaidEvents(t, pool, paidBatch); got != 1 {
+		t.Fatalf("a duplicate enqueue must insert nothing; expected 1 settlement.paid event, got %d", got)
 	}
 }
 

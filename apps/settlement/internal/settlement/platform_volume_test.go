@@ -20,8 +20,10 @@ func resetPlatformStats(t *testing.T, pool *pgxpool.Pool) {
 }
 
 // TestRecordPlatformProcessedVolume_SmallValuesExact proves the
-// accumulator is wired correctly: three successive batch closes land on
-// the exact integer sum of their gross figures.
+// accumulator is wired correctly: successive batch closes land on the
+// exact integer sum of their gross figures — including 3,000,000,000,
+// which exceeds the old int32 column's ceiling entirely, so this also pins
+// the BIGINT widening (migration 0074).
 func TestRecordPlatformProcessedVolume_SmallValuesExact(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
@@ -33,7 +35,8 @@ func TestRecordPlatformProcessedVolume_SmallValuesExact(t *testing.T) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	for _, gross := range []int64{1_000_000, 2_500_000, 47_500_000} {
+	const want = int64(1_000_000 + 2_500_000 + 47_500_000 + 3_000_000_000)
+	for _, gross := range []int64{1_000_000, 2_500_000, 47_500_000, 3_000_000_000} {
 		current, err := ReadAndLockPlatformProcessedFils(ctx, tx)
 		if err != nil {
 			t.Fatalf("ReadAndLockPlatformProcessedFils: %v", err)
@@ -43,13 +46,13 @@ func TestRecordPlatformProcessedVolume_SmallValuesExact(t *testing.T) {
 		}
 	}
 
-	var got int32
+	var got int64
 	err = tx.QueryRow(ctx, `SELECT total_processed_fils FROM platform_stats WHERE id = 1`).Scan(&got)
 	if err != nil {
 		t.Fatalf("read back total: %v", err)
 	}
-	if got != 51_000_000 {
-		t.Fatalf("total_processed_fils = %v, want exactly 51000000 (1000000 + 2500000 + 47500000)", got)
+	if got != want {
+		t.Fatalf("total_processed_fils = %d, want exactly %d (1000000 + 2500000 + 47500000 + 3000000000)", got, want)
 	}
 }
 

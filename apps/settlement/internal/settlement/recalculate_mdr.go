@@ -64,7 +64,7 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 		SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils
 		  FROM settlement_batches
 		 WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
-		   AND status <> 'open'
+		   AND status = 'closed'
 		 ORDER BY batch_date
 		 FOR UPDATE
 	`, merchantID, from, to)

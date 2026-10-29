@@ -235,7 +235,12 @@ func TestRunBatch_MerchantScopedOnlyAffectsThatMerchant(t *testing.T) {
 	}
 }
 
-// FH: 12000 = export total = what support sees in the console, so the test is right
+// TestRebuildBalances_ValidToken: with no settlement batch/scheme lines
+// seeded, ledger_entries is the only possible source for the rebuilt
+// figure — the capture's merchant_payable credit. If the handler ever
+// regressed to reading the scheme-export-based merchant_payable_position
+// view, this merchant would have no position at all and the asserted After
+// would be 0, so the test is a genuine regression guard for the source.
 func TestRebuildBalances_ValidToken(t *testing.T) {
 	pool := mustPool(t)
 	server := newTestServer(t, pool)
@@ -252,25 +257,6 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 	`, merchantID)
 	if err != nil {
 		t.Fatalf("seed drifted cache: %v", err)
-	}
-
-	// The rebuild endpoint's source of record is a closed batch's own
-	// scheme-export line, independent of the ledger legs inserted above.
-	var batchID uuid.UUID
-	err = pool.QueryRow(context.Background(), `
-		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
-		VALUES ($1, '2026-04-12', 'closed', 12000, 300, 11700, now())
-		RETURNING id
-	`, merchantID).Scan(&batchID)
-	if err != nil {
-		t.Fatalf("seed settlement batch: %v", err)
-	}
-	_, err = pool.Exec(context.Background(), `
-		INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, line_sequence)
-		SELECT $1, id, 12000, 1 FROM transactions WHERE merchant_id = $2 LIMIT 1
-	`, batchID, merchantID)
-	if err != nil {
-		t.Fatalf("seed scheme export line: %v", err)
 	}
 
 	resp := post(t, server, "/internal/rebuild-balances", "Bearer "+testToken, "")
@@ -292,7 +278,7 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 		t.Errorf("before = %d, want 999999 (the drifted cached value)", diff.Before)
 	}
 	if diff.After != 12000 {
-		t.Errorf("after = %d, want 12000 (the scheme-export-derived total)", diff.After)
+		t.Errorf("after = %d, want 12000 (the ledger_entries-derived total)", diff.After)
 	}
 	if !diff.Changed {
 		t.Error("changed = false, want true")

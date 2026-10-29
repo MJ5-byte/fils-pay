@@ -7,11 +7,12 @@ import (
 )
 
 // Hand-derived table for ComputeSettlementFee. Every `want` below is
-// worked out by applying the negotiated discount to the amount first, then
-// BankersRoundDiv-ing the MDR against that discounted amount — the order
-// settlement's reconciliation policy specifies.
-// FH: hand-checked all three rows with claude, the 14 is right
-// am: api shows 15 for the same inputs in the fee preview?? prob a rounding diff, ignore
+// worked out fee-first: the MDR is BankersRoundDiv-ed against the full
+// amount, then the discount rate is applied to the fee itself — the order
+// the API fee preview shows and the one that keeps a discount from
+// rounding an entire small fee away.
+// (was discount-first; am flagged api 15 vs go 14 on 602@275/1250 — that
+// divergence is the F2b bug this table now pins: go now returns 15 too.)
 func TestComputeSettlementFee(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -25,18 +26,20 @@ func TestComputeSettlementFee(t *testing.T) {
 			amount:      602,
 			mdrBps:      275,
 			discountBps: 1250,
-			// discount: 602*1250/10000 = 752500/10000 -> quotient 75, remainder 2500, 2*2500=5000 < 10000 -> 75
-			// discounted amount: 602 - 75 = 527
-			// fee: 527*275/10000 = 144925/10000 -> quotient 14, remainder 4925, 2*4925=9850 < 10000 -> 14
-			want: 14,
+			// fee: 602*275/10000 = 165550/10000 -> quotient 16, remainder 5550, 2*5550=11100 > 10000 -> 17
+			// discount on fee: 17*1250/10000 = 21250/10000 -> quotient 2, remainder 1250, 2*1250=2500 < 10000 -> 2
+			// fee = 17 - 2 = 15
+			want: 15,
 		},
 		{
-			name:        "100000 fils at 275bps MDR with a 1250bps discount, no rounding anywhere",
+			name:        "100000 fils at 275bps MDR with a 1250bps discount",
 			amount:      100_000,
 			mdrBps:      275,
 			discountBps: 1250,
-			// discount: 100000*1250/10000 = 12500 exactly; 100000-12500 = 87500
-			// fee: 87500*275/10000 = 24062500/10000 -> quotient 2406, remainder 2500, 2*2500=5000 < 10000 -> 2406
+			// fee: 100000*275/10000 = 2750 exactly
+			// discount on fee: 2750*1250/10000 = 3437500/10000 -> quotient 343,
+			// remainder 7500, 2*7500=15000 > 10000 -> 344
+			// fee = 2750 - 344 = 2406
 			want: 2406,
 		},
 		{
@@ -44,8 +47,9 @@ func TestComputeSettlementFee(t *testing.T) {
 			amount:      4750,
 			mdrBps:      250,
 			discountBps: 2000,
-			// discount: 4750*2000/10000 = 950 exactly; 4750-950 = 3800
-			// fee: 3800*250/10000 = 950000/10000 = 95 exactly
+			// fee: 4750*250/10000 = 1187500/10000 -> quotient 118, remainder 7500, 2*7500=15000 > 10000 -> 119
+			// discount on fee: 119*2000/10000 = 238000/10000 -> quotient 23, remainder 8000, 2*8000=16000 > 10000 -> 24
+			// fee = 119 - 24 = 95
 			want: 95,
 		},
 		{
@@ -61,6 +65,17 @@ func TestComputeSettlementFee(t *testing.T) {
 			mdrBps:      275,
 			discountBps: 1250,
 			want:        0,
+		},
+		{
+			name:        "divergence: 23 fils at 225bps MDR with a 500bps discount",
+			amount:      23,
+			mdrBps:      225,
+			discountBps: 500,
+			// fee-first: fee = round(23*225/10000) = round(0.5175) = 1;
+			// discount on fee = round(1*500/10000) = 0 -> fee 1
+			// discount-first (the old formula): discount = round(23*500/10000) = 1,
+			// amount -> 22, fee = round(22*225/10000) = 0
+			want: 1,
 		},
 	}
 

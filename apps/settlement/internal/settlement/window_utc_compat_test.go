@@ -24,16 +24,34 @@ func TestBusinessDayWindow_OffByThreeHours(t *testing.T) {
 	}
 }
 
-// TestBusinessDayWindow_IgnoresClockTime: only the calendar date of the
-// argument matters (temporary? scheduler passes noon sometimes).
+// TestBusinessDayWindow_IgnoresClockTime: the clock time of the argument
+// does not matter as long as the instant falls on the same Bahrain
+// calendar day (the old 23:59:59Z case encoded the UTC-day bug — that
+// instant is already 2027-01-01 in Bahrain; see
+// TestBusinessDayWindow_LateUtcInstantBelongsToBahrainDay).
 func TestBusinessDayWindow_IgnoresClockTime(t *testing.T) {
 	a, _ := BusinessDayWindow(time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
-	b, bEnd := BusinessDayWindow(time.Date(2026, 12, 31, 23, 59, 59, 0, time.UTC))
+	b, bEnd := BusinessDayWindow(time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)) // 15:00 Bahrain, same day
 	if !a.Equal(b) {
 		t.Fatalf("clock time changed the window start: %s vs %s", a, b)
 	}
 	if want := time.Date(2026, 12, 31, 21, 0, 0, 0, time.UTC); !bEnd.Equal(want) {
 		t.Fatalf("year-end window end = %s, want %s", bEnd.UTC(), want)
+	}
+}
+
+// TestBusinessDayWindow_LateUtcInstantBelongsToBahrainDay is the B18
+// regression: 2026-10-29 23:00Z is 2026-10-30 02:00 in Asia/Bahrain, so
+// the window must cover the October 30 business day (UTC
+// [2026-10-29 21:00Z, 2026-10-30 21:00Z)). Deriving the date in the
+// argument's UTC location instead returned the October 29 window — the
+// late-evening close the daemon observed at ~03:15 local.
+func TestBusinessDayWindow_LateUtcInstantBelongsToBahrainDay(t *testing.T) {
+	gotStart, gotEnd := BusinessDayWindow(time.Date(2026, 10, 29, 23, 0, 0, 0, time.UTC))
+	wantStart := time.Date(2026, 10, 29, 21, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
+	if !gotStart.Equal(wantStart) || !gotEnd.Equal(wantEnd) {
+		t.Fatalf("window = [%s, %s), want [%s, %s)", gotStart.UTC(), gotEnd.UTC(), wantStart, wantEnd)
 	}
 }
 

@@ -2,6 +2,7 @@ package settlement
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -249,12 +250,32 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 
 	for i, line := range lines {
 		truncated := TruncateToSchemeAmount(line.grossFils)
+		// The quoted amount must come from the truncated fils value via
+		// integer math, so amount == amount_fils/1000 exactly (ADR-0002
+		// consequence) — feeding the untruncated gross through float
+		// division made e.g. 4747 fils export as 4.75 with 4740 stored.
 		_, err = tx.Exec(ctx, `
 			INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
 			VALUES ($1, $2, $3, $4, $5)
-		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(line.grossFils), i+1)
+		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(truncated), i+1)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: insert scheme export line: %w", err)
+		}
+
+		// ADR-0002: journal the fils truncation dropped for this line so
+		// the ledger ties to the scheme file. groupID balance is enforced
+		// by the 0007 trigger, same as every other ledger group.
+		if residue := line.grossFils - truncated; residue > 0 {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO ledger_entries
+				  (entry_group_id, merchant_id, settlement_batch_id, account_id, direction, amount_fils, occurred_at, description)
+				VALUES
+				  ($1, $2, $3, 'card_scheme_clearing','credit', $4, now(), 'scheme rounding residue'),
+				  ($1, $2, $3, 'scheme_rounding_residue','debit',  $4, now(), 'scheme rounding residue')
+			`, uuid.New(), merchantID, batchID, int64(residue))
+			if err != nil {
+				return BatchResult{}, fmt.Errorf("settlement: CloseBatch: insert scheme rounding residue: %w", err)
+			}
 		}
 	}
 
@@ -307,10 +328,11 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 
 	var merchantID uuid.UUID
 	var status string
+	var batchDate time.Time
 	var netPayout int64
 	err = tx.QueryRow(ctx, `
-		SELECT merchant_id, status, net_payout_fils FROM settlement_batches WHERE id = $1 FOR UPDATE
-	`, batchID).Scan(&merchantID, &status, &netPayout)
+		SELECT merchant_id, status, batch_date, net_payout_fils FROM settlement_batches WHERE id = $1 FOR UPDATE
+	`, batchID).Scan(&merchantID, &status, &batchDate, &netPayout)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: batch %s not found", batchID)
@@ -351,6 +373,31 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 	// keeps its own bookkeeping simple.
 	if err := UpdateLifetimePayoutMonitoringEstimate(ctx, tx, merchantID, money.Fils(netPayout)); err != nil {
 		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: update lifetime payout monitoring estimate: %w", err)
+	}
+
+	// settlement.paid goes onto the shared outbox in the same transaction
+	// that marks the batch paid, so the event and the status flip commit
+	// together — the same pattern CloseBatch uses for settlement.
+	// batch_closed. Zero-payout batches get no event, matching
+	// EnqueuePayoutNotifications' own eligibility rule (the dispatcher
+	// rejects a payload with netPayoutFils = 0).
+	if netPayout > 0 {
+		payload, err := json.Marshal(map[string]any{
+			"merchantId":    merchantID,
+			"batchId":       batchID,
+			"batchDate":     batchDate.Format("2006-01-02"),
+			"netPayoutFils": netPayout,
+		})
+		if err != nil {
+			return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: build settlement.paid payload: %w", err)
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
+			VALUES ('settlement.paid', 'settlement_batch', $1, $2)
+		`, batchID, payload)
+		if err != nil {
+			return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: enqueue settlement.paid: %w", err)
+		}
 	}
 
 	_, err = tx.Exec(ctx, `

@@ -11,12 +11,14 @@ import (
 
 // UpdateLifetimePayoutMonitoringEstimate maintains the ops dashboard
 // running payout total on the merchant row. Not payout-affecting.
+// The column is BIGINT (migration 0074); accumulating int64 fils keeps the
+// estimate exact past float32's 2^24 limit.
 func UpdateLifetimePayoutMonitoringEstimate(ctx context.Context, tx pgx.Tx, merchantID uuid.UUID, netPayoutFils money.Fils) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE merchants
 		   SET lifetime_net_payout_monitoring_estimate = lifetime_net_payout_monitoring_estimate + $2
 		 WHERE id = $1
-	`, merchantID, float32(netPayoutFils))
+	`, merchantID, int64(netPayoutFils))
 	return err
 }
 // EstimateMonthlyPayout returns an approximate total payout for the

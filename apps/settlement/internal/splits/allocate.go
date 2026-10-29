@@ -87,7 +87,8 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 		return SplitPayoutResult{}, err
 	}
 
-	var shares []ChildShare
+	var childIDs []uuid.UUID
+	var weights []int64
 	for rows.Next() {
 		var childID uuid.UUID
 		var weightBps int64
@@ -95,8 +96,8 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 			rows.Close()
 			return SplitPayoutResult{}, err
 		}
-		share := money.ApplyRateFils(money.Fils(netPayout), weightBps)
-		shares = append(shares, ChildShare{ChildMerchantID: childID, WeightBps: weightBps, AllocatedFils: share})
+		childIDs = append(childIDs, childID)
+		weights = append(weights, weightBps)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -104,7 +105,18 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 	}
 	rows.Close()
 
-	var totalAllocated money.Fils
+	// Largest-remainder allocation (same contract as ChildShares): each
+	// child's share is netPayout*weightBps/10000 floored, and the leftover
+	// fils go to the largest fractional remainders (ties by ascending
+	// child index), so the posted legs always sum back to the batch's
+	// net_payout_fils — no fils silently lost to per-child independent
+	// rounding.
+	allocatedShares := AllocateRemainder(money.Fils(netPayout), weights)
+	shares := make([]ChildShare, len(childIDs))
+	for i, childID := range childIDs {
+		shares[i] = ChildShare{ChildMerchantID: childID, WeightBps: weights[i], AllocatedFils: allocatedShares[i]}
+	}
+
 	for _, s := range shares {
 		if s.AllocatedFils <= 0 {
 			continue // ledger_entries.amount_fils has a CHECK (amount_fils > 0)
@@ -128,14 +140,28 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 		if err != nil {
 			return SplitPayoutResult{}, err
 		}
-		totalAllocated += s.AllocatedFils
 	}
 
-	// Bring the parent's cached balance down by what the legs above actually
-	// debited from its merchant_payable account, same as PayoutBatch does
-	// for a non-split merchant.
-	// am: should pass netPayout here not totalAllocated, otherwise the cache drifts from the batch
-	if err := balances.ApplyPayout(ctx, tx, parentMerchantID, batchID, totalAllocated); err != nil {
+	// Bring the parent's cached balance down by the batch's net payout,
+	// same as PayoutBatch does for a non-split merchant. The shares above
+	// sum to netPayout, so this is exactly what the legs debited — passing
+	// the batch figure (rather than a recomputed sum of the shares) keeps
+	// the cache from drifting from the batch even if a later change ever
+	// reintroduced a rounding difference.
+	if err := balances.ApplyPayout(ctx, tx, parentMerchantID, batchID, money.Fils(netPayout)); err != nil {
+		return SplitPayoutResult{}, err
+	}
+
+	// Same lifetime monitoring bump PayoutBatch applies to a non-split
+	// merchant. Inlined here rather than calling settlement's
+	// UpdateLifetimePayoutMonitoringEstimate (which would import
+	// internal/settlement from a package it already imports) — the SQL
+	// mirrors it exactly.
+	if _, err := tx.Exec(ctx, `
+		UPDATE merchants
+		   SET lifetime_net_payout_monitoring_estimate = lifetime_net_payout_monitoring_estimate + $2
+		 WHERE id = $1
+	`, parentMerchantID, netPayout); err != nil {
 		return SplitPayoutResult{}, err
 	}
 
