@@ -198,6 +198,13 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: OTP guess limit resets on every new login
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** Anyone who had a merchant's or admin's password could guess the 6-digit OTP without limit: after five wrong codes they logged in again and got five more guesses, as many times as they liked.
+- **Cause:** The only guess limit was `max_attempts` on one challenge (`apps/api/src/routes/auth.ts:158`, `apps/api/src/routes/adminAuth.ts:148`), and every password login issues a fresh challenge with a fresh budget (`auth.ts:80-95`, `adminAuth.ts:74-89`). Nothing counted wrong codes per user across challenges.
+- **Breaks:** The second factor only slows a password holder down instead of stopping them; at five guesses per login, a script is sure to hit the right code within 200,000 logins.
+- **Fix:** Both login and OTP verify now sum `attempt_count` over the user's challenges created in the last 15 minutes and answer 429 `too_many_attempts` once that reaches 10, with the pending session revoked on verify. Verify counts, compares and records the guess in one transaction behind a `FOR UPDATE` lock on the user row, with a conditional increment, so parallel guesses cannot all read a count under the limit. The count comes from the existing challenge rows, so there is no schema change, and the check runs after the password, so nobody without the password can lock a user out. Test added for each plane. PR: https://github.com/SilentYsf/fils-pay/pull/36
 ### Bug: A merchant support user can capture and void payments
 - **Status:** Fixed
 - **Type:** Security, medium

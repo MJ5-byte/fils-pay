@@ -72,3 +72,112 @@ test("login with one email in two merchants lands in the merchant whose password
   assert.notEqual(verify.json().merchantId, merchantA, "must not land in the other merchant with the same email");
   assert.equal(verify.json().merchantId, merchantB);
 });
+
+test("wrong OTP codes count across logins, so re-logging in does not reset the guess budget", async () => {
+  const email = `otp-limit-${randomUUID()}@auth.test`;
+  const merchantId = await createMerchantWithOwner("otp-limit", email, "password-otp-limit");
+  const login = () =>
+    app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password: "password-otp-limit" } });
+  const verify = (cookie: string, code: string) =>
+    app.inject({ method: "POST", url: "/v1/auth/otp/verify", cookies: { [config.cookieName]: cookie }, payload: { code } });
+
+  const rounds = [];
+  for (let i = 0; i < 3; i++) {
+    const res = await login();
+    assert.equal(res.statusCode, 200, res.body);
+    const cookie = res.cookies.find((c) => c.name === config.cookieName);
+    assert.ok(cookie);
+    rounds.push({ cookie: cookie.value, code: res.json().devOtpCode as string });
+  }
+
+  // Two rounds of five wrong codes each: ten failures across two challenges.
+  for (const round of rounds.slice(0, 2)) {
+    const wrong = round.code === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 5; i++) {
+      assert.equal((await verify(round.cookie, wrong)).statusCode, 401);
+    }
+  }
+
+  const third = rounds[2];
+  assert.ok(third);
+  const lockedVerify = await verify(third.cookie, third.code);
+  assert.equal(lockedVerify.statusCode, 429, "a third challenge must not open a fresh guess budget");
+  assert.equal(lockedVerify.json().error, "too_many_attempts");
+
+  const lockedLogin = await login();
+  assert.equal(lockedLogin.statusCode, 429, "a new login must not issue a fresh challenge after the limit");
+  assert.equal(lockedLogin.json().error, "too_many_attempts");
+});
+
+test("parallel wrong OTP codes cannot get past the failure limit", async () => {
+  const email = `otp-race-${randomUUID()}@auth.test`;
+  const merchantId = await createMerchantWithOwner("otp-race", email, "password-otp-race");
+  const cookies: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { merchantId, email, password: "password-otp-race" },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const cookie = res.cookies.find((c) => c.name === config.cookieName);
+    assert.ok(cookie);
+    cookies.push(cookie.value);
+  }
+
+  // A real code is 6 digits, so "abc" never matches; 10 per pending session, all at once.
+  const results = await Promise.all(
+    cookies.flatMap((cookie) =>
+      Array.from({ length: 10 }, () =>
+        app.inject({
+          method: "POST",
+          url: "/v1/auth/otp/verify",
+          cookies: { [config.cookieName]: cookie },
+          payload: { code: "abc" },
+        }),
+      ),
+    ),
+  );
+  const statuses = results.map((r) => r.statusCode);
+  assert.equal(statuses.filter((s) => s === 401).length, 10, `statuses: ${statuses.join(",")}`);
+  assert.equal(statuses.filter((s) => s === 429).length, 30, `statuses: ${statuses.join(",")}`);
+
+  const failures = await pool.query<{ n: number }>(
+    `SELECT SUM(c.attempt_count)::int AS n FROM otp_challenges c
+       JOIN merchant_users mu ON mu.id = c.merchant_user_id WHERE mu.merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(failures.rows[0]?.n, 10);
+});
+
+test("a resend racing wrong OTP verifies never deadlocks into a 500", async () => {
+  const email = `otp-resend-race-${randomUUID()}@auth.test`;
+  const merchantId = await createMerchantWithOwner("otp-resend-race", email, "password-otp-resend-race");
+  const statuses: number[] = [];
+  for (let round = 0; round < 15; round++) {
+    const login = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { merchantId, email, password: "password-otp-resend-race" },
+    });
+    assert.equal(login.statusCode, 200, login.body);
+    const cookie = login.cookies.find((c) => c.name === config.cookieName);
+    assert.ok(cookie);
+    // Age every challenge past the resend throttle and out of the failure window, so each round
+    // races a real resend against verifies that still record their failures.
+    await pool.query(
+      `UPDATE otp_challenges SET created_at = now() - interval '20 minutes'
+        WHERE merchant_user_id = (SELECT id FROM merchant_users WHERE merchant_id = $1)`,
+      [merchantId],
+    );
+    const cookies = { [config.cookieName]: cookie.value };
+    const results = await Promise.all([
+      app.inject({ method: "POST", url: "/v1/auth/otp/resend", cookies }),
+      ...Array.from({ length: 4 }, () =>
+        app.inject({ method: "POST", url: "/v1/auth/otp/verify", cookies, payload: { code: "abc" } }),
+      ),
+    ]);
+    statuses.push(...results.map((r) => r.statusCode));
+  }
+  assert.equal(statuses.filter((s) => s >= 500).length, 0, `statuses: ${statuses.join(",")}`);
+});
