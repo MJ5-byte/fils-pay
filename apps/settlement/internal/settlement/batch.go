@@ -138,7 +138,9 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	if err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: read platform volume: %w", err)
 	}
-	tierBonusBps := VolumeTierMdrBonusBps(platformProcessedFils)
+	// The platform volume-tier discount is not applied: it never had the
+	// written finance sign-off HANDOVER required ("no until finance signs off
+	// in writing"; finance had not heard of it). The counter is still kept.
 
 	// Step 6: select and lock eligible events for the whole window. The
 	// join is transaction_events (many) -> transactions (one) — the safe
@@ -206,9 +208,6 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		for _, e := range grouped[txnID] {
 			grossForTxn += e.amountFils
 			effectiveMdrBps := EffectiveMdrBpsAt(schedules, e.occurredAt, mdrBps)
-			if effectiveMdrBps -= tierBonusBps; effectiveMdrBps < 0 {
-				effectiveMdrBps = 0
-			}
 			feeForTxn += ComputeSettlementFee(e.amountFils, effectiveMdrBps, discountBps)
 			eventIDs = append(eventIDs, e.id)
 		}
@@ -252,9 +251,21 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		_, err = tx.Exec(ctx, `
 			INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
 			VALUES ($1, $2, $3, $4, $5)
-		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(line.grossFils), i+1)
+		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(truncated), i+1)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: insert scheme export line: %w", err)
+		}
+		if residue := line.grossFils - truncated; residue > 0 {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO ledger_entries
+				  (entry_group_id, merchant_id, transaction_id, settlement_batch_id, account_id, direction, amount_fils, occurred_at, description)
+				VALUES
+				  ($1, $2, $3, $4, 'card_scheme_clearing',    'credit', $5, now(), 'scheme export: rounding residue'),
+				  ($1, $2, $3, $4, 'scheme_rounding_residue', 'debit',  $5, now(), 'scheme export: rounding residue')
+			`, uuid.New(), merchantID, line.transactionID, batchID, int64(residue))
+			if err != nil {
+				return BatchResult{}, fmt.Errorf("settlement: CloseBatch: post scheme rounding residue: %w", err)
+			}
 		}
 	}
 
