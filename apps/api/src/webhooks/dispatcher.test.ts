@@ -7,7 +7,7 @@
  * point at a real, migrated Postgres (run `npm run migrate` first).
  */
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { enqueueEvent } from "@filspay/events";
@@ -15,6 +15,7 @@ import { loadConfig } from "../config.js";
 import { createWebhookEndpoint } from "./create.js";
 import { backoffDelayMs, runDispatchPass } from "./dispatcher.js";
 import { verifySignature } from "./sign.js";
+import { sendTestWebhookEvent } from "./testSend.js";
 import { WEBHOOK_DELIVERY_ID_HEADER, WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
 import type { WebhookTransport, WebhookTransportRequest } from "./transport.js";
 
@@ -407,4 +408,48 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
     endpoint.id,
   ]);
   assert.equal(rows.rows.length, 0);
+});
+
+test("a real delivery and a test send are each signed over the exact body bytes sent (BHA-15)", async () => {
+  function assertRawSignature(header: string, body: string, secret: string): void {
+    const match = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(header);
+    assert.ok(match, "the signature header must contain a timestamp and SHA-256 HMAC");
+    const [, t, v1] = match;
+    assert.equal(createHmac("sha256", secret).update(`${t}.${body}`).digest("hex"), v1);
+  }
+
+  const merchantId = await createMerchant("raw-body-signature");
+  const endpointUrl = `http://fake-receiver.test/webhook-${randomUUID()}`;
+  const endpoint = await createEndpoint(merchantId, endpointUrl);
+  await enqueueCaptured(merchantId);
+
+  const captured: WebhookTransportRequest[] = [];
+  const transport: WebhookTransport = async (req) => {
+    if (req.url === endpointUrl) captured.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+
+  await runDispatchPass(pool, transport, config);
+
+  assert.equal(captured.length, 1);
+  const deliveryRequest = captured[0];
+  assert.ok(deliveryRequest);
+  const deliveryHeader = deliveryRequest.headers[WEBHOOK_SIGNATURE_HEADER];
+  assert.ok(deliveryHeader);
+  assertRawSignature(deliveryHeader, deliveryRequest.body, endpoint.secret);
+
+  const testRequests: WebhookTransportRequest[] = [];
+  const testTransport: WebhookTransport = async (req) => {
+    testRequests.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+
+  await sendTestWebhookEvent(pool, config, testTransport, { merchantId, endpointId: endpoint.id });
+
+  assert.equal(testRequests.length, 1);
+  const testRequest = testRequests[0];
+  assert.ok(testRequest);
+  const testHeader = testRequest.headers[WEBHOOK_SIGNATURE_HEADER];
+  assert.ok(testHeader);
+  assertRawSignature(testHeader, testRequest.body, endpoint.secret);
 });

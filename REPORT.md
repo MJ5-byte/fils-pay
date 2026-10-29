@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Merchants can't verify our webhook signatures
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** A merchant who checks the HMAC of the webhook body they received gets a mismatch on every delivery and every test send, so they must either reject our webhooks or skip verification.
+- **Cause:** `apps/api/src/webhooks/dispatcher.ts:158` signs the payload with sorted keys (`canonicalJson` inside `signPayload`), but `:172` sends `JSON.stringify` of the stored jsonb payload in Postgres key order; `apps/api/src/webhooks/testSend.ts:57,62` does the same with insertion order. The signed bytes and the sent bytes differ.
+- **Breaks:** Merchants cannot tell a genuine FilsPay webhook from a forged one, which defeats the point of signing.
+- **Fix:** `signPayload` in `apps/api/src/webhooks/sign.ts` now also returns the exact string it signed, and both the dispatcher and the test send use that string as the request body. The signature scheme and header format are unchanged. Test added.
 ### Bug: Refunds pay out twice and can exceed the charge
 - **Status:** Fixed
 - **Type:** Money, critical

@@ -15,10 +15,13 @@ export interface SignedPayload {
   timestamp: number;
   /** header value: "t=<timestamp>,v1=<hex-hmac-sha256>" */
   signature: string;
+  /** The exact string the signature covers after `t.`; callers must send
+   *  it unchanged as the request body so a receiver can verify the raw bytes. */
+  body: string;
 }
 
 /**
- * Computes the header value a delivery carries. `secret` is the raw
+ * Computes the header value and returns the body a delivery must send. `secret` is the raw
  * (decrypted) webhook secret — callers must decrypt
  * webhook_endpoints.secret_ciphertext (webhooks/secretCrypto.ts) before
  * calling this; sign.ts itself never touches encryption, only signing.
@@ -33,9 +36,10 @@ export function signPayload(
   secret: string,
   timestamp: number = Math.floor(Date.now() / 1000),
 ): SignedPayload {
-  const signedString = `${timestamp}.${canonicalJson(payload)}`;
+  const body = canonicalJson(payload);
+  const signedString = `${timestamp}.${body}`;
   const signature = createHmac("sha256", secret).update(signedString).digest("hex");
-  return { timestamp, signature: `t=${timestamp},v1=${signature}` };
+  return { timestamp, signature: `t=${timestamp},v1=${signature}`, body };
 }
 
 interface ParsedSignatureHeader {
