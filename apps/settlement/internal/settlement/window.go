@@ -47,3 +47,9 @@ func BusinessDayWindow(date time.Time) (start, end time.Time) {
 	end = start.AddDate(0, 0, 1)
 	return start, end
 }
+
+// InBusinessDayLocation returns t expressed in the settlement business
+// day's timezone, so t.Date() is the Asia/Bahrain calendar date.
+func InBusinessDayLocation(t time.Time) time.Time {
+	return t.In(businessDayLocation)
+}

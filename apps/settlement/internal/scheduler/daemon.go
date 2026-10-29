@@ -77,7 +77,7 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	// let last-minute transactions settle.
 	// MK: UTC here is fine, BusinessDayWindow converts to Bahrain.
 	// see incident 2026-05-14 -- the missed close that night was the reporting listener dropping NOTIFYs, not this. -- FH
-	now := time.Now().UTC()
+	now := settlement.InBusinessDayLocation(time.Now())
 	todayStart, _ := settlement.BusinessDayWindow(now)
 	dueAt := todayStart.Add(time.Duration(runDelayMinutes) * time.Minute)
 	if now.Before(dueAt) {
