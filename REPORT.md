@@ -128,6 +128,13 @@
 - **Cause:** `rotateApiKeyAsAdmin` (`apps/api/src/admin/apiKeys.ts:31-36`) issued the replacement key and wrote the audit row but never set `revoked_at` on the key it replaced, so `verifyApiKey` (`apps/api/src/apiKeys/verify.ts:19`) kept accepting it. The route comment (`routes/adminMerchants.ts:175`), migration 0037 and `apiKeys/issue.ts:22` all describe rotation as revoke plus reissue; no ADR or doc defines a grace period.
 - **Breaks:** Rotating a compromised key did nothing: whoever held the old key could keep charging cards, capturing, voiding and reading the merchant's transactions.
 - **Fix:** The rotation now revokes the old key (`revoked_reason = 'rotated'`) in the same transaction that issues the new one and writes the audit row. The existing rotation test asserted the bug and now expects the old key to get 401 and the new one 200. PR: https://github.com/SilentYsf/fils-pay/pull/17
+### Bug: Shops get two "your payout is on the way" messages
+- **Status:** Fixed
+- **Type:** Concurrency, medium
+- **Problem:** A shop could get the `settlement.paid` webhook ("your payout is on the way") twice for one payout.
+- **Cause:** `EnqueuePayoutNotifications` (`apps/settlement/internal/settlement/payout_notify.go:32-43`) checks `NOT EXISTS` for the batch's event and then inserts it in a separate statement (`:86`), with no transaction around the two and no unique index on `outbox_events` (migration 0009) to stop a second row; the comment at `:27` claiming such an index was false. The daemon tick and `run-batch` both call it, so two passes running at once both saw no event and both inserted one.
+- **Breaks:** Duplicate payout notifications to merchants, and every consumer of `settlement.paid` sees the same payout twice. No money moves from the event itself.
+- **Fix:** Each insert now runs in its own transaction that locks the batch row (`SELECT ... FOR UPDATE`) and inserts only `WHERE NOT EXISTS`, so a second pass waits for the first and then finds its event. No schema change. The false comment is corrected. Test added: two passes held at a lock and released together enqueue one event (two before the fix). PR: https://github.com/SilentYsf/fils-pay/pull/29
 ### Bug: rebuild-balances --merchant changes nothing
 - **Status:** Fixed
 - **Type:** Data, low
