@@ -3,6 +3,7 @@ import { buildQuery } from "./query.js";
 import type {
   CaptureResponse,
   TransactionDto,
+  RefundResponse,
   TransactionEventDto,
   TransactionListResponse,
   TransactionStatus,
@@ -44,13 +45,26 @@ export function getTransactionEvents(id: string): Promise<TransactionEventDto[]>
 /** Omitting `amountFils` captures everything still outstanding — capture.ts's
  *  own default, so the caller passes nothing rather than computing the
  *  remainder client-side and risking a stale value. */
-// MK: refund client fn moved out of here into RefundDrawer for now
 export function captureTransaction(
   id: string,
   input: { amountFils?: number },
   idempotencyKey: string,
 ): Promise<CaptureResponse> {
   return request(`/v1/transactions/${encodeURIComponent(id)}/capture`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify(input),
+  });
+}
+
+/** `POST /v1/refunds` — the merchant comes from the session cookie; there is
+ *  no merchantId to pass. Omitting `amountFils` refunds everything still
+ *  refundable, so a caller never computes that remainder itself. */
+export function refundTransaction(
+  input: { transactionId: string; amountFils?: number; reason?: string },
+  idempotencyKey: string,
+): Promise<RefundResponse> {
+  return request("/v1/refunds", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),

@@ -117,6 +117,20 @@ export interface TransactionEventDto {
   createdAt: string;
 }
 
+/** `POST /v1/refunds` — `processRefund`'s response body. */
+export interface RefundResponse {
+  id: string;
+  transactionId: string;
+  merchantId: string;
+  amountFils: number;
+  feeReversedFils: number;
+  status: "succeeded";
+  transactionStatus: TransactionStatus;
+  refundedTotalFils: number;
+  acquirerReference: string;
+  occurredAt: string;
+}
+
 /** Capture and void both answer with a bare serialized transaction.
  *  `voidTransaction`'s `alreadyVoided` flag lives on the internal result
  *  object, *not* in the response body routes/transactions.ts sends

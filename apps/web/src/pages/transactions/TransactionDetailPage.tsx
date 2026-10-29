@@ -9,7 +9,8 @@ import {
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd, dash, dateTime } from "../../format.js";
-import type { TransactionDto, TransactionEventDto } from "../../types.js";
+import type { RefundResponse, TransactionDto, TransactionEventDto } from "../../types.js";
+import { RefundDrawer } from "./RefundDrawer.js";
 
 type LoadState =
   | { kind: "loading" }
@@ -26,13 +27,12 @@ type LoadState =
  * for both (a `403` would confirm a foreign transaction's existence), and
  * this page does not undo that by guessing.
  */
-// MK: timeline renders refund events fine
-// FH: RefundDrawer import removed 2026-06 until the route exists
 export function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [events, setEvents] = useState<TransactionEventDto[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureAmount, setCaptureAmount] = useState("");
@@ -75,6 +75,7 @@ export function TransactionDetailPage() {
       // A fresh Idempotency-Key per click, including a retry after a decline —
       // same discipline as the checkout page's submit handler.
       await captureTransaction(id, input, crypto.randomUUID());
+      setActionNotice(null);
       setCaptureOpen(false);
       setCaptureAmount("");
       // Refetch rather than patch: a capture wrote a new transaction_events
@@ -100,12 +101,21 @@ export function TransactionDetailPage() {
       // indistinguishable from a first void on the wire, and correctly so:
       // both mean "now voided".
       await voidTransaction(id);
+      setActionNotice(null);
       await load();
     } catch (err) {
       setActionError(describeError(err));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleRefunded(result: RefundResponse): Promise<void> {
+    setActionError(null);
+    setActionNotice(
+      `Refund of ${bhd(result.amountFils)} succeeded. Transaction is now ${result.transactionStatus}.`,
+    );
+    await load();
   }
 
   if (state.kind === "loading") {
@@ -141,6 +151,8 @@ export function TransactionDetailPage() {
       <p className="dash-muted">
         <code>{txn.id}</code>
       </p>
+
+      {actionNotice ? <p className="dash-notice">{actionNotice}</p> : null}
 
       <dl className="dash-dl">
         <dt>Status</dt>
@@ -221,6 +233,8 @@ export function TransactionDetailPage() {
           </div>
         ) : null}
       </RequireRole>
+
+      <RefundDrawer txn={txn} onRefunded={handleRefunded} />
 
       <h2>Event timeline</h2>
       <table className="dash-table">
