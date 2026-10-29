@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { estimateFeeFils } from "../fees/estimate.js";
+import { BadRequestError } from "../lib/errors.js";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -116,8 +117,9 @@ export async function listSettlementBatches(
   const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
   const decodedCursor = decodeCursor(filters.cursor);
 
-  const result = await pool.query<SettlementBatchRow>(
-    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
+  const result = await pool
+    .query<SettlementBatchRow>(
+      `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
        FROM settlement_batches
       WHERE merchant_id = $1
         AND ($2::date IS NULL OR batch_date >= $2)
@@ -126,16 +128,23 @@ export async function listSettlementBatches(
         AND ($5::date IS NULL OR (batch_date, id) < ($5, $6))
       ORDER BY batch_date DESC, id DESC
       LIMIT $7`,
-    [
-      filters.merchantId,
-      filters.from ?? null,
-      filters.to ?? null,
-      statusArray,
-      decodedCursor?.batchDate ?? null,
-      decodedCursor?.id ?? null,
-      limit,
-    ],
-  );
+      [
+        filters.merchantId,
+        filters.from ?? null,
+        filters.to ?? null,
+        statusArray,
+        decodedCursor?.batchDate ?? null,
+        decodedCursor?.id ?? null,
+        limit,
+      ],
+    )
+    .catch((err: unknown) => {
+      // SQLSTATE class 22 with a cursor present: the decoded cursor isn't a valid date/uuid.
+      if (decodedCursor && (err as { code?: string }).code?.startsWith("22")) {
+        throw new BadRequestError("invalid_cursor", "cursor is not valid");
+      }
+      throw err;
+    });
 
   const batches = result.rows.map(serializeBatch);
   const lastRow = result.rows[result.rows.length - 1];

@@ -78,3 +78,22 @@ test("GET /v1/reporting/export-summary without credentials answers 401", async (
   const res = await app.inject({ method: "GET", url: "/v1/reporting/export-summary" });
   assert.equal(res.statusCode, 401, res.body);
 });
+
+// BHA-91 / BHA-104: a malformed date used to be dropped silently (top-level) or reach Postgres (filter JSON).
+test("GET /v1/reporting/transactions answers 400 for a malformed date or filter shape", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("bad-dates");
+  const get = (qs: string) =>
+    app.inject({ method: "GET", url: `/v1/reporting/transactions?${qs}`, headers: { authorization: `Bearer ${rawKey}` } });
+  const filter = (f: unknown) => `filter=${encodeURIComponent(JSON.stringify(f))}`;
+
+  assert.equal((await get("from=banana&to=banana")).statusCode, 400);
+  assert.equal((await get(filter({ from: "banana" }))).statusCode, 400);
+  assert.equal((await get(filter({ to: 12345 }))).statusCode, 400);
+  assert.equal((await get(filter(null))).statusCode, 400);
+  assert.equal((await get(filter({ from: "1" }))).statusCode, 400);
+  assert.equal((await get("from=2026-02-30")).statusCode, 400);
+  assert.equal((await get(filter({ to: "2026-04-31" }))).statusCode, 400);
+  assert.equal((await get(filter({ merchantId: "abc" }))).statusCode, 400);
+  assert.equal((await get(filter({ status: ["a"] }))).statusCode, 400);
+  assert.equal((await get(filter({ from: "2026-10-01", to: "2026-10-31" }))).statusCode, 200);
+});

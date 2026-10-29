@@ -554,3 +554,39 @@ test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, a loopback endpoint is refused at 
     await blockedApp.close();
   }
 });
+
+// BHA-91 / BHA-93: bad limit, bad cursor and non-UUID ids must answer 4xx, never 500.
+test("GET deliveries answers 400 for a non-numeric limit and for a crafted cursor", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("bad-limit");
+  const endpoint = await createEndpointViaRoute(rawKey, merchantId, "http://127.0.0.1:9/webhook");
+  const base = `/v1/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/deliveries`;
+
+  const badLimit = await app.inject({ method: "GET", url: `${base}?limit=abc`, headers: authHeader(rawKey) });
+  assert.equal(badLimit.statusCode, 400, badLimit.body);
+
+  const crafted = Buffer.from(`not-a-date|not-a-uuid`, "utf8").toString("base64url");
+  const badCursor = await app.inject({ method: "GET", url: `${base}?cursor=${crafted}`, headers: authHeader(rawKey) });
+  assert.equal(badCursor.statusCode, 400, badCursor.body);
+});
+
+test("webhook endpoint routes answer 404 for a non-UUID endpoint or delivery id", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("bad-id");
+  const base = `/v1/merchants/${merchantId}/webhook-endpoints`;
+  const calls: Array<[string, string, string]> = [
+    ["GET", `${base}/nope/deliveries`, "deliveries list"],
+    ["GET", `${base}/nope/deliveries/nope`, "delivery detail"],
+    ["PATCH", `${base}/nope`, "update"],
+    ["DELETE", `${base}/nope`, "delete"],
+    ["POST", `${base}/nope/test`, "test send"],
+    ["POST", `${base}/nope/deliveries/nope/replay`, "replay"],
+  ];
+  for (const [method, url, label] of calls) {
+    const res = await app.inject({
+      method: method as "GET",
+      url,
+      headers: authHeader(rawKey),
+      ...(method === "PATCH" ? { payload: { status: "disabled" } } : {}),
+    });
+    assert.equal(res.statusCode, 404, `${label}: ${res.statusCode} ${res.body}`);
+  }
+});

@@ -506,3 +506,21 @@ test("GET /v1/settlement/reconciliation succeeds for a 'finance' session role", 
   });
   assert.equal(res.statusCode, 200, res.body);
 });
+
+// BHA-91: malformed ids, dates, limit and cursor must answer 4xx, never 500.
+test("settlement routes answer 4xx for malformed id, dates, limit and cursor", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("bad-input");
+  const get = (url: string) => app.inject({ method: "GET", url, headers: authHeader(rawKey) });
+
+  assert.equal((await get("/v1/settlement/batches/not-a-uuid")).statusCode, 404);
+  assert.equal((await get("/v1/settlement/batches/not-a-uuid/transactions")).statusCode, 404);
+  assert.equal((await get("/v1/settlement/batches?from=banana")).statusCode, 400);
+  assert.equal((await get("/v1/settlement/batches?to=banana")).statusCode, 400);
+  assert.equal((await get("/v1/settlement/batches?limit=abc")).statusCode, 400);
+  const crafted = Buffer.from("not-a-date|not-a-uuid", "utf8").toString("base64url");
+  assert.equal((await get(`/v1/settlement/batches?cursor=${crafted}`)).statusCode, 400);
+  for (const path of ["reconciliation", "summary"]) {
+    assert.equal((await get(`/v1/settlement/${path}?from=banana&to=2026-10-02`)).statusCode, 400, path);
+    assert.equal((await get(`/v1/settlement/${path}?from=2026-10-01&to=2026-02-30`)).statusCode, 400, path);
+  }
+});

@@ -4,6 +4,7 @@ import {
   requireMerchantRole,
   requireMerchantWriterActor,
 } from "../auth/requireMerchantAuth.js";
+import { UUID_RE } from "../admin/merchants.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import { createWebhookEndpoint } from "../webhooks/create.js";
 import { getWebhookEndpoint, listWebhookEndpoints } from "../webhooks/list.js";
@@ -41,9 +42,19 @@ interface ListDeliveriesQuery {
   cursor?: string;
 }
 
-function assertOwnMerchant(request: FastifyRequest<{ Params: MerchantIdParams }>): void {
+/** Ownership check, then a malformed endpoint/delivery id is a 404: it can't match a uuid column, and would 500 in Postgres. */
+function assertOwnMerchant(
+  request: FastifyRequest<{ Params: MerchantIdParams & { id?: string; deliveryId?: string } }>,
+): void {
   if (!request.merchantAuth || request.merchantAuth.merchantId !== request.params.merchantId) {
     throw new ForbiddenError("forbidden");
+  }
+  const { id, deliveryId } = request.params;
+  if (id !== undefined && !UUID_RE.test(id)) {
+    throw new NotFoundError("webhook_endpoint_not_found");
+  }
+  if (deliveryId !== undefined && !UUID_RE.test(deliveryId)) {
+    throw new NotFoundError("webhook_delivery_not_found");
   }
 }
 
@@ -192,6 +203,9 @@ export async function webhookEndpointRoutes(app: FastifyInstance): Promise<void>
 
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
+      if (q.limit !== undefined && !/^\d+$/.test(q.limit)) {
+        throw new BadRequestError("invalid_request", "limit must be a positive integer");
+      }
       const limit = q.limit !== undefined ? Number.parseInt(q.limit, 10) : undefined;
 
       const result = await listWebhookDeliveries(app.db, {
