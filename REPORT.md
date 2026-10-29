@@ -142,6 +142,13 @@
 - **Cause:** `rotateApiKeyAsAdmin` (`apps/api/src/admin/apiKeys.ts:31-36`) issued the replacement key and wrote the audit row but never set `revoked_at` on the key it replaced, so `verifyApiKey` (`apps/api/src/apiKeys/verify.ts:19`) kept accepting it. The route comment (`routes/adminMerchants.ts:175`), migration 0037 and `apiKeys/issue.ts:22` all describe rotation as revoke plus reissue; no ADR or doc defines a grace period.
 - **Breaks:** Rotating a compromised key did nothing: whoever held the old key could keep charging cards, capturing, voiding and reading the merchant's transactions.
 - **Fix:** The rotation now revokes the old key (`revoked_reason = 'rotated'`) in the same transaction that issues the new one and writes the audit row. The existing rotation test asserted the bug and now expects the old key to get 401 and the new one 200. PR: https://github.com/SilentYsf/fils-pay/pull/17
+### Bug: Reconciliation subtracts payouts twice
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** A merchant's reconciliation showed a negative gap equal to the payout (locally: ledger net -34, settlement net 23422, gap -23456) for any period that included the day a batch was paid.
+- **Cause:** Paying a batch debits `merchant_payable` (`apps/settlement/internal/settlement/batch.go:340`), so the ledger figure in `apps/api/src/settlement/query.ts:288-293` already excluded the payout, and `:333` subtracted the batch's `net_payout_fils` again.
+- **Breaks:** Reconciliation never ties out over any normal period, so finance cannot use it to spot real gaps.
+- **Fix:** The ledger figure leaves out the payout legs (tagged with a `settlement_batch_id` and a `settlement payout:` description), so each payout is counted once, through the settlement figure. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/25
 ### Bug: Suspended merchants keep money access
 - **Status:** Fixed
 - **Type:** Security, medium

@@ -385,6 +385,32 @@ test("GET /v1/settlement/reconciliation reports gapFils === 0 for a fully-batche
   assert.equal(report.ledgerMerchantPayableNetFils, expectedNet);
 });
 
+// BHA-46: a window that covers both the capture day and the payout day saw the
+// payout once as a merchant_payable debit and again in settlementNetPayoutFils.
+test("GET /v1/settlement/reconciliation counts a payout once when the window includes the payout day", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("reconciliation-payout-in-window", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id);
+
+  const businessDate = todayBahrainDateString();
+  // closeAndPayoutBatch posts the payout legs on the next business day.
+  await closeAndPayoutBatch(merchantId, businessDate);
+  const dayAfterPayout = addOneCalendarDay(addOneCalendarDay(businessDate));
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${dayAfterPayout}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; settlementNetPayoutFils: number };
+
+  const expectedNet = 10_000 - Number(applyRateFils(toFils(10_000), 250));
+  assert.equal(report.settlementNetPayoutFils, expectedNet);
+  assert.equal(report.gapFils, 0, "the payout must not be subtracted a second time");
+  assert.equal(report.explained, true);
+});
+
 // merchant in this fixture has no discount and no schedule row, so the float path is exact here — MK
 test("GET /v1/settlement/reconciliation with an unbatched capture reports it as pendingUnbatchedFils, not an unexplained gap", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("reconciliation-pending", 250);
