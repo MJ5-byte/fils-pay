@@ -81,11 +81,16 @@ export type ImpersonationMerchantRole = "owner" | "finance" | "support";
 /** `admin_users.role` (migration 0031). */
 type AdminUserRole = "support" | "finance" | "super_admin";
 
-/** Maps the admin's role to the merchant-plane role used during impersonation. */
+/** Maps every admin role to the merchant-plane role used during impersonation. A
+ *  grant is view-only (HANDOVER: "maps every admin to the support merchant
+ *  role and is read-only"; ARCH §8), so finance/super_admin must NOT upgrade
+ *  to merchant finance/owner — that let an impersonator create payment links
+ *  and webhook endpoints as the merchant with write attribution invisible as
+ *  an admin action. (B20) */
 const MERCHANT_ROLE_FOR_ADMIN_ROLE: Record<AdminUserRole, ImpersonationMerchantRole> = {
   support: "support",
-  finance: "finance",
-  super_admin: "owner",
+  finance: "support",
+  super_admin: "support",
 };
 
 /** @property merchantRole Always "support" (ARCH §8): a grant is view-only. */
