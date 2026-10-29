@@ -12,6 +12,13 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# node-argon2 is a native addon and compiles via node-gyp at install time, so
+# the image needs a C toolchain plus python3 even in production (npm ci runs
+# without --ignore-scripts so the prebuilt/compiled binary lands next to the
+# source it runs from).
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 # Install with the lockfile first so dependency layers cache independently
 # of source changes.
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./

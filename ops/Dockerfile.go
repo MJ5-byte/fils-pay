@@ -7,15 +7,17 @@
 
 FROM golang:1.27-alpine AS build
 
-WORKDIR /src
+# The module root is apps/settlement itself (go.mod lives there) — make it
+# the WORKDIR so `go build ./cmd/settlement` resolves in-tree.
+WORKDIR /src/apps/settlement
 
 # Cache module downloads first (go.mod/go.sum only), then build.
 COPY apps/settlement/go.mod apps/settlement/go.sum ./
 RUN go mod download
 
-COPY apps/settlement ./apps/settlement
+COPY apps/settlement ./
 
-RUN CGO_ENABLED=0 go build -o /out/settlement ./apps/settlement/cmd/settlement
+RUN CGO_ENABLED=0 go build -o /out/settlement ./cmd/settlement
 
 FROM alpine:3.20
 
