@@ -269,6 +269,13 @@
 - **Breaks:** An attacker who observed one signed callback could replay it indefinitely, and the timing side channel helped forge a valid signature.
 - **Fix:** The compare now uses the repo's constant-time `timingSafeEqualHex`, as `webhooks/sign.ts` already does, and a callback whose signed timestamp is older than a 300 second window is rejected with a new `stale_timestamp` reason. Additive: the require-signature behaviour from BHA-14 is unchanged and no existing reason was removed. No schema change. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/40
 
+### Bug: Duplicate acquirer callbacks are saved twice
+- **Status:** Fixed
+- **Type:** Data, low
+- **Problem:** When the acquirer redelivered the same async callback (same `callbackId`), the second copy was saved as a second identical note, so a transaction's timeline showed the same fraud-review verdict twice.
+- **Cause:** `applyAcquirerCallback` in `apps/api/src/acquirer/callbacks.ts` did an unconditional `INSERT` into `acquirer_callback_notes`, and nothing enforced uniqueness on the acquirer's own `callback_id`. The dedupe the 1.9.0 postmortem, `CHANGELOG.md`, `HANDOVER.md` and migration 0051's comments claimed (a `processed_events` table, an FP-238 unique index) does not exist anywhere in the code or schema.
+- **Breaks:** Duplicate payment history on the transaction timeline. This callback is informational only, so no money or status was affected.
+- **Fix:** Added `ON CONFLICT (callback_id) DO NOTHING` to the insert, backed by a new additive migration (`db/migrations/0073_acquirer_callback_notes_dedupe.sql`) that creates a unique index on `acquirer_callback_notes (callback_id)`. A redelivery is now an atomic no-op, safe under concurrency. The migration is additive and needs a human to approve it before it runs in shared or hosted databases. Test added (the same callback fired twice concurrently yields one note).
 ### Bug: Web apps cannot reach the API (no CORS)
 - **Status:** Fixed
 - **Type:** Deploy, high
