@@ -276,3 +276,10 @@
 - **Cause:** Step B of the dispatcher (`attemptDueDeliveries` in `apps/api/src/webhooks/dispatcher.ts`) joined `webhook_endpoints` without checking its status; only Step A, which creates rows, required `status = 'active'`.
 - **Breaks:** A merchant who disabled an endpoint (retired or compromised URL) kept sending payment payloads, signed with its secret, to that URL.
 - **Fix:** Added `AND we.status = 'active'` to the Step B query. Held rows stay `pending` and go out on the first pass after the endpoint is active again. Test added in `dispatcher.test.ts`.
+### Bug: KYC PDF-only check trusts the filename, not the file bytes
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** A PNG or JPEG renamed to end in .pdf was accepted as a commercial_registration or bank_letter, and a genuine PDF whose filename did not end in .pdf was wrongly rejected.
+- **Cause:** `recordKycDocument` in `apps/api/src/onboarding/kyc.ts:67` decided the PDF-only rule from `input.fileName.toLowerCase().endsWith(".pdf")`, the client-supplied filename, although the real magic-byte type was already detected at `:50`. The module validates from the bytes, never the name (`onboarding/fileSignature.ts:1-6`); the in-code comment claiming `detectFileType` already narrows these document types was false.
+- **Breaks:** The PDF-only gate for registry and bank documents: a non-PDF disguised with a .pdf name reached review as a PDF, and a real PDF under a different name was refused.
+- **Fix:** The check now compares the detected type (`detected !== "pdf"`), the same string-literal shape the rest of the file uses; the `document_must_be_pdf` error is unchanged. The existing test that asserted the filename behaviour was corrected to accept a real PDF regardless of name, and one test was added for a PNG renamed .pdf being rejected. The upload size limit the ticket worried about is already capped at the boundary (`plugins/multipart.ts` fileSize to 413 in `plugins/errorHandler.ts`), so no size change was needed.

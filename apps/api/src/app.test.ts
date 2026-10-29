@@ -271,13 +271,32 @@ test("KYC upload accepts a real tiny PDF and moves onboarding_status to under_re
   assert.equal(meRes.json().merchant.onboardingStatus, "under_review");
 });
 
-test("KYC upload rejects a commercial_registration submitted as a non-PDF filename", async () => {
+test("KYC upload accepts a real PDF for commercial_registration regardless of its filename", async () => {
   const { merchantId, cookie } = await signupLoginAndVerify("kycnonpdf");
 
   const pdfBuffer = Buffer.from("%PDF-1.4\n%mock minimal pdf for test\n%%EOF");
   const { body, contentType } = buildMultipart(
     { documentType: "commercial_registration" },
     { fieldName: "file", filename: "registration.docx", contentType: "application/pdf", data: pdfBuffer },
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/kyc/documents`,
+    headers: { cookie, "content-type": contentType },
+    payload: body,
+  });
+  assert.equal(res.statusCode, 201, res.body);
+  assert.equal(res.json().onboardingStatus, "under_review");
+});
+
+test("KYC upload rejects a PNG renamed .pdf for a PDF-only document type", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("kycpng");
+
+  const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const { body, contentType } = buildMultipart(
+    { documentType: "commercial_registration" },
+    { fieldName: "file", filename: "evil.pdf", contentType: "application/pdf", data: pngBuffer },
   );
 
   const res = await app.inject({
