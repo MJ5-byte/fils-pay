@@ -29,8 +29,7 @@ function parseAcquirerSignatureHeader(header: string): ParsedAcquirerSignatureHe
   return { timestamp, signature };
 }
 
-/** There is no timestamp reason: freshness is not checked for inbound callbacks. */
-export type VerifyAcquirerCallbackFailureReason = "malformed_header" | "signature_mismatch";
+export type VerifyAcquirerCallbackFailureReason = "malformed_header" | "signature_mismatch" | "timestamp_out_of_tolerance";
 
 export interface VerifyAcquirerCallbackResult {
   valid: boolean;
@@ -48,6 +47,7 @@ export function verifyAcquirerCallbackSignature(
   header: string | undefined,
   secret: string,
   requireSignature = false,
+  options?: { toleranceSeconds?: number; now?: number },
 ): VerifyAcquirerCallbackResult {
   if (!header) {
     return requireSignature
@@ -64,6 +64,13 @@ export function verifyAcquirerCallbackSignature(
 
   if (!constantTimeEquals(expected, parsed.signature)) {
     return { valid: false, reason: "signature_mismatch" };
+  }
+
+  if (options?.toleranceSeconds !== undefined) {
+    const now = options.now ?? Math.floor(Date.now() / 1000);
+    if (Math.abs(now - parsed.timestamp) > options.toleranceSeconds) {
+      return { valid: false, reason: "timestamp_out_of_tolerance" };
+    }
   }
 
   return { valid: true };

@@ -5,6 +5,9 @@ import { applyAcquirerCallback, withCallbackRetry, type AcquirerCallbackInput } 
 
 // header name confirmed with the acquirer's integration guide v3.2 — am
 const ACQUIRER_SIGNATURE_HEADER = "acquirer-callback-signature";
+/** A captured genuine callback can't be replayed after this many seconds. */
+const CALLBACK_TOLERANCE_SECONDS = 300;
+const CALLBACK_OUTCOMES: ReadonlySet<string> = new Set(["cleared", "confirmed_fraud"]);
 
 /**
  * Body of a fraud_review.completed callback. `outcome` is validated against
@@ -46,6 +49,7 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
       !body.transactionId ||
       !body.occurredAt ||
       !body.outcome ||
+      !CALLBACK_OUTCOMES.has(body.outcome) ||
       !body.note
     ) {
       throw new BadRequestError(
@@ -59,6 +63,7 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
       getSignatureHeader(request),
       app.config.acquirerCallbackSigningSecret,
       app.config.acquirerCallbackRequireSignature,
+      { toleranceSeconds: CALLBACK_TOLERANCE_SECONDS },
     );
     if (!verification.valid) {
       throw new UnauthorizedError("invalid_signature", verification.reason);
