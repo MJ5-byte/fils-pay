@@ -8,7 +8,8 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { createRng } from "../db/seed/rng.js";
 import { toFils, formatBhd, type Fils, addFils, ZERO_FILS } from "@filspay/money";
-import { computeResidueFils } from "./reconcile_march.js";
+import { randomUUID } from "node:crypto";
+import { computeResidueFils, postResidueCorrection } from "./reconcile_march.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -126,6 +127,44 @@ test("reconciliation stress: 2000 ledger entries with zero net residual", { time
     assert.equal(floorTotal, dbTotal, "floor-formula residue should match mod-10 residue");
 
     console.log("\nreconciliation stress test passed: all three residue methods agree");
+
+    await client.query("ROLLBACK");
+  } finally {
+    client.release();
+  }
+});
+
+test("a second reconcile run for an already-swept merchant posts nothing", { timeout: 60_000 }, async () => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Create a throwaway merchant inside this transaction and roll back at the
+    // end, so the shared QA database is left exactly as it was.
+    const merchantId = randomUUID();
+    await client.query(
+      `INSERT INTO merchants (id, display_name, mdr_bps) VALUES ($1, 'reconcile-idempotency-test', 250)`,
+      [merchantId],
+    );
+
+    const countLegs = async (): Promise<number> => {
+      const { rows } = await client.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM ledger_entries WHERE merchant_id = $1`,
+        [merchantId],
+      );
+      return Number(rows[0].n);
+    };
+
+    const sweep = { merchantId, lineCount: 1, residueFils: 7 };
+    const now = new Date();
+
+    await postResidueCorrection(client, sweep, now);
+    const afterFirstRun = await countLegs();
+    assert.equal(afterFirstRun, 2, "first run posts the merchant's two balanced legs");
+
+    await postResidueCorrection(client, sweep, now);
+    const afterSecondRun = await countLegs();
+    assert.equal(afterSecondRun, afterFirstRun, "a second run posts nothing (idempotent)");
 
     await client.query("ROLLBACK");
   } finally {

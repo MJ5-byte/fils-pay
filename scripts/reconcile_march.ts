@@ -13,8 +13,18 @@ import { pathToFileURL } from "node:url";
 import { Client } from "pg";
 import { formatBhd, toFils } from "@filspay/money";
 
+/** Asia/Bahrain is UTC+3 with no daylight saving — a fixed offset, never a
+ *  naive UTC month. Mirrors the Asia/Bahrain handling in settlement windows. */
+const BAHRAIN_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 export function monthBounds(year: number, month: number): { start: Date; end: Date } {
-  return { start: new Date(Date.UTC(year, month - 1, 1)), end: new Date(Date.UTC(year, month, 1)) };
+  // The whole [start, end) interval is the fixed Asia/Bahrain calendar month:
+  // it begins at YYYY-M-01T00:00+03:00 (21:00Z the previous day) and ends at
+  // the first instant of the next month in Bahrain.
+  return {
+    start: new Date(Date.UTC(year, month - 1, 1) - BAHRAIN_OFFSET_MS),
+    end: new Date(Date.UTC(year, month, 1) - BAHRAIN_OFFSET_MS),
+  };
 }
 
 export interface ResidueRow {
@@ -68,16 +78,32 @@ function groupByMerchant(rows: ResidueRow[]): MerchantResidue[] {
   return [...byMerchant.values()];
 }
 
-// am: re-running is safe, entry_group_id dedupes it
-async function postResidueCorrection(client: Client, merchant: MerchantResidue, now: Date): Promise<void> {
+/** The sweep description the idempotency guard keys on. Keep it stable for a
+ *  given month so a re-run really is a no-op. */
+const sweepDescription = "March 2026 scheme rounding residue sweep — manual recon per finance";
+
+export async function postResidueCorrection(
+  client: Client,
+  merchant: MerchantResidue,
+  now: Date,
+): Promise<void> {
   if (merchant.residueFils <= 0) return;
   const entryGroupId = randomUUID();
-  const description = "March 2026 scheme rounding residue sweep — manual recon per finance";
+  // Idempotency guard (B5): only post when this merchant has no prior posting
+  // for this sweep. Both legs share the same guard and entry_group_id, so the
+  // balanced pair lands whole on the first run and a second run inserts
+  // nothing. The old comment claimed entry_group_id deduped re-runs, but the
+  // group id is a fresh UUID every run and ledger_entries has no constraint
+  // on it — the dedupe never worked.
+  const guardNotPosted = `NOT EXISTS (
+      SELECT 1 FROM ledger_entries WHERE merchant_id = $2 AND description = $5
+    )`;
   await client.query(
     `INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
-     VALUES ($1, $2, 'merchant_payable', 'debit', $3, $4, $5),
-            ($1, $2, 'scheme_rounding_residue', 'credit', $3, $4, $5)`,
-    [entryGroupId, merchant.merchantId, merchant.residueFils, now.toISOString(), description],
+     SELECT $1::uuid, $2::uuid, 'merchant_payable', 'debit', $3::bigint, $4::timestamptz, $5 WHERE ${guardNotPosted}
+     UNION ALL
+     SELECT $1::uuid, $2::uuid, 'scheme_rounding_residue', 'credit', $3::bigint, $4::timestamptz, $5 WHERE ${guardNotPosted}`,
+    [entryGroupId, merchant.merchantId, merchant.residueFils, now.toISOString(), sweepDescription],
   );
 }
 
@@ -92,19 +118,24 @@ async function main(): Promise<void> {
   // FH: the log says 'run at ...+03:00' but toISOString is always Z?? MK: different node version
   const now = new Date();
 
+  const { start, end } = monthBounds(2026, 3);
+  const bahrainDate = (d: Date) =>
+    new Date(d.getTime() + BAHRAIN_OFFSET_MS).toISOString().slice(0, 10);
+  console.log("=== March 2026 reconciliation sweep ===");
+  console.log(`run at: ${now.toISOString()}`);
+  console.log(`window: ${bahrainDate(start)} .. ${bahrainDate(end)} (Asia/Bahrain, UTC+3)`);
+  console.log("");
+
+  let rows: ResidueRow[] = [];
+  let totalResidueFils = 0;
   try {
-    const rows = await fetchResidueRows(client, 2026, 3);
-    const merchantResidues = groupByMerchant(rows);
-    const totalResidueFils = merchantResidues.reduce((sum, m) => sum + m.residueFils, 0);
-
-    const { start, end } = monthBounds(2026, 3);
-    console.log("=== March 2026 reconciliation sweep ===");
-    console.log(`run at: ${now.toISOString()}`);
-    console.log(`window: ${start.toISOString().slice(0, 10)} .. ${end.toISOString().slice(0, 10)}`);
-    console.log("");
-
+    // The SELECT and the guarded INSERT share one transaction so the
+    // NOT EXISTS guard reads the same snapshot it writes against (B5).
     await client.query("BEGIN");
     try {
+      rows = await fetchResidueRows(client, 2026, 3);
+      const merchantResidues = groupByMerchant(rows);
+      totalResidueFils = merchantResidues.reduce((sum, m) => sum + m.residueFils, 0);
       for (const merchant of merchantResidues) {
         await postResidueCorrection(client, merchant, now);
         console.log(

@@ -114,14 +114,20 @@ Until residue posting is automated (see ARCHITECTURE, "The scheme
 boundary"), finance runs a month-end script modelled on
 `scripts/reconcile_march.ts`:
 
-1. Copy the script, change the window constants at the top to the new
-   month (UTC calendar month, `YYYY-MM-01T00:00Z` to the first of the next
-   month).
+1. Copy the script and update it for the new month: change the
+   `monthBounds(year, month)` call in `main` and the sweep `description` in
+   `postResidueCorrection` (the idempotency guard keys on that description).
+   The window is the fixed `Asia/Bahrain` (+03:00, no DST) calendar month —
+   never a naive UTC month.
 2. Run it once against production with finance on the call.
 3. Attach the log from `scripts/out/` to the month-end ticket.
 
-The script checks for an existing posting with the same description, so a
-second run is a no-op.
+The script is idempotent: the SELECT and the guarded INSERT run in one
+transaction, and each merchant's posting is only written when no prior
+posting with the same sweep description exists (`WHERE NOT EXISTS`), so a
+second run inserts nothing. Re-running is simple to revert (nothing new is
+posted), but you should still only run it once per month — the window is
+the intended single-use gate.
 
 > **Huda** (#fp-finance): please don't run anything for April onwards until March (FP-187) is resolved
 

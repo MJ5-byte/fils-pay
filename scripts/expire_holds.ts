@@ -10,23 +10,17 @@
  */
 import { pathToFileURL } from "node:url";
 import { Client } from "pg";
-import { buildDelete } from "./lib/sqlFilter.js";
 
-/** Holds that outlived their authorization window without being captured
- *  or released — the candidate set for tonight's cleanup. */
-export async function fetchExpiredHoldIds(client: Client): Promise<string[]> {
-  const result = await client.query<{ id: string }>(
-    `SELECT id FROM holds WHERE status = 'active' AND expires_at < now()`,
-  );
-  return result.rows.map((r) => r.id);
-}
-
-export function buildExpiredHoldsDelete(expiredIds: string[]): { text: string; values: unknown[] } {
-  return buildDelete("holds", { id: expiredIds });
+/** One atomic statement: flip every abandoned active hold to 'expired' in a
+ *  single UPDATE, keyed on status and expiry so a concurrent capture/void
+ *  that released the hold is never touched (no SELECT-then-UPDATE TOCTOU).
+ *  Holds are never deleted — history stays. */
+export function buildExpiredHoldsUpdate(): string {
+  return `UPDATE holds SET status = 'expired' WHERE status = 'active' AND expires_at < now()`;
 }
 
 /**
- * Deletes only holds that are still 'active' and past expires_at. Captured
+ * Expires every hold that is still 'active' and past expires_at. Captured
  * or released holds are never touched, and a night with nothing expired
  * changes no rows.
  */
@@ -39,13 +33,8 @@ async function main(): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    // FH: SELECT then DELETE, a hold could be captured in between. claude: "negligible window, fine."
-    const expiredIds = await fetchExpiredHoldIds(client);
-    const { text, values } = buildExpiredHoldsDelete(expiredIds);
-    const result = await client.query(text, values);
-    console.log(
-      `expire_holds: matched ${expiredIds.length} abandoned hold(s), deleted ${result.rowCount ?? 0} row(s)`,
-    );
+    const result = await client.query(buildExpiredHoldsUpdate());
+    console.log(`expire_holds: expired ${result.rowCount ?? 0} abandoned hold(s)`);
   } finally {
     await client.end();
   }
