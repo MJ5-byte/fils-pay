@@ -44,6 +44,13 @@ test("bhd formats integer fils via @filspay/money, never float arithmetic", () =
   assert.equal(bhd(1234567), "1234.567 BHD");
 });
 
+test("bhd shows a negative amount instead of throwing", () => {
+  // The reconciliation gap is signed; a throw here replaced the whole page
+  // with the router's error screen.
+  assert.equal(bhd(-34), "-0.034 BHD");
+  assert.equal(bhd(-23456), "-23.456 BHD");
+});
+
 test("dash renders absent values as an em dash but keeps zero", () => {
   assert.equal(dash(null), "—");
   assert.equal(dash(undefined), "—");

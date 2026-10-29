@@ -4,12 +4,12 @@ import { formatBhd, toFils } from "@filspay/money";
  * The dashboard's display helpers. Deliberately thin: `bhd` delegates to
  * `@filspay/money`'s `formatBhd`, the same formatter the checkout page uses,
  * so there is exactly one answer to "how is a BHD amount shown" across both
- * halves of this app. Never `/1000`, never `toFixed`.
+ * halves of this app. Never `/1000`, never `toFixed`. Signed amounts reach
+ * the dashboard (the reconciliation gap goes below zero), and a throw here
+ * takes down the whole page instead of showing the number.
  */
-// FH: toFils without allowNegative throws on a negative — refund events / negative gaps crash the page?
-// MK: amounts are never negative in the dashboard. ignore
 export function bhd(amountFils: number): string {
-  return `${formatBhd(toFils(amountFils))} BHD`;
+  return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
 }
 
 /** `—` for a null/absent value, so an empty table cell is visibly empty
