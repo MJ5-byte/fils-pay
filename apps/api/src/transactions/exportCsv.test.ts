@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, test } from "node:test";
 import { Pool } from "pg";
-import { buildTransactionsExportCsv } from "./exportCsv.js";
+import { buildTransactionsExportCsv, streamTransactionsExportCsv } from "./exportCsv.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -175,6 +175,41 @@ test("a status filter narrows to the listed statuses", async () => {
   // An empty status array means "no status filter", not "match nothing".
   const all = await buildTransactionsExportCsv(pool, { merchantId, status: [] });
   assert.equal(all.split("\n").length, 3);
+});
+
+// B23: with PAGE_SIZE 1000, 2501 rows force two real page boundaries. Every
+// row shares an identical occurred_at, so any cursor that keys on
+// occurred_at alone permanently skips the rows after the first page.
+test("streamTransactionsExportCsv pages >1000 rows without skipping any, even with identical occurred_at", async () => {
+  const merchantId = await createMerchant();
+  const SHARED_OCCURRED_AT = "2026-04-01T10:00:00Z";
+  const total = 2501;
+
+  const ids: string[] = [];
+  for (let i = 0; i < total; i++) {
+    ids.push(
+      await insertTransaction(merchantId, {
+        status: "captured",
+        amountFils: 1000 + i,
+        capturedFils: 1000 + i,
+        reference: `row-${i}`,
+        occurredAt: SHARED_OCCURRED_AT,
+      }),
+    );
+  }
+
+  const chunks: string[] = [];
+  await streamTransactionsExportCsv(pool, { merchantId }, (chunk) => chunks.push(chunk));
+
+  const lines = chunks.join("").trimEnd().split("\n");
+  assert.equal(lines.length, total + 1, "header plus every row, exactly once across page boundaries");
+  assert.equal(lines[0], "id,status,amount_bhd,captured_bhd,reference,occurred_at");
+
+  const dataLines = lines.slice(1);
+  assert.equal(new Set(dataLines).size, total, "no duplicate rows across pages");
+  for (const id of ids) {
+    assert.ok(dataLines.some((l) => l.startsWith(`${id},`)), `${id} must not be skipped at a page boundary`);
+  }
 });
 
 // no test for a reference starting with "=" — am

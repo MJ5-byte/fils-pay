@@ -89,7 +89,11 @@ export async function captureTransaction(
   acquirer: AcquirerSimulator,
   input: CaptureInput,
 ): Promise<CaptureResult> {
-  const requestHash = hashRequest({ amountFils: input.amountFils ?? null });
+  // The path resource must be part of the idempotency scope: keys are per
+  // (merchant, endpoint), so reusing one key for a capture on a DIFFERENT
+  // transaction with the same body must not replay the first capture's
+  // cached response.
+  const requestHash = hashRequest({ transactionId: input.transactionId, amountFils: input.amountFils ?? null });
 
   return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {

@@ -376,7 +376,33 @@ async function insertLedgerPair(
   );
 }
 
-// checks inclusive `to` (BETWEEN). API.md says exclusive — one of them is wrong — am
+// B22: `to` is exclusive — a row at the `to`-day's Bahrain midnight falls
+// outside the window; a row one second earlier is inside. The old
+// BETWEEN ... ::date form included the entire `to` calendar day.
+test("GET /v1/analytics/recent-ledger-activity: to is exclusive at the Bahrain-day boundary", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("ledger-activity-exclusive");
+
+  // 2026-01-30T21:00:00Z == 2026-01-31T00:00:00+03:00: the instant `to` is exclusive past.
+  await insertLedgerPair(merchantId, "2026-01-30T20:59:59Z", 1_000, "before boundary");
+  await insertLedgerPair(merchantId, "2026-01-30T21:00:00Z", 2_000, "on boundary");
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/v1/analytics/recent-ledger-activity?from=2026-01-01&to=2026-01-31",
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { points: Array<{ description: string | null }> };
+
+  assert.deepEqual(
+    body.points.map((p) => p.description),
+    ["before boundary", "before boundary"],
+    "the on-boundary leg pair must be excluded: to is exclusive",
+  );
+});
+
+// the original fixture test: small-window correctness within the day
+// window (rows are interior, so both inclusive and exclusive `to` pass)
 test("GET /v1/analytics/recent-ledger-activity: live:true, Bahrain-day window filters, merchant-scoped", async () => {
   const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("ledger-activity");
   const { merchantId: otherMerchantId, rawKey: otherRawKey } =

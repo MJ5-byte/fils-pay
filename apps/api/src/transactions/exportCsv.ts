@@ -49,7 +49,13 @@ export async function buildTransactionsExportCsv(
 }
 
 
-/** Cursor-paginated export for large date ranges. */
+/**
+ * Cursor-paginated export for large date ranges. Keyset is the
+ * (occurred_at, id) tuple — same tie-break as `listTransactions` — so rows
+ * sharing one timestamp are never skipped at a page boundary. The cursor
+ * values are the last row's own `occurred_at::text` and `id`, kept as
+ * plain strings (the cursor never leaves this function).
+ */
 export async function streamTransactionsExportCsv(
   pool: Pool,
   filters: TransactionsExportFilters,
@@ -57,22 +63,32 @@ export async function streamTransactionsExportCsv(
 ): Promise<void> {
   write("id,status,amount_bhd,captured_bhd,reference,occurred_at\n");
 
-  let cursor: Date | null = null;
+  type CursorRow = TransactionRow & { occurred_at_text: string };
+  let cursorOccurredAt: string | null = null;
+  let cursorId: string | null = null;
   const PAGE_SIZE = 1000;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
-    const result: { rows: TransactionRow[] } = await pool.query<TransactionRow>(
-      `SELECT * FROM transactions
+    const result: { rows: CursorRow[] } = await pool.query<CursorRow>(
+      `SELECT *, occurred_at::text AS occurred_at_text FROM transactions
         WHERE merchant_id = $1
           AND ($2::timestamptz IS NULL OR occurred_at >= $2)
           AND ($3::timestamptz IS NULL OR occurred_at <  $3)
           AND ($4::text[] IS NULL OR status = ANY($4))
-          AND ($5::timestamptz IS NULL OR occurred_at > $5)
-        ORDER BY occurred_at ASC
-        LIMIT $6`,
-      [filters.merchantId, filters.from ?? null, filters.to ?? null, statusArray, cursor, PAGE_SIZE],
+          AND ($5::timestamptz IS NULL OR (occurred_at, id) > ($5, $6))
+        ORDER BY occurred_at ASC, id ASC
+        LIMIT $7`,
+      [
+        filters.merchantId,
+        filters.from ?? null,
+        filters.to ?? null,
+        statusArray,
+        cursorOccurredAt,
+        cursorId,
+        PAGE_SIZE,
+      ],
     );
 
     for (const row of result.rows) {
@@ -80,6 +96,8 @@ export async function streamTransactionsExportCsv(
     }
 
     if (result.rows.length < PAGE_SIZE) break;
-    cursor = result.rows[result.rows.length - 1]!.occurred_at;
+    const last = result.rows[result.rows.length - 1]!;
+    cursorOccurredAt = last.occurred_at_text;
+    cursorId = last.id;
   }
 }

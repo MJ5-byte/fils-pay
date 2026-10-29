@@ -283,6 +283,16 @@ interface LedgerActivityRow {
   description: string | null;
 }
 
+/** Fixed UTC+3 midnight for a Bahrain business-day boundary — same
+ *  technique as settlement/query.ts's `bahrainLocalMidnightUtc`. */
+function bahrainLocalMidnightUtc(dateStr: string): Date {
+  const parsed = new Date(`${dateStr}T00:00:00+03:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new RangeError(`bahrainLocalMidnightUtc: invalid date "${dateStr}"`);
+  }
+  return parsed;
+}
+
 /**
  * `GET /v1/analytics/recent-ledger-activity` business logic. The second
  * "live exception" widget alongside `getTopLinks` — merchants asked for
@@ -291,22 +301,27 @@ interface LedgerActivityRow {
  * are (this bypasses the rollups entirely, on purpose, same as
  * `getTopLinks`).
  *
- * `from`/`to` are Bahrain business-date strings (YYYY-MM-DD), matched against
- * `occurred_at` in Bahrain local calendar terms — Bahrain observes no DST
- * (fixed UTC+3 since 1972), so this reduces to a `date` comparison per row.
+ * `from` inclusive, `to` exclusive (Bahrain business-date strings,
+ * YYYY-MM-DD). The window is expressed as UTC instants —
+ * `bahrainLocalMidnightUtc` — against the bare `occurred_at` column, which
+ * keeps the range sargable on idx_ledger_entries_merchant_occurred instead
+ * of wrapping the column in a per-row AT TIME ZONE cast.
  */
 export async function getRecentLedgerActivity(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
 ): Promise<RecentLedgerActivityResponse> {
+  const windowStart = bahrainLocalMidnightUtc(input.from);
+  const windowEnd = bahrainLocalMidnightUtc(input.to);
+
   const result = await pool.query<LedgerActivityRow>(
     `SELECT id, account_id, direction, amount_fils, occurred_at, description
        FROM ledger_entries
       WHERE merchant_id = $1
-        AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date BETWEEN $2::date AND $3::date
+        AND occurred_at >= $2 AND occurred_at < $3
       ORDER BY occurred_at DESC
       LIMIT 200`,
-    [input.merchantId, input.from, input.to],
+    [input.merchantId, windowStart, windowEnd],
   );
 
   return {

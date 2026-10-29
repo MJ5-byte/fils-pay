@@ -215,8 +215,8 @@ test("capture with a reused idempotency key and identical body replays without a
   assert.ok(Number(countAfterFirst.rows[0]!.c) > 0);
 });
 
-// FH: should also cover same key + same body on a DIFFERENT transaction -> 422 (API.md). Claude says
-// that case can't happen because keys are per transaction
+// same key + same body on a DIFFERENT transaction is covered by the
+// dedicated CAP-HASH test below — the transaction id is part of the hash
 test("capture with a reused idempotency key but a different body is rejected as a conflict", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("idempotent-conflict");
   const txn = await authorize(rawKey, 8_000);
@@ -284,6 +284,50 @@ test("GET /v1/transactions/:id/events returns the timeline in chronological orde
   );
   assert.equal(events[1]!.amountFils, 2_000);
   assert.equal(events[2]!.amountFils, 4_000);
+});
+
+// CAP-HASH: keys scope to (merchant, endpoint), NOT per transaction — so
+// the same key + same body on a different transaction must be a hash
+// conflict, never a silent replay of the first transaction's response.
+test("capture with a reused idempotency key on a DIFFERENT transaction is rejected, not replayed", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("idempotent-different-txn");
+  const txnA = await authorize(rawKey, 8_000);
+  const txnB = await authorize(rawKey, 8_000);
+  const key = randomUUID();
+
+  const first = await capture(rawKey, txnA.id, {}, key);
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json().id, txnA.id);
+
+  const second = await capture(rawKey, txnB.id, {}, key);
+  assert.equal(second.statusCode, 422, second.body);
+  assert.equal(second.json().error, "idempotency_key_reused");
+
+  const bLedger = await pool.query<{ c: string }>(
+    `SELECT COUNT(*)::int AS c FROM ledger_entries WHERE transaction_id = $1`,
+    [txnB.id],
+  );
+  assert.equal(Number(bLedger.rows[0]!.c), 0, "transaction B must never be captured or journaled");
+});
+
+// B23: the export route now streams via streamTransactionsExportCsv — this
+// proves the hijacked reply actually reaches the client with its CSV body.
+test("GET /v1/transactions/export streams the CSV export", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("export-stream");
+  const txn = await authorize(rawKey, 5_000);
+  await capture(rawKey, txn.id);
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/v1/transactions/export",
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.ok(String(res.headers["content-type"] ?? "").startsWith("text/csv"));
+
+  const lines = res.body.trimEnd().split("\n");
+  assert.equal(lines[0], "id,status,amount_bhd,captured_bhd,reference,occurred_at");
+  assert.ok(lines.some((l) => l.startsWith(`${txn.id},`)), "the captured transaction appears in the streamed CSV");
 });
 
 test("POST /v1/refunds is wired: a request missing transactionId is a 400, not a 501", async () => {

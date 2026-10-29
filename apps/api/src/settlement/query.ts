@@ -275,8 +275,9 @@ function bahrainLocalMidnightUtc(dateStr: string): Date {
  * @param input.from  inclusive business date (YYYY-MM-DD)
  * @param input.to    exclusive business date (YYYY-MM-DD)
  * @returns explained === true iff gapFils === 0. The pending figure is
- *          computed with the same rate the capture path used, including
- *          the effective-dated fee schedule and the platform volume tier.
+ *          computed over the same half-even integer math as the capture
+ *          path, with the rate resolved from the effective-dated fee
+ *          schedule (falling back to merchants.mdr_bps).
  */
 export async function getReconciliationReport(
   pool: Pool,
@@ -285,7 +286,7 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, merchantResult] = await Promise.all([
+  const [ledgerResult, settlementResult, pendingResult, merchantResult, scheduleResult] = await Promise.all([
     pool.query<{ net: string }>(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0) AS net
          FROM ledger_entries
@@ -313,12 +314,22 @@ export async function getReconciliationReport(
       `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     ),
+    // Resolve the pending-fee rate the same way the capture path does:
+    // the effective-dated fee_schedules row (newest effective_from that
+    // has arrived), falling back to merchants.mdr_bps when no schedule
+    // row applies yet — there is no trigger keeping merchants.mdr_bps in
+    // sync with fee_schedules after a negotiated change.
+    pool.query<{ mdr_bps: number }>(
+      `SELECT mdr_bps FROM fee_schedules
+        WHERE merchant_id = $1 AND effective_from <= now()
+        ORDER BY effective_from DESC, created_at DESC
+        LIMIT 1`,
+      [input.merchantId],
+    ),
   ]);
 
-  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
-  // so reading it here is the same as resolving the schedule
   const merchant = merchantResult.rows[0];
-  const mdrBps = merchant?.mdr_bps ?? 0;
+  const mdrBps = scheduleResult.rows[0]?.mdr_bps ?? merchant?.mdr_bps ?? 0;
   const discountBps = merchant?.negotiated_discount_bps ?? 0;
 
   let pendingUnbatchedFils = 0;
