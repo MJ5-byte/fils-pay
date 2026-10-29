@@ -240,6 +240,13 @@
 - **Cause:** `runIfDue` (`apps/settlement/internal/scheduler/daemon.go:80`) passed `time.Now().UTC()` to `BusinessDayWindow`, which takes the calendar date in the instant's own zone, so the daemon saw the day turn at UTC midnight, which is 03:00 in Bahrain.
 - **Breaks:** Every daily close and payout ran three hours late. Each batch still covered the right Bahrain day, so no amounts were wrong.
 - **Fix:** The daemon's day decision moved into `dueBusinessDate`, which converts `now` to Bahrain time (fixed UTC+3) before asking `BusinessDayWindow` for today's start; `BusinessDayWindow` is unchanged. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/30
+### Bug: Reporting skips events that commit out of order
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** Some captures and batch closes never reached the merchant dashboards, so daily capture counts and totals came out low, with nothing in the logs.
+- **Cause:** The consumer keeps one high-water mark and reads `WHERE id > cursor` (`apps/reporting/src/consumer/runConsumerPass.ts:49`), assuming ids commit in order. They do not: settlement's `CloseBatch` inserts its `settlement.batch_closed` event and keeps its transaction open (`apps/settlement/internal/settlement/batch.go:268`) while the API commits later ids. A pass in that window applies the later ids and moves the mark past the one still being written, which is never read again. Migration 0030's note that the API is the only writer is false.
+- **Breaks:** Any event whose transaction commits after a later id has been consumed is lost from the rollups for good, short of a full rebuild.
+- **Fix:** A pass now walks every outbox id from the cursor in order and stops at a missing id. It records which transactions in this database are writing to `outbox_events` (every insert holds a `RowExclusiveLock` on it from before it draws its id until it ends) and waits until all of them have ended; it then reads the outbox once more and only skips the id if it is still missing. `catch-up` and `rebuild` retry a pass blocked at a gap instead of stopping. No schema change. Tests added, including a writer that starts inside a pass.
 ### Bug: Credit approval compares display names
 - **Status:** Fixed
 - **Type:** Security, medium

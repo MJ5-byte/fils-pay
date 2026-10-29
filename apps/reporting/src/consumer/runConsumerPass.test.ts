@@ -118,6 +118,113 @@ test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_pay
   assert.equal(Number(result.rows[0].net_payout_fils), 7_800);
 });
 
+test("runConsumerPass: an event committed after a higher id (a long settlement transaction) is still applied", async () => {
+  const merchantId = await createMerchant("out-of-order");
+  const capturePayload = { merchantId, amountCapturedFils: 1_000, feeFils: 15, newStatus: "captured", capturedTotalFils: 1_000 };
+
+  // The slow writer takes the lower id first and commits last, the way
+  // CloseBatch inserts its batch_closed event and then keeps working.
+  const slowWriter = await pool.connect();
+  try {
+    await slowWriter.query("BEGIN");
+    const lowEvent = await enqueueEvent(slowWriter, {
+      eventType: "transaction.captured",
+      aggregateType: "transaction",
+      aggregateId: randomUUID(),
+      payload: capturePayload,
+    });
+    const highEvent = await enqueueEvent(pool, {
+      eventType: "transaction.captured",
+      aggregateType: "transaction",
+      aggregateId: randomUUID(),
+      payload: capturePayload,
+    });
+    assert.ok(highEvent.id > lowEvent.id);
+
+    await runConsumerPass(pool, config);
+    await slowWriter.query("COMMIT");
+  } catch (err) {
+    await slowWriter.query("ROLLBACK");
+    throw err;
+  } finally {
+    slowWriter.release();
+  }
+  await runConsumerPass(pool, config);
+
+  const result = await pool.query(`SELECT captured_count, captured_gross_fils FROM merchant_daily_volume WHERE merchant_id = $1`, [
+    merchantId,
+  ]);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].captured_count, 2, "both captures are counted, including the one committed late");
+  assert.equal(Number(result.rows[0].captured_gross_fils), 2_000);
+});
+
+/**
+ * A pool whose clients run `around.before` just before the pass's first
+ * outbox read and `around.after` just after it, so a test can place other
+ * writers exactly inside the pass.
+ */
+function poolAroundFirstOutboxRead(around: { before: () => Promise<void>; after: () => Promise<void> }): Pool {
+  let fired = false;
+  return {
+    async connect() {
+      const client = await pool.connect();
+      const query = client.query.bind(client) as (...args: unknown[]) => Promise<unknown>;
+      return Object.assign(Object.create(client) as typeof client, {
+        query: async (...args: unknown[]) => {
+          if (fired || typeof args[0] !== "string" || !args[0].includes("FROM outbox_events")) return query(...args);
+          fired = true;
+          await around.before();
+          const result = await query(...args);
+          await around.after();
+          return result;
+        },
+        release: client.release.bind(client),
+      });
+    },
+  } as unknown as Pool;
+}
+
+for (const lateWriterCommits of ["after the pass", "between the pass's outbox read and its gap check"] as const) {
+  test(`runConsumerPass: a writer that starts inside a pass and commits ${lateWriterCommits} still has its event applied`, async () => {
+    const merchantId = await createMerchant(`interleaving ${lateWriterCommits}`);
+    const capturePayload = { merchantId, amountCapturedFils: 1_000, feeFils: 15, newStatus: "captured", capturedTotalFils: 1_000 };
+    const lateWriter = await pool.connect();
+    let lateWriterOpen = false;
+    try {
+      const hookedPool = poolAroundFirstOutboxRead({
+        // The pass has started; a writer begins and takes the lower id, then
+        // another writer commits the next id, before the outbox is read.
+        before: async () => {
+          await lateWriter.query("BEGIN");
+          lateWriterOpen = true;
+          await enqueueEvent(lateWriter, { eventType: "transaction.captured", aggregateType: "transaction", aggregateId: randomUUID(), payload: capturePayload });
+          await enqueueEvent(pool, { eventType: "transaction.captured", aggregateType: "transaction", aggregateId: randomUUID(), payload: capturePayload });
+        },
+        after: async () => {
+          if (lateWriterCommits === "after the pass") return;
+          await lateWriter.query("COMMIT");
+          lateWriterOpen = false;
+        },
+      });
+
+      await runConsumerPass(hookedPool, config);
+      if (lateWriterOpen) {
+        await lateWriter.query("COMMIT");
+        lateWriterOpen = false;
+      }
+    } finally {
+      if (lateWriterOpen) await lateWriter.query("ROLLBACK");
+      lateWriter.release();
+    }
+    await runConsumerPass(pool, config);
+
+    const result = await pool.query(`SELECT captured_count FROM merchant_daily_volume WHERE merchant_id = $1`, [merchantId]);
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0].captured_count, 2, "the late writer's capture is counted too");
+  });
+}
+
 test("runConsumerPass: end-to-end settlement.paid moves a closed batch's payout trend to paid", async () => {
   const merchantId = await createMerchant("e2e-paid");
   const batchResult = await pool.query<{ id: string }>(
