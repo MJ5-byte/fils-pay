@@ -61,18 +61,22 @@ already exists:
 
 | Piece | Where | State |
 |---|---|---|
-| Route | `POST /v1/refunds` (`apps/api/src/routes/refunds.ts`) | stub, returns `501` |
+| Route | `POST /v1/refunds` (`apps/api/src/routes/refunds.ts`) | wired: merchant auth plus a required `Idempotency-Key` |
 | Core helper | `apps/api/src/payments/processRefund.ts` | complete, tested |
 | Validation / status | `refundValidation.ts`, `refundState.ts` | complete, tested |
 | Fee reversal | `calculateRefundFee()` in `packages/money` | complete |
 | Schema | `refunds` (0042), `transactions.refunded_fils` (0043), event types (0044) | migrated |
 | Settlement | batch reopen in `apps/settlement` | to do |
-| Webhook | add `refund.succeeded` to the eligible list in `dispatcher.ts` | to do |
+| Webhook | `refund.succeeded` in `WEBHOOK_ELIGIBLE_EVENT_TYPES` (`dispatcher.ts`) | shipped |
 | UI | `apps/web/src/pages/transactions/RefundDrawer.tsx` | parked (commented out) |
 
 It should mostly be wiring. A previous attempt (FP-170, January) was
 reverted because of the scheme file; the `refunds-v1` branch has the
 approach.
+
+> **Status (October 2026):** shipped. `POST /v1/refunds` calls
+> `initiateMerchantRefund`, the ledger reversal posts, and
+> `refund.succeeded` is delivered. The drawer above is still parked.
 
 > **Huda** (#fp-finance): whatever refunds do, the reconciliation report
 > has to still tie out at month-end. that's the only thing I'll check.

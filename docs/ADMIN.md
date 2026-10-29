@@ -13,9 +13,9 @@ three roles:
 You'll only see the buttons your role can use. Everything you do here is
 written to the admin audit log.
 
-Everything below is routine. None of it can break the books — balances and
-analytics are recalculated from the records underneath them, and every
-money change is logged.
+Everything below is routine. Money movements are journaled, and balances and
+analytics rebuild from the records underneath them. Display corrections are
+the exception; see **Adjust balance**.
 
 — YA / MK (merged from two drafts)
 
@@ -39,8 +39,9 @@ merchant through the usual secure channel.
 15 minutes. Use **Exit impersonation** when you're done.
 
 **Recompute transaction statuses** — tidies up transaction statuses for
-merchants whose refunds were processed before the refunds release (the
-manual refunds finance did over email in Q1). Safe to run more than once.
+merchants whose refunds were processed before refunds shipped in FP-212
+(the manual refunds finance did over email in Q1). Safe to run more than
+once.
 
 ## Money
 
@@ -53,9 +54,10 @@ from last month, pick the effective date the credit belongs to.
 
 **Adjust balance** — when a merchant's balance on screen is wrong and support
 has confirmed the right figure (statement, phone call), enter the difference
-and a reason. The adjustment is journaled to the ledger and the dashboard
-shows the corrected balance straight away; no need to wait for the next
-settlement run.
+and a reason. Per ADR-0006 this writes the balance cache directly, with an
+audit row and no ledger entry, so the dashboard shows the corrected balance
+straight away. A rebuild resets the cache, so re-apply display corrections
+after one.
 
 **Recalculate MDR** — after a merchant's rate changes, run this over the
 date range you want the new rate applied to. Their batches are recalculated
@@ -74,11 +76,12 @@ Don't submit the same file twice; there's no duplicate detection yet.
 merchant). Days that are already closed or paid are skipped, so re-running
 is always safe.
 
-**Rebuild cached balances** — refreshes every merchant's cached balance.
-Run it whenever a balance looks off or after any manual correction.
-It only rewrites the balance cache, never the ledger, so it's safe to run
-as often as you like; it asks for confirmation because it covers every
-merchant at once. The nightly recompute does the same thing at 02:00.
+**Rebuild cached balances**: recomputes every merchant's cached balance
+from `ledger_entries` and overwrites the cache. Run it whenever a balance
+looks off or after a ledger correction. It never writes the ledger, so it's
+safe to run as often as you like; it asks for confirmation because it covers
+every merchant at once. It runs the same rollup as `settlement
+rebuild-balances`.
 
 **Rebuild analytics** — dashboards lag a little behind live activity by
 design. If they look stale, rebuild them from scratch here instead of

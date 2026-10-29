@@ -35,8 +35,9 @@ silently changing `packages/money` and breaking the settlement reconciliation.
 - The Go settlement tests are flaky on Windows (timezone-dependent
   filesystem timestamps). If you're on Windows, run them with
   `go test -short ./...` to skip the slow integration tests.
-- Settlement date windows are UTC-based. The `Asia/Bahrain` constant in
-  `window.go` is for log formatting only.
+- Settlement date windows are Asia/Bahrain business days (UTC+3, no DST);
+  see `apps/settlement/internal/settlement/window.go` and ADR-0003. Calendar
+  month reports use the UTC month per ADR-0003.
 
 ### Parsing
 
@@ -64,12 +65,11 @@ silently changing `packages/money` and breaking the settlement reconciliation.
 
 ### Database
 
-- All monetary columns use `INTEGER` (not `BIGINT`). BHD amounts in cents
-  (max ~999,999.99 BD) fit comfortably in a 32-bit integer. Do not widen
-  columns without a migration plan approved by the DBA.
-- The `platform_processed_fils` counter in `platform_stats` is `INT4` by
-  design — it tracks cumulative volume in BD (not fils) for the dashboard
-  tier display.
+- Monetary columns store integer fils, not cents (1 BD = 1000 fils), and
+  are `BIGINT` (ADR-0001). Don't change a monetary column's type without a
+  migration approved by the DBA.
+- `platform_stats.total_processed_fils` is `BIGINT` (0074) and counts
+  integer fils, the same unit as the volume-tier threshold.
 
 ### Performance
 

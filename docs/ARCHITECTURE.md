@@ -38,9 +38,11 @@ of balanced legs sharing an `entry_group_id`, enforced by a deferred
 constraint trigger (migration 0007). Corrections are new entries posted with
 the effective date of the period they correct.
 
-`merchant_balances` is a cache; `settlement rebuild-balances` refreshes it.
-The daemon also refreshes it at 02:00 Bahrain time, and the console's
-**Rebuild cached balances** button triggers the same refresh on demand.
+`merchant_balances` is a cache rebuilt from `ledger_entries`.
+`settlement rebuild-balances` rolls every merchant's payable up from the
+ledger, and the console's **Rebuild cached balances** button runs the same
+rollup on demand. Settlement maintains the cache incrementally at batch
+close and payout; nothing else recomputes it in bulk.
 
 ## Settlement
 
@@ -70,9 +72,11 @@ a `Webhook-Delivery-Id` and is signed with HMAC-SHA256.
 - Outbound webhook signatures are HMAC-SHA256 compared in constant time.
 - KYC uploads are validated by detected content type (magic bytes).
 
-Payment links are single-use. Expiry is checked against the paying client's
-clock when it sends `submittedAt` (offline terminals), otherwise the server's.
-Tokens are 128-bit, from `crypto.randomBytes`.
+Payment links are single-use. Expiry is checked against the server's clock.
+The public pay route accepts a client-supplied `submittedAt` (intended for
+trusted offline terminals) only when the request carries valid API-key
+authentication; otherwise it is ignored and the server clock decides. Tokens
+are 128-bit, from `crypto.randomBytes`.
 
 ## The admin plane
 
@@ -87,7 +91,7 @@ the action. Credits above the threshold need a second approver.
 |---|---|---|
 | `DATABASE_URL` | all | — |
 | `PGCONN_SETTLEMENT` | settlement | unset |
-| `SETTLEMENT_INTERNAL_TOKEN` | api, settlement | `dev-token` in dev |
+| `SETTLEMENT_INTERNAL_TOKEN` | api, settlement | required, no built-in default (the api enforces it when `NODE_ENV=production`; the settlement daemon always needs it) |
 | `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE` | api | `false` |
 | `FEATURE_ASYNC_CLOSE` | settlement | `0` |
 

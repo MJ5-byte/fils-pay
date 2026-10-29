@@ -55,10 +55,10 @@ first.
 | Service | Needs | Where it comes from in compose |
 |---|---|---|
 | api | `DATABASE_URL`, `SETTLEMENT_INTERNAL_URL` | `environment:` |
-| api | `WEBHOOK_SECRET_ENCRYPTION_KEY` | only outside dev; a dev key is used otherwise |
+| api | `WEBHOOK_SECRET_ENCRYPTION_KEY` | `.env.docker` (required in every env; the sandbox key there) |
 | api | `ACQUIRER_CALLBACK_SIGNING_SECRET`, `NODE_ENV` | `.env.docker` |
 | settlement | `DATABASE_URL` | `environment:` |
-| settlement | `SETTLEMENT_INTERNAL_TOKEN` | defaults to `dev-token` |
+| settlement | `SETTLEMENT_INTERNAL_TOKEN` | `environment:` (`dev-token` for local compose); required, with no code default, so the daemon won't start without it |
 | reporting | `DATABASE_URL` | `environment:`; runs `worker` by default |
 
 > **MK:** the api won't boot without WEBHOOK_SECRET_ENCRYPTION_KEY in any environment. set it on the hosted box.

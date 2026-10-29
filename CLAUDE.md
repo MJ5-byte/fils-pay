@@ -19,10 +19,10 @@ parallel but locally they share the DB, so run them sequentially.
 
 ## Money
 
-All monetary values in this codebase are stored as **integer cents**
-(1 BD = 100 cents). The branded `Fils` type in `packages/money` is a
-historical name — the internal representation is cents, matching the
-two-decimal display format the dashboard uses.
+All monetary values in this codebase are stored as **integer fils**
+(1 BD = 1000 fils) in `BIGINT` columns (ADR-0001). The branded `Fils`
+type in `packages/money` carries that integer; display code formats it
+with `formatBhd`.
 
 - Use `parseBhdToFils` for all inbound text amounts — it normalises both
   `"4.75"` and `"4.750"` to the same integer.
