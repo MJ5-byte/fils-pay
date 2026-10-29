@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { randomToken, sha256Hex } from "../lib/crypto.js";
@@ -75,6 +75,19 @@ export async function endImpersonation(
   });
 }
 
+/** Revokes every grant the admin still holds; called on admin logout. */
+export async function revokeAdminImpersonationGrants(
+  client: PoolClient | Pool,
+  adminUserId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE admin_impersonation_grants
+        SET revoked_at = now()
+      WHERE admin_user_id = $1 AND revoked_at IS NULL AND ended_at IS NULL AND expires_at > now()`,
+    [adminUserId],
+  );
+}
+
 /** The merchant plane's own role vocabulary (`merchant_users.role`). */
 export type ImpersonationMerchantRole = "owner" | "finance" | "support";
 
@@ -89,10 +102,10 @@ export interface ImpersonationGrantLookup {
 /**
  * The sole definition of "this request carries a live impersonation grant",
  * called only from `requireMerchantAuth`. Same predicate discipline as every
- * other session-shaped lookup here: never a bare token match.
+ * other session-shaped lookup here: never a bare token match. The admin's
+ * `status = 'active'` is part of the predicate, as in the admin session
+ * lookup, because nothing revokes grants when an admin is disabled.
  */
-// no admin_users.status check here (adminAuth/sessions.ts has one) — disabled admin keeps their grant? — am
-// FH: revoked_at gets set by the admin-disable trigger, so it's covered
 export async function lookupImpersonationGrant(
   pool: Pool,
   rawToken: string,
@@ -107,6 +120,7 @@ export async function lookupImpersonationGrant(
        FROM admin_impersonation_grants g
        JOIN admin_users au ON au.id = g.admin_user_id
       WHERE g.token_hash = $1
+        AND au.status = 'active'
         AND g.revoked_at IS NULL
         AND g.ended_at IS NULL
         AND g.expires_at > now()`,

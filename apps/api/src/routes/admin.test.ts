@@ -1261,6 +1261,51 @@ test("an expired impersonation grant stops working without anyone ending it", as
   assert.equal(after.statusCode, 401);
 });
 
+test("disabling an admin stops their live impersonation grant at once", async () => {
+  const admin = await signedInAdmin("support", "imp-disabled");
+  const { merchantId } = await createMerchant("imp-disabled");
+
+  const startRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/impersonate`,
+    headers: { cookie: admin.cookie },
+  });
+  assert.equal(startRes.statusCode, 201, startRes.body);
+  const impCookie = parseCookie(startRes.headers["set-cookie"], config.impersonationCookieName);
+  assert.equal(
+    (await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } })).statusCode,
+    200,
+  );
+
+  await pool.query(`UPDATE admin_users SET status = 'disabled' WHERE id = $1`, [admin.id]);
+
+  const after = await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } });
+  assert.equal(after.statusCode, 401, "admin status must be part of the grant predicate, like the session one");
+});
+
+test("admin logout ends the admin's open impersonation grants", async () => {
+  const admin = await signedInAdmin("support", "imp-logout");
+  const { merchantId } = await createMerchant("imp-logout");
+
+  const startRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/impersonate`,
+    headers: { cookie: admin.cookie },
+  });
+  assert.equal(startRes.statusCode, 201, startRes.body);
+  const impCookie = parseCookie(startRes.headers["set-cookie"], config.impersonationCookieName);
+  assert.equal(
+    (await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } })).statusCode,
+    200,
+  );
+
+  const logoutRes = await app.inject({ method: "POST", url: "/v1/admin/auth/logout", headers: { cookie: admin.cookie } });
+  assert.equal(logoutRes.statusCode, 204);
+
+  const after = await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } });
+  assert.equal(after.statusCode, 401);
+});
+
 test("one admin cannot end another admin's impersonation grant", async () => {
   const owner = await signedInAdmin("support", "imp-owner");
   const other = await signedInAdmin("super_admin", "imp-other");

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { revokeAdminImpersonationGrants } from "../admin/impersonation.js";
 import { verifyPassword } from "../adminAuth/passwords.js";
 import { issueAdminChallenge, verifyOtpCode } from "../adminAuth/otp.js";
 import { sendAdminOtpCode } from "../adminAuth/notifier.js";
@@ -209,7 +210,12 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       if (!auth) {
         throw new UnauthorizedError("unauthenticated");
       }
-      await revokeAdminSession(app.db, auth.adminSessionId);
+      // Grants ride their own cookie, so revoking the session alone would
+      // leave "view as merchant" open until the grant's TTL runs out.
+      await withTransaction(app.db, async (client) => {
+        await revokeAdminSession(client, auth.adminSessionId);
+        await revokeAdminImpersonationGrants(client, auth.adminUserId);
+      });
       reply.setCookie(app.config.adminCookieName, "", {
         httpOnly: true,
         path: "/",

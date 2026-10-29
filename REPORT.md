@@ -170,6 +170,13 @@
 - **Cause:** The route at `apps/api/src/routes/reporting.ts:79` had no `requireMerchantAuth` preHandler, unlike every other reporting route, so `request.merchantAuth` was undefined when the handler read `merchantId`.
 - **Breaks:** The export summary was unusable, and an anonymous caller got a 500 instead of a 401.
 - **Fix:** Added `{ preHandler: requireMerchantAuth }` to the route, as its neighbours have. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/27
+### Bug: Disabled or logged-out admins keep impersonating merchants
+- **Status:** Fixed
+- **Type:** Security, low
+- **Problem:** After an admin was disabled or logged out, their "view as merchant" grant cookie still opened the merchant's data until its 15 minute TTL ran out.
+- **Cause:** `lookupImpersonationGrant` (`apps/api/src/admin/impersonation.ts:109`) joined `admin_users` but never checked its status; a code comment said an admin-disable trigger revokes grants, but none exists. Logout (`apps/api/src/routes/adminAuth.ts:206`) revoked only the admin session, and the grant lives in its own cookie.
+- **Breaks:** A revoked admin kept read access to a merchant for up to 15 minutes after being disabled or signing out.
+- **Fix:** The grant lookup now requires the admin to be active, and logout revokes the admin's open grants in the same transaction as the session. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/31
 ### Bug: The daily close runs at 3am instead of midnight
 - **Status:** Fixed
 - **Type:** Time, low
