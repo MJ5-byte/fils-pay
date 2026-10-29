@@ -29,6 +29,7 @@ const config = loadConfig({
   INTERNAL_API_TOKEN: "test-internal-token",
   WEBHOOK_SECRET_ENCRYPTION_KEY: "Y1ZTGTcYbe30GZJebys9w7T3OYZNKewuOH3SUCEdRQk=",
   WEBHOOK_REQUEST_TIMEOUT_MS: "5000",
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: "true",
 });
 
 const pool = new Pool({ connectionString: databaseUrl, max: 5 });

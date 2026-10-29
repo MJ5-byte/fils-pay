@@ -39,6 +39,7 @@ const config = loadConfig({
   OTP_DEV_EXPOSE: "true",
   SETTLEMENT_INTERNAL_TOKEN: "test-settlement-token",
   WEBHOOK_SECRET_ENCRYPTION_KEY: "Y1ZTGTcYbe30GZJebys9w7T3OYZNKewuOH3SUCEdRQk=",
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: "true",
 });
 
 const pool = new Pool({ connectionString: databaseUrl, max: 5 });

@@ -29,7 +29,7 @@ interface WebhookEndpointRow {
  */
 export async function updateWebhookEndpoint(
   pool: Pool,
-  config: Pick<Config, "nodeEnv">,
+  config: Pick<Config, "nodeEnv" | "webhookAllowPrivateTargets">,
   input: UpdateWebhookEndpointInput,
 ): Promise<WebhookEndpointSummary | null> {
   if (input.url === undefined && input.status === undefined) {

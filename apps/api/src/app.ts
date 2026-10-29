@@ -26,7 +26,7 @@ export interface BuildAppOptions {
    *  see routes/admin.ts. Never set in production. */
   admin?: AdminRoutesOptions;
   /** The outbound HTTP sender the merchant-facing "send test event" route
-   *  uses (routes/webhooks.ts). Defaults to the same `createFetchTransport()`
+   *  uses (routes/webhooks.ts). Defaults to the same `createFetchTransport(config)`
    *  the dispatcher runs on; index.ts passes its own instance in so one
    *  process has exactly one transport. Tests inject a stub. */
   webhookTransport?: WebhookTransport;
@@ -44,7 +44,7 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.decorate("db", pool);
   app.decorate("config", config);
   app.decorate("acquirer", createAcquirerSimulator(config));
-  app.decorate("webhookTransport", options.webhookTransport ?? createFetchTransport());
+  app.decorate("webhookTransport", options.webhookTransport ?? createFetchTransport(config));
 
   app.register(cookiesPlugin);
   app.register(multipartPlugin, { config });

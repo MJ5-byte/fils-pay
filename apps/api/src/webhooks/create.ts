@@ -1,18 +1,20 @@
 import type { Pool } from "pg";
+import { isIP } from "node:net";
 import type { Config } from "../config.js";
 import { randomToken } from "../lib/crypto.js";
 import { BadRequestError } from "../lib/errors.js";
 import { decodeEncryptionKey, encryptSecret } from "./secretCrypto.js";
+import { isBlockedAddress } from "./transport.js";
 
 /**
- * Validates a webhook endpoint URL: must parse as an absolute URL with
- * scheme http/https; https is required once config.nodeEnv === 'production'
- * (http is permitted otherwise so a local http.createServer test receiver
- * and a merchant's own localhost dev setup both work).
+ * Requires http/https (https in production) and rejects obvious internal
+ * targets unless explicitly allowed. The transport re-checks the connected
+ * address at send time, including addresses resolved from DNS.
  */
-// MK: https-only in prod is our SSRF protection
-// used to block localhost in dev too, removed for the local receiver — am
-export function validateWebhookUrl(rawUrl: string, config: Pick<Config, "nodeEnv">): URL {
+export function validateWebhookUrl(
+  rawUrl: string,
+  config: Pick<Config, "nodeEnv" | "webhookAllowPrivateTargets">,
+): URL {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -24,6 +26,15 @@ export function validateWebhookUrl(rawUrl: string, config: Pick<Config, "nodeEnv
   }
   if (config.nodeEnv === "production" && parsed.protocol !== "https:") {
     throw new BadRequestError("invalid_url");
+  }
+  if (!config.webhookAllowPrivateTargets) {
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (
+      hostname === "localhost" || hostname.endsWith(".localhost") ||
+      (isIP(hostname) > 0 && isBlockedAddress(hostname))
+    ) {
+      throw new BadRequestError("invalid_url");
+    }
   }
   return parsed;
 }
@@ -52,7 +63,7 @@ export interface CreatedWebhookEndpoint {
  */
 export async function createWebhookEndpoint(
   pool: Pool,
-  config: Pick<Config, "nodeEnv" | "webhookSecretEncryptionKey">,
+  config: Pick<Config, "nodeEnv" | "webhookSecretEncryptionKey" | "webhookAllowPrivateTargets">,
   input: CreateWebhookEndpointInput,
 ): Promise<CreatedWebhookEndpoint> {
   validateWebhookUrl(input.url, config);

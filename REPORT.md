@@ -91,6 +91,13 @@
 - **Cause:** The create route `apps/api/src/routes/adminCredits.ts:62-77` only had `requireAdminSession`, with no role check, while the approve and reject routes required finance or super_admin. Credits at or under the 50 BD threshold (`apps/api/src/admin/creditThreshold.ts:15`) post to the ledger on create (`apps/api/src/admin/credits.ts:253`). The admin UI hid the form from support, but the API did not.
 - **Breaks:** Any support account could move money into a merchant's payable balance, up to 50 BD per call with no limit on calls, bypassing the maker-checker the credits plane is built around.
 - **Fix:** Added `requireAdminRole("finance", "super_admin")` to the create route, matching approve and reject. Test added: support posting a credit gets 403 and nothing is journaled. PR: https://github.com/SilentYsf/fils-pay/pull/6
+### Bug: Webhook test-send is a blind SSRF into internal services
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** A merchant could register a webhook endpoint pointing at an internal address (`http://127.0.0.1:<port>/...`, a private service, or the cloud metadata address `169.254.169.254`) and then call test-send, which returned up to 2000 characters of whatever that address answered.
+- **Cause:** `validateWebhookUrl` (`apps/api/src/webhooks/create.ts:15`) only checked the scheme, and the transport `createFetchTransport` (`apps/api/src/webhooks/transport.ts:33`) called `fetch` on the raw URL with no address check; comments there claimed create.ts already blocked private IPs, which it did not. `sendTestWebhookEvent` (`apps/api/src/webhooks/testSend.ts:68`) echoed the first 2000 bytes of the response back to the merchant.
+- **Breaks:** Any merchant could read internal, unauthenticated services and cloud metadata through the test-send response, a blind-to-full SSRF.
+- **Fix:** The transport now sends with node's http/https request and refuses, at send time, to connect to loopback, private, link-local, unique-local or unspecified addresses (IPv4, IPv6 and IPv4-mapped IPv6), checking the address actually resolved from DNS so a rebind cannot slip past, and never follows redirects. Create and update reject an obviously internal URL early with a 400. Loopback/private targets are allowed only when `WEBHOOK_ALLOW_PRIVATE_TARGETS=true` (default false), for local dev and tests. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/23
 
 ### Bug: The public payment link page hands out the merchant's API key hash
 - **Status:** Fixed
