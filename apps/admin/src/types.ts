@@ -228,13 +228,12 @@ export interface BalanceRebuildSummary {
 }
 
 /** `POST /v1/admin/merchants/:id/transactions/recompute-statuses` →
- *  `200 { merchantId, scanned, updated, openAuthorizations, flagsUpdated }`. */
+ *  `200 { merchantId, scanned, updated, openAuthorizations }`. */
 export interface RecomputeStatusesResult {
   merchantId: string;
   scanned: number;
   updated: number;
   openAuthorizations: number;
-  flagsUpdated: string[];
 }
 
 /** `POST /v1/admin/reporting/rebuild` → `200 { volumeRows, trendRows }` —

@@ -1746,3 +1746,29 @@ test("an mdr recalculation whose audit row cannot be written never makes the cal
     "an unloggable action must be BLOCKED, not merely unlogged",
   );
 });
+
+// ------------------------------------------- recompute transaction statuses
+
+test("recompute statuses never takes a test merchant live", async () => {
+  const finance = await signedInAdmin("finance", "recompute-testmode");
+  const { merchantId } = await createMerchant("recompute-testmode");
+  await pool.query(`UPDATE merchants SET test_mode = true WHERE id = $1`, [merchantId]);
+  await pool.query(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+     VALUES ($1, 'captured', 3000, 3000, $2)`,
+    [merchantId, `recompute-${randomUUID()}`],
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/transactions/recompute-statuses`,
+    headers: { cookie: finance.cookie },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+
+  const merchant = await pool.query<{ test_mode: boolean }>(
+    `SELECT test_mode FROM merchants WHERE id = $1`,
+    [merchantId],
+  );
+  assert.equal(merchant.rows[0]!.test_mode, true);
+});
