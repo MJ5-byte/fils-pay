@@ -91,6 +91,13 @@
 - **Cause:** The create route `apps/api/src/routes/adminCredits.ts:62-77` only had `requireAdminSession`, with no role check, while the approve and reject routes required finance or super_admin. Credits at or under the 50 BD threshold (`apps/api/src/admin/creditThreshold.ts:15`) post to the ledger on create (`apps/api/src/admin/credits.ts:253`). The admin UI hid the form from support, but the API did not.
 - **Breaks:** Any support account could move money into a merchant's payable balance, up to 50 BD per call with no limit on calls, bypassing the maker-checker the credits plane is built around.
 - **Fix:** Added `requireAdminRole("finance", "super_admin")` to the create route, matching approve and reject. Test added: support posting a credit gets 403 and nothing is journaled. PR: https://github.com/SilentYsf/fils-pay/pull/6
+### Bug: Large settlement batches pay out a few fils wrong
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** Some settlement batches paid the merchant one or two fils more or less than gross minus fee; 13 of 80 exported batches were off.
+- **Cause:** `NetPayableFils` (`apps/settlement/internal/settlement/payable.go:11`) did the subtraction in float32 BD, which holds whole numbers exactly only up to 16,777,216, so larger batches rounded. Its result is frozen as `net_payout_fils` (`batch.go:219,234`) and paid out (`batch.go:342`).
+- **Breaks:** Payouts disagree with the ledger by a few fils, against ADR-0001 (whole fils only), and reconciliation never closes.
+- **Fix:** `NetPayableFils` now returns gross minus fee in int64 fils. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/19
 ### Bug: Webhook test-send is a blind SSRF into internal services
 - **Status:** Fixed
 - **Type:** Security, medium
