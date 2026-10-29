@@ -221,7 +221,7 @@ async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, con
     `SELECT wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count, we.url, we.secret_ciphertext
        FROM webhook_deliveries wd
        JOIN webhook_endpoints we ON we.id = wd.endpoint_id
-      WHERE wd.status = 'pending' AND wd.next_attempt_at <= now()
+      WHERE wd.status = 'pending' AND wd.next_attempt_at <= now() AND we.status = 'active'
       ORDER BY wd.next_attempt_at ASC
       LIMIT $1`,
     [STEP_B_BATCH_LIMIT],

@@ -512,3 +512,32 @@ test("a real delivery and a test send are each signed over the exact body bytes 
   assert.ok(testHeader);
   assertRawSignature(testHeader, testRequest.body, endpoint.secret);
 });
+
+test("disabled endpoint: queued delivery is not attempted, and is sent once the endpoint is active again", async () => {
+  const merchantId = await createMerchant("paused-endpoint");
+  const endpointUrl = `http://fake-receiver.test/paused-${randomUUID()}`;
+  const endpoint = await createEndpoint(merchantId, endpointUrl);
+  const outboxEvent = await enqueueCaptured(merchantId);
+
+  const captured: WebhookTransportRequest[] = [];
+  const transport: WebhookTransport = async (req) => {
+    if (req.url === endpointUrl) captured.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+
+  // Step A creates the pending row only when it sees an active endpoint, so
+  // create it with a failing pass, then disable the endpoint before the retry.
+  await runDispatchPass(pool, alwaysRespond(500), config);
+  const queued = await getDelivery(String(outboxEvent.id), endpoint.id);
+  await forceDueNow(queued.id);
+  await pool.query(`UPDATE webhook_endpoints SET status = 'disabled' WHERE id = $1`, [endpoint.id]);
+
+  await runDispatchPass(pool, transport, config);
+  assert.equal(captured.length, 0);
+  assert.equal((await getDelivery(String(outboxEvent.id), endpoint.id)).status, "pending");
+
+  await pool.query(`UPDATE webhook_endpoints SET status = 'active' WHERE id = $1`, [endpoint.id]);
+  await runDispatchPass(pool, transport, config);
+  assert.equal(captured.length, 1);
+  assert.equal((await getDelivery(String(outboxEvent.id), endpoint.id)).status, "succeeded");
+});
