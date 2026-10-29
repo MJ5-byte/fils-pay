@@ -92,6 +92,13 @@
 - **Breaks:** Any support account could move money into a merchant's payable balance, up to 50 BD per call with no limit on calls, bypassing the maker-checker the credits plane is built around.
 - **Fix:** Added `requireAdminRole("finance", "super_admin")` to the create route, matching approve and reject. Test added: support posting a credit gets 403 and nothing is journaled. PR: https://github.com/SilentYsf/fils-pay/pull/6
 
+### Bug: The public payment link page hands out the merchant's API key hash
+- **Status:** Fixed
+- **Type:** Security, low
+- **Problem:** Anyone holding a payment link could call `GET /v1/payment-links/:token` without logging in and get back `merchantIntegrationId`, the sha256 `key_hash` of the merchant's newest live API key, and `merchantPublicKey`, the first 16 characters of that raw key.
+- **Cause:** `getPublicPaymentLink` (`apps/api/src/paymentLinks/read.ts:43-44`) joined the newest unrevoked `api_keys` row and returned `key_hash` and `key_prefix` in the public response, although the DTO's own comment (`read.ts:18`) says it carries nothing that identifies or authenticates the merchant beyond its display name. Nothing in the checkout page, the dashboards or the docs reads either field.
+- **Breaks:** The hash of a bearer key lets an attacker test key guesses offline, the prefix gives away part of the secret, and both tie every link back to the same merchant key.
+- **Fix:** Removed both fields and the `api_keys` join from the public read; the remaining fields are unchanged. Test added: the public response must not contain the link's merchant key hash or prefix. PR: https://github.com/SilentYsf/fils-pay/pull/20
 ### Bug: Payment link tokens and login OTPs come from a predictable generator
 - **Status:** Fixed
 - **Type:** Security, medium

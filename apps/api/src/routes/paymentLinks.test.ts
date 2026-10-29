@@ -123,7 +123,6 @@ test("create -> public read (active) -> pay (approved) -> public read (paid) -> 
   assert.equal(readActive.statusCode, 200, readActive.body);
   assert.equal(readActive.json().status, "active");
   assert.equal(readActive.json().amountFils, 4_750);
-  assert.ok(readActive.json().merchantPublicKey?.startsWith("fp_"));
 
   const payRes = await pay(link.token, APPROVED_CARD);
   assert.equal(payRes.statusCode, 200, payRes.body);
@@ -152,6 +151,26 @@ test("create -> public read (active) -> pay (approved) -> public read (paid) -> 
   const secondPay = await pay(link.token, APPROVED_CARD);
   assert.equal(secondPay.statusCode, 409, secondPay.body);
   assert.equal(secondPay.json().error, "payment_link_already_paid");
+});
+
+test("public read exposes no part of the merchant's API key", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("no-key-leak");
+  const link = await createLink(rawKey, merchantId, { amountFils: 4_750 });
+
+  const keys = await pool.query<{ key_hash: string; key_prefix: string }>(
+    `SELECT key_hash, key_prefix FROM api_keys WHERE merchant_id = $1 AND revoked_at IS NULL`,
+    [merchantId],
+  );
+  assert.ok(keys.rows.length > 0);
+
+  const res = await getPublicLink(link.token);
+  assert.equal(res.statusCode, 200, res.body);
+  for (const key of keys.rows) {
+    assert.ok(!res.body.includes(key.key_hash), "public response exposes an API key hash");
+    assert.ok(!res.body.includes(key.key_prefix), "public response exposes an API key prefix");
+  }
+  assert.equal("merchantIntegrationId" in res.json(), false);
+  assert.equal("merchantPublicKey" in res.json(), false);
 });
 
 test("declined authorize releases the reservation (not burned); retry with an approved card succeeds", async () => {
