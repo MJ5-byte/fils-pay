@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireRole, requireSession } from "../auth/middleware.js";
 import { issueApiKey, listApiKeys, revokeApiKey } from "../apiKeys/issue.js";
+import { UUID_RE } from "../admin/merchants.js";
 import { ForbiddenError, NotFoundError } from "../lib/errors.js";
 
 interface MerchantIdParams {
@@ -65,6 +66,9 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireSession, requireRole("owner")] },
     async (request, reply) => {
       assertOwnMerchant(request);
+      if (!UUID_RE.test(request.params.id)) {
+        throw new NotFoundError("api_key_not_found");
+      }
       const revoked = await revokeApiKey(app.db, request.params.merchantId, request.params.id);
       if (!revoked) {
         throw new NotFoundError("api_key_not_found");

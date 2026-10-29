@@ -398,3 +398,29 @@ test("list rejects a garbage cursor and a non-numeric limit with 400 instead of 
     assert.equal(res.statusCode, 400, `${query}: ${res.body}`);
   }
 });
+
+test("authorize rejects a zero, negative, fractional, NaN or non-number amount with 400 before the acquirer is called (BHA-79)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("authorize-bad-amount");
+  const original = app.acquirer.authorize;
+  let acquirerCalls = 0;
+  app.acquirer.authorize = (req) => {
+    acquirerCalls += 1;
+    return original.call(app.acquirer, req);
+  };
+  try {
+    // JSON cannot carry NaN, so it arrives as null or a string; both must be refused too.
+    for (const amountFils of [0, -5, 1.5, null, "NaN", "100", Number.MAX_SAFE_INTEGER + 2]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/transactions",
+        headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+        payload: { amountFils, card: VALID_CARD },
+      });
+      assert.equal(res.statusCode, 400, `${String(amountFils)}: ${res.body}`);
+      assert.equal(res.json().error, "invalid_amount");
+    }
+    assert.equal(acquirerCalls, 0);
+  } finally {
+    app.acquirer.authorize = original;
+  }
+});

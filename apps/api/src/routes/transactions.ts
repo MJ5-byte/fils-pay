@@ -111,6 +111,9 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       if (amountFils === undefined || !card) {
         throw new BadRequestError("invalid_request", "amountFils and card are required");
       }
+      if (!Number.isSafeInteger(amountFils) || amountFils <= 0) {
+        throw new BadRequestError("invalid_amount", "amountFils must be a positive integer");
+      }
 
       const input: AuthorizeInput = {
         merchantId: request.apiKeyAuth!.merchantId,

@@ -338,3 +338,89 @@ test("API key issuance shows the raw key exactly once; a subsequent list never e
   assert.equal("rawKey" in (listBody[0] ?? {}), false);
   assert.equal("keyHash" in (listBody[0] ?? {}), false);
 });
+
+test("revoking an API key with a non-UUID id answers 404, not 500 (BHA-77)", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("apikeybadid");
+  for (const id of ["not-a-uuid", "123", "%27%20OR%201%3D1"]) {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/v1/merchants/${merchantId}/api-keys/${id}`,
+      headers: { cookie },
+    });
+    assert.equal(res.statusCode, 404, `${id}: ${res.body}`);
+    assert.equal(res.json().error, "api_key_not_found");
+  }
+});
+
+test("signup rejects an unknown business type or a badly typed field with 400, not 500 (BHA-99)", async () => {
+  const bad = [
+    { businessType: "cooperative" },
+    { businessType: 7 },
+    { legalName: 42 },
+    { contactEmail: { a: 1 } },
+    { country: "BHR" },
+    { city: "Man\u0000ama" },
+  ];
+  for (const override of bad) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/merchants",
+      payload: {
+        businessProfile: { ...businessProfilePayload("badsignup"), ...override },
+        owner: { email: uniqueEmail("badsignup"), password: "correct horse battery staple 1!" },
+      },
+    });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(override)}: ${res.body}`);
+    assert.equal(res.json().error, "invalid_business_profile");
+  }
+});
+
+test("business profile update rejects invalid values and unknown keys with 400 and changes nothing (BHA-100, BHA-101)", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("bpbad");
+  const url = `/v1/merchants/${merchantId}/business-profile`;
+  const bad: Array<[Record<string, unknown>, string]> = [
+    [{ businessType: "cooperative" }, "invalid_business_profile"],
+    [{ legalName: null }, "invalid_business_profile"],
+    [{ legalName: "" }, "invalid_business_profile"],
+    [{ city: 5 }, "invalid_business_profile"],
+    [{ country: "BHR" }, "invalid_business_profile"],
+    [{ addressLine2: 5 }, "invalid_business_profile"],
+    [{ city: "Man\u0000ama" }, "invalid_business_profile"],
+    [{ "city = 'x', merchant_id": "y" }, "unknown_field"],
+    [{ merchantId: randomUUID() }, "unknown_field"],
+    [{ updatedAt: "2020-01-01" }, "unknown_field"],
+    [{ city: "Riffa", surprise: 1 }, "unknown_field"],
+  ];
+  for (const [patch, code] of bad) {
+    const res = await app.inject({ method: "PATCH", url, headers: { cookie }, payload: patch });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(patch)}: ${res.body}`);
+    assert.equal(res.json().error, code);
+    assert.equal(res.body.includes("surprise"), false, "input must not be echoed");
+  }
+  const after = await app.inject({ method: "GET", url, headers: { cookie } });
+  assert.equal(after.json().city, "Manama");
+
+  const ok = await app.inject({ method: "PATCH", url, headers: { cookie }, payload: { city: "Riffa", addressLine2: null } });
+  assert.equal(ok.statusCode, 200, ok.body);
+  assert.equal(ok.json().city, "Riffa");
+});
+
+test("signup refuses a NUL in the owner email and still accepts omitted or null optional fields (BHA-99)", async () => {
+  const password = "correct horse battery staple 1!";
+  const nul = await app.inject({
+    method: "POST",
+    url: "/v1/merchants",
+    payload: { businessProfile: businessProfilePayload("nulmail"), owner: { email: "a\u0000@example.test", password } },
+  });
+  assert.equal(nul.statusCode, 400, nul.body);
+
+  const ok = await app.inject({
+    method: "POST",
+    url: "/v1/merchants",
+    payload: {
+      businessProfile: { ...businessProfilePayload("nullopt"), addressLine2: null, postalCode: null, country: null },
+      owner: { email: uniqueEmail("nullopt"), password },
+    },
+  });
+  assert.equal(ok.statusCode, 201, ok.body);
+});

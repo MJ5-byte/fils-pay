@@ -363,6 +363,13 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Authorize, API key delete and business profile routes crash with 500 on bad input, and profile update builds SQL from request keys
+- **Status:** Fixed (BHA-79, BHA-77, BHA-99, BHA-100, BHA-101)
+- **Type:** Data, medium
+- **Problem:** Authorizing with a negative, fractional, NaN or string amount answered 500, and an amount of 0 went through to the acquirer. Deleting an API key with a non-UUID id, signing up with an unknown business type, and updating the business profile with a null, wrongly typed field or a three-letter country all answered 500. A profile update with an unknown key also answered 500.
+- **Cause:** `routes/transactions.ts` passed `amountFils` to `toFils`, which throws RangeError on bad numbers and allows 0. `routes/apiKeys.ts` sent any id to a `uuid` comparison. `routes/businessProfile.ts` checked only that signup fields were present, so the database CHECK, NOT NULL and CHAR(2) constraints failed. `updateBusinessProfile` looked up each request key in `PATCHABLE_COLUMNS` and put the result into the `SET` clause, so an unknown key produced broken SQL instead of being refused.
+- **Breaks:** Merchants got internal errors instead of an answer they can act on, a zero-amount authorization could reach the acquirer, and the update query's shape depended on the request body.
+- **Fix:** Authorize checks the amount is a positive safe integer before any acquirer call (400 `invalid_amount`). Revoke answers 404 `api_key_not_found` for a non-UUID id, using the repo's `UUID_RE`. `assertValidBusinessProfile` in `onboarding/businessProfile.ts` is shared by signup and update: keys outside `PATCHABLE_COLUMNS` give 400 `unknown_field`, bad values give 400 `invalid_business_profile`, and no input is echoed. Signup now also requires an uppercase two-letter country, and treats a null country as omitted. Tests added in `app.test.ts` and `transactions.test.ts`, including that the acquirer is never called.
 ### Bug: The transaction date filter and the Run batch default use the UTC day, not the Bahrain business day
 - **Status:** Fixed (BHA-139, BHA-142)
 - **Type:** Data, medium
