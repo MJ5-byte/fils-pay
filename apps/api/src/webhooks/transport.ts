@@ -36,12 +36,18 @@ export type WebhookTransport = (req: WebhookTransportRequest) => Promise<Webhook
 const blockedAddresses = new BlockList();
 blockedAddresses.addSubnet("0.0.0.0", 8, "ipv4");
 blockedAddresses.addSubnet("10.0.0.0", 8, "ipv4");
+// Carrier-grade NAT space; some clouds serve instance metadata here (100.100.100.200).
+blockedAddresses.addSubnet("100.64.0.0", 10, "ipv4");
 blockedAddresses.addSubnet("127.0.0.0", 8, "ipv4");
 blockedAddresses.addSubnet("169.254.0.0", 16, "ipv4");
 blockedAddresses.addSubnet("172.16.0.0", 12, "ipv4");
 blockedAddresses.addSubnet("192.168.0.0", 16, "ipv4");
-blockedAddresses.addAddress("::", "ipv6");
-blockedAddresses.addAddress("::1", "ipv6");
+// Unspecified, loopback and IPv4-compatible (::a.b.c.d) addresses.
+blockedAddresses.addSubnet("::", 96, "ipv6");
+// NAT64 maps a.b.c.d to 64:ff9b::a.b.c.d, which would reach any IPv4 target above.
+blockedAddresses.addSubnet("64:ff9b::", 96, "ipv6");
+// Local-use NAT64 prefix (RFC 8215), same reach as the well-known one.
+blockedAddresses.addSubnet("64:ff9b:1::", 48, "ipv6");
 blockedAddresses.addSubnet("fe80::", 10, "ipv6");
 blockedAddresses.addSubnet("fc00::", 7, "ipv6");
 

@@ -9,8 +9,10 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import dns from "node:dns";
 import http from "node:http";
-import { test } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
+import { mock, test } from "node:test";
 import { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { buildApp } from "../app.js";
@@ -552,6 +554,115 @@ test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, a loopback endpoint is refused at 
   } finally {
     await receiver.close();
     await blockedApp.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, create and update refuse CGNAT, NAT64 and IPv4-compatible targets and a trailing-dot localhost", async () => {
+  const blockedConfig = { ...config, webhookAllowPrivateTargets: false };
+  const blockedApp = buildApp(blockedConfig, pool);
+  try {
+    const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("blocked-resolved");
+    const created = await createEndpointViaRoute(rawKey, merchantId, "https://example.test/webhook");
+    // 100.100.100.200 is a cloud metadata address; "localhost." must not slip past the localhost check by its trailing dot.
+    for (const url of [
+      "https://100.100.100.200/latest/meta-data",
+      "https://[64:ff9b::a9fe:a9fe]/",
+      "https://[64:ff9b:1::a9fe:a9fe]/",
+      "https://[::7f00:1]/",
+      "https://localhost./webhook",
+    ]) {
+      const createRes = await blockedApp.inject({
+        method: "POST",
+        url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+        headers: authHeader(rawKey),
+        payload: { url },
+      });
+      assert.equal(createRes.statusCode, 400, `${url}: ${createRes.body}`);
+      assert.equal(createRes.json().error, "invalid_url");
+
+      const updateRes = await blockedApp.inject({
+        method: "PATCH",
+        url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+        headers: authHeader(rawKey),
+        payload: { url },
+      });
+      assert.equal(updateRes.statusCode, 400, `${url}: ${updateRes.body}`);
+      assert.equal(updateRes.json().error, "invalid_url");
+    }
+  } finally {
+    await blockedApp.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, create and update refuse a hostname whose DNS answer is loopback", async () => {
+  const blockedConfig = { ...config, webhookAllowPrivateTargets: false };
+  const blockedApp = buildApp(blockedConfig, pool);
+  mock.method(dns.promises, "lookup", async () => [{ address: "127.0.0.1", family: 4 }]);
+  syncBuiltinESMExports();
+  try {
+    const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("blocked-dns");
+    const created = await createEndpointViaRoute(rawKey, merchantId, "https://example.test/webhook");
+    const url = "https://rebind.example.test/webhook";
+
+    const createRes = await blockedApp.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+      headers: authHeader(rawKey),
+      payload: { url },
+    });
+    assert.equal(createRes.statusCode, 400, createRes.body);
+    assert.equal(createRes.json().error, "invalid_url");
+
+    const updateRes = await blockedApp.inject({
+      method: "PATCH",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+      headers: authHeader(rawKey),
+      payload: { url },
+    });
+    assert.equal(updateRes.statusCode, 400, updateRes.body);
+    assert.equal(updateRes.json().error, "invalid_url");
+  } finally {
+    mock.restoreAll();
+    syncBuiltinESMExports();
+    await blockedApp.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, the transport refuses CGNAT, NAT64 and IPv4-compatible addresses before connecting", async () => {
+  const transport = createFetchTransport({ webhookAllowPrivateTargets: false });
+  for (const url of [
+    "http://100.100.100.200/",
+    "http://[64:ff9b::a9fe:a9fe]/",
+    "http://[64:ff9b:1::a9fe:a9fe]/",
+    "http://[::7f00:1]/",
+  ]) {
+    const response = await transport({ url, headers: {}, body: "{}", timeoutMs: 200 });
+    assert.equal(response.statusCode, null, url);
+    assert.equal(response.errorMessage, "webhook target address is not allowed", url);
+  }
+});
+
+test("the transport does not follow redirects", async () => {
+  const target = await startTestReceiver();
+  const redirector = http.createServer((_req, res) => {
+    res.writeHead(302, { Location: target.url });
+    res.end();
+  });
+  await new Promise<void>((resolve) => redirector.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = redirector.address();
+    assert.ok(address && typeof address !== "string");
+    const response = await createFetchTransport(config)({
+      url: `http://127.0.0.1:${address.port}/`,
+      headers: {},
+      body: "{}",
+      timeoutMs: 2000,
+    });
+    assert.equal(response.statusCode, 302);
+    assert.equal(target.received.length, 0);
+  } finally {
+    await new Promise<void>((resolve) => redirector.close(() => resolve()));
+    await target.close();
   }
 });
 

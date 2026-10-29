@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { Config } from "../config.js";
 import { randomToken } from "../lib/crypto.js";
@@ -8,13 +9,14 @@ import { isBlockedAddress } from "./transport.js";
 
 /**
  * Requires http/https (https in production) and rejects obvious internal
- * targets unless explicitly allowed. The transport re-checks the connected
- * address at send time, including addresses resolved from DNS.
+ * targets, including hostnames that resolve to them, unless explicitly
+ * allowed. DNS can change after registration, so the transport re-checks the
+ * connected address at send time too.
  */
-export function validateWebhookUrl(
+export async function validateWebhookUrl(
   rawUrl: string,
   config: Pick<Config, "nodeEnv" | "webhookAllowPrivateTargets">,
-): URL {
+): Promise<URL> {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -28,12 +30,20 @@ export function validateWebhookUrl(
     throw new BadRequestError("invalid_url");
   }
   if (!config.webhookAllowPrivateTargets) {
-    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    // A trailing dot ("localhost.") names the same host.
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
     if (
       hostname === "localhost" || hostname.endsWith(".localhost") ||
       (isIP(hostname) > 0 && isBlockedAddress(hostname))
     ) {
       throw new BadRequestError("invalid_url");
+    }
+    if (isIP(hostname) === 0) {
+      // An unresolvable host is left to the send-time guard; it may go live later.
+      const addresses = await lookup(hostname, { all: true }).catch(() => []);
+      if (addresses.some((entry) => isBlockedAddress(entry.address))) {
+        throw new BadRequestError("invalid_url");
+      }
     }
   }
   return parsed;
@@ -66,7 +76,7 @@ export async function createWebhookEndpoint(
   config: Pick<Config, "nodeEnv" | "webhookSecretEncryptionKey" | "webhookAllowPrivateTargets">,
   input: CreateWebhookEndpointInput,
 ): Promise<CreatedWebhookEndpoint> {
-  validateWebhookUrl(input.url, config);
+  await validateWebhookUrl(input.url, config);
 
   const rawSecret = `whsec_${randomToken(24)}`;
   const secretPrefix = rawSecret.slice(0, 14);
