@@ -74,8 +74,8 @@ export async function authorizeTransaction(
     }
     // 'fresh' / 'retry_after_failure' — continue.
 
-    const merchantResult = await client.query<{ onboarding_status: string; mdr_bps: number }>(
-      `SELECT onboarding_status, mdr_bps FROM merchants WHERE id = $1`,
+    const merchantResult = await client.query<{ status: string; onboarding_status: string; mdr_bps: number }>(
+      `SELECT status, onboarding_status, mdr_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     );
     const merchant = merchantResult.rows[0];
@@ -86,6 +86,13 @@ export async function authorizeTransaction(
     // am: NO. test mode merchants have to authorize, thats the whole point of sandbox. ignore
     if (!merchant || merchant.onboarding_status !== "approved") {
       const body = { error: "merchant_not_approved" };
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 403, body });
+      return { statusCode: 403, body };
+    }
+    // The public payment-link route reaches here with no session or API key,
+    // so the auth lookups' status check never sees it.
+    if (merchant.status !== "active") {
+      const body = { error: "merchant_not_active" };
       await completeIdempotencyKey(client, claim.row.id, { statusCode: 403, body });
       return { statusCode: 403, body };
     }

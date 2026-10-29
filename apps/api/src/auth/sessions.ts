@@ -89,8 +89,10 @@ export async function lookupSession(
     `SELECT s.id AS session_id, s.merchant_user_id, mu.merchant_id, mu.role
        FROM live_sessions s
        JOIN merchant_users mu ON mu.id = s.merchant_user_id
+       JOIN merchants m ON m.id = mu.merchant_id
       WHERE s.token_hash = $1
-        AND s.authenticated = true`,
+        AND s.authenticated = true
+        AND m.status = 'active'`,
     [tokenHash],
   );
   const row = result.rows[0];

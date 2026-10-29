@@ -431,3 +431,18 @@ test(
     assert.equal(finalLink.rows[0]!.transaction_id, txnId);
   },
 );
+
+test("a suspended merchant's active link cannot be paid: 403 merchant_not_active, no transaction, link stays active", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("suspended");
+  const link = await createLink(rawKey, merchantId, { amountFils: 5_000 });
+  await pool.query(`UPDATE merchants SET status = 'suspended' WHERE id = $1`, [merchantId]);
+
+  const payRes = await pay(link.token, APPROVED_CARD);
+  assert.equal(payRes.statusCode, 403, payRes.body);
+  assert.equal(payRes.json().error, "merchant_not_active");
+
+  const txns = await pool.query(`SELECT 1 FROM transactions WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(txns.rowCount, 0, "no transaction may be written for a suspended merchant");
+  const linkRow = await pool.query<{ status: string }>(`SELECT status FROM payment_links WHERE id = $1`, [link.id]);
+  assert.equal(linkRow.rows[0]!.status, "active");
+});

@@ -142,6 +142,13 @@
 - **Cause:** `rotateApiKeyAsAdmin` (`apps/api/src/admin/apiKeys.ts:31-36`) issued the replacement key and wrote the audit row but never set `revoked_at` on the key it replaced, so `verifyApiKey` (`apps/api/src/apiKeys/verify.ts:19`) kept accepting it. The route comment (`routes/adminMerchants.ts:175`), migration 0037 and `apiKeys/issue.ts:22` all describe rotation as revoke plus reissue; no ADR or doc defines a grace period.
 - **Breaks:** Rotating a compromised key did nothing: whoever held the old key could keep charging cards, capturing, voiding and reading the merchant's transactions.
 - **Fix:** The rotation now revokes the old key (`revoked_reason = 'rotated'`) in the same transaction that issues the new one and writes the audit row. The existing rotation test asserted the bug and now expects the old key to get 401 and the new one 200. PR: https://github.com/SilentYsf/fils-pay/pull/17
+### Bug: Suspended merchants keep money access
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** After a merchant was suspended or closed, anyone already logged in, and every API key it had issued, could still list transactions, capture, void and authorize new charges, and buyers could still pay its open payment links.
+- **Cause:** Only login checked `merchants.status`. The session lookup (`apps/api/src/auth/sessions.ts:89-93`) and the API-key lookup (`apps/api/src/apiKeys/verify.ts:19`) never looked at it, and every merchant route trusts those two. The public link pay route has no session or key at all, and `apps/api/src/payments/authorize.ts:78-89` checked only `onboarding_status`.
+- **Breaks:** Suspension did not stop a merchant from taking or moving money until its sessions expired and its keys were revoked by hand.
+- **Fix:** Both lookups now join `merchants` and require `status = 'active'`, so existing sessions and keys answer 401 the moment a merchant is suspended. `authorizeTransaction` also refuses a merchant that is not active with 403 `merchant_not_active`, which closes link payments. Tests added. PR: https://github.com/SilentYsf/fils-pay/pull/28
 ### Bug: Shops get two "your payout is on the way" messages
 - **Status:** Fixed
 - **Type:** Concurrency, medium
