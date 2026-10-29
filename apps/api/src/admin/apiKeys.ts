@@ -28,6 +28,14 @@ export async function rotateApiKeyAsAdmin(
       throw new ConflictError("api_key_already_revoked");
     }
 
+    // The old key keeps working for an overlap window so the merchant can
+    // deploy the new one, then stops. Without this the "rotated" key stayed
+    // valid forever: revoke_after (0056) was never set, and no sweep exists.
+    await client.query(
+      `UPDATE api_keys SET revoke_after = now() + interval '24 hours' WHERE id = $1 AND revoke_after IS NULL`,
+      [input.apiKeyId],
+    );
+
     const issued = await issueApiKeyInTx(client, config, {
       merchantId: input.merchantId,
       createdByAdminUserId: input.adminUserId,
