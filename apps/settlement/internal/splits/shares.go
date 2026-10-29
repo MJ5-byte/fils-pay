@@ -9,9 +9,9 @@ type ChildWeight struct {
 
 // ChildShares distributes netPayout across children by their weights.
 func ChildShares(netPayout money.Fils, children []ChildWeight) []money.Fils {
-	out := make([]money.Fils, len(children))
+	weights := make([]int64, len(children))
 	for i, c := range children {
-		out[i] = money.ApplyRateFils(netPayout, c.WeightBps)
+		weights[i] = c.WeightBps
 	}
-	return out
+	return money.AllocateByWeights(netPayout, weights)
 }

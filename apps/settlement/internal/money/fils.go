@@ -61,3 +61,37 @@ func abs64(n int64) int64 {
 func (f Fils) String() string {
 	return fmt.Sprintf("%dfils", int64(f))
 }
+
+// AllocateByWeights splits total into len(weights) non-negative shares
+// proportional to weights, using the largest-remainder method (ties to the
+// lower index), so the shares always sum to exactly total. Port of
+// packages/money's allocateRemainder for integer weights.
+func AllocateByWeights(total Fils, weights []int64) []Fils {
+	shares := make([]Fils, len(weights))
+	var weightSum int64
+	for _, w := range weights {
+		weightSum += w
+	}
+	if weightSum <= 0 || total <= 0 {
+		return shares
+	}
+	remainders := make([]int64, len(weights))
+	var allocated Fils
+	for i, w := range weights {
+		product := int64(total) * w
+		shares[i] = Fils(product / weightSum)
+		remainders[i] = product % weightSum
+		allocated += shares[i]
+	}
+	for leftover := total - allocated; leftover > 0; leftover-- {
+		best := -1
+		for i := range weights {
+			if best == -1 || remainders[i] > remainders[best] {
+				best = i
+			}
+		}
+		shares[best]++
+		remainders[best] = -1
+	}
+	return shares
+}
