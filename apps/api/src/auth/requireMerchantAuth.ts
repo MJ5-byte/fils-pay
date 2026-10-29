@@ -13,8 +13,8 @@ export interface MerchantAuthContext {
    *  'merchant_session'. Always null for actorType 'merchant_api_key' — an
    *  API key has no per-key role; see requireMerchantRole below
    *  for how that's handled, not ignored. For actorType 'admin_impersonation',
-   *  the operator's merchant-plane role (see admin/impersonation.ts's role
-   *  mapping). */
+   *  always "support", whatever the admin's own role (see
+   *  admin/impersonation.ts). */
   role: "owner" | "finance" | "support" | null;
   /** Present only when actorType === 'admin_impersonation': which admin is
    *  looking. A merchant-facing audit trail should surface this when
@@ -77,15 +77,19 @@ export const requireMerchantAuth: preHandlerHookHandler = async (request: Fastif
   // FH: tried old grant cookie + real merchant session, got the merchant identity as expected. can't see the bug
   // Third and last fallback: an operator's "view as merchant" grant, read from
   // its own cookie (never fp_admin_sid — this function does not know that
-  // cookie's name and never looks at it). The grant resolves to the operator's
-  // standing expressed in the merchant plane's own role vocabulary
-  // (see admin/impersonation.ts), so the existing requireMerchantRole gates
-  // apply to it exactly as they do to a real merchant session — one authority
-  // model, no second "what may impersonation do" allowlist to drift from it.
+  // cookie's name and never looks at it). A grant is read-only: it always
+  // resolves to the merchant role "support" (see admin/impersonation.ts), so
+  // the requireMerchantRole gates apply to it as to a real support session,
+  // and any non-read request is refused below.
   const impersonationToken = request.cookies[request.server.config.impersonationCookieName];
   if (impersonationToken) {
     const grant = await lookupImpersonationGrant(request.server.db, impersonationToken);
     if (grant) {
+      // A grant is view-only: refusing every non-read method here closes all
+      // merchant write routes at once, including those without a role gate.
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        throw new ForbiddenError("forbidden");
+      }
       request.merchantAuth = {
         merchantId: grant.merchantId,
         actorType: "admin_impersonation",
@@ -127,6 +131,11 @@ export interface MerchantWriterActor {
 // impersonation writes get recorded as merchant_session here — audit cant tell admin from merchant? — am
 // YA: impersonation can't reach write routes, so this never sees admin_impersonation
 export function requireMerchantWriterActor(auth: MerchantAuthContext): MerchantWriterActor {
+  // Fails closed if a future write route skips requireMerchantAuth's read-only
+  // guard: a grant must never be recorded as the merchant's own session.
+  if (auth.actorType === "admin_impersonation") {
+    throw new ForbiddenError("forbidden");
+  }
   if (auth.actorType === "merchant_api_key") {
     return { type: "merchant_api_key", id: auth.actorId };
   }

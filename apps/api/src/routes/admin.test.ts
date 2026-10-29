@@ -1181,6 +1181,58 @@ test("a support impersonation grant reads merchant data but cannot perform owner
   assert.equal(audit.rows[1]!.target_id, merchantId);
 });
 
+test("an impersonation grant is read-only: it cannot capture or void, and a super_admin grant is still support", async () => {
+  const supportAdmin = await signedInAdmin("support", "imp-write");
+  const superAdmin = await signedInAdmin("super_admin", "imp-write-super");
+  const { merchantId } = await createMerchant("imp-write");
+  const txn = await pool.query<{ id: string }>(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+     VALUES ($1, 'authorized', 2000, 0, $2) RETURNING id`,
+    [merchantId, `acqref_${randomUUID()}`],
+  );
+  const transactionId = txn.rows[0]!.id;
+
+  async function grantCookie(adminCookie: string): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/impersonate`,
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return parseCookie(res.headers["set-cookie"], config.impersonationCookieName);
+  }
+
+  for (const impCookie of [await grantCookie(supportAdmin.cookie), await grantCookie(superAdmin.cookie)]) {
+    const capture = await app.inject({
+      method: "POST",
+      url: `/v1/transactions/${transactionId}/capture`,
+      headers: { cookie: impCookie, "idempotency-key": randomUUID() },
+      payload: {},
+    });
+    assert.equal(capture.statusCode, 403, capture.body);
+
+    const voided = await app.inject({
+      method: "POST",
+      url: `/v1/transactions/${transactionId}/void`,
+      headers: { cookie: impCookie, "idempotency-key": randomUUID() },
+    });
+    assert.equal(voided.statusCode, 403, voided.body);
+
+    const reconciliation = await app.inject({
+      method: "GET",
+      url: "/v1/settlement/reconciliation",
+      headers: { cookie: impCookie },
+    });
+    assert.equal(reconciliation.statusCode, 403, "an owner/finance page must stay closed to every grant");
+  }
+
+  const after = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [transactionId],
+  );
+  assert.deepEqual(after.rows[0], { status: "authorized", captured_fils: "0" });
+});
+
 test("an expired impersonation grant stops working without anyone ending it", async () => {
   const admin = await signedInAdmin("support", "imp-expiry");
   const { merchantId } = await createMerchant("imp-expiry");
