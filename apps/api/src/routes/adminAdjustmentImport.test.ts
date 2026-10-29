@@ -105,7 +105,7 @@ test("a valid CSV upload returns 201 and applies every row", async () => {
 
   const body = res.json() as { importId: string; rowCount: number; totalPostedFils: number };
   assert.equal(body.rowCount, 2);
-  assert.equal(body.totalPostedFils, 600);
+  assert.equal(body.totalPostedFils, 6000);
 
   const rows = await pool.query<{ n: string }>(
     `SELECT COUNT(*)::text AS n FROM adjustment_import_rows WHERE adjustment_import_id = $1`,
@@ -236,6 +236,7 @@ test("the import history lists past uploads and is readable by any admin role", 
 // 4.75 -> 475 here. matches the README money section (1250 fils = 12.50 BD) — FH
 // MK: BD has 3 decimals?? 4.75 BD is 4750 fils
 // am: the import format is 2dp by agreement with finance. fine
+// 1 BD = 1000 fils: "4.75" -> 4750. This used to expect 475 (the 10x import bug).
 test("per-row detail shows the raw text next to the parsed integer", async () => {
   const admin = await signedInAdmin("finance");
   const merchantId = await createMerchant();
