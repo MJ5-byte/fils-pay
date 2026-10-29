@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: Login works without the OTP code
+- **Status:** Fixed
+- **Type:** Security, critical
+- **Problem:** After entering only the password, a merchant user could open the dashboard and call the API without ever entering the OTP.
+- **Cause:** `lookupSession` (`apps/api/src/auth/sessions.ts:89-92`) reads the view `live_sessions` (migration 0058), which filters revoked and expired sessions but not `authenticated`, so the pending session created after the password (`apps/api/src/routes/auth.ts:87,99`) passed every merchant route.
+- **Breaks:** A stolen password alone took over a shop's account, including its transactions and API keys.
+- **Fix:** Added `AND s.authenticated = true` to `lookupSession`, the shared lookup behind every merchant route. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/8
 ### Bug: Login can land in another merchant
 - **Status:** Fixed
 - **Type:** Security, critical

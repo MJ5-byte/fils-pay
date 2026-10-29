@@ -118,3 +118,16 @@ test("lookupSession returns null for an expired session", async () => {
 
   assert.equal(await lookupSession(pool, rawToken), null, "expires_at in the past must exclude the row");
 });
+
+test("lookupSession returns null for a pending session that never passed OTP", async () => {
+  // The cookie set after the password step points at this row shape. It must
+  // not open merchant routes until the OTP is verified.
+  const merchantUserId = await createMerchantUser("pending");
+  const rawToken = await insertSession({
+    merchantUserId,
+    authenticated: false,
+    expiresAt: hoursFromNow(1),
+  });
+
+  assert.equal(await lookupSession(pool, rawToken), null, "authenticated = false must exclude the row");
+});
