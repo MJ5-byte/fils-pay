@@ -1148,6 +1148,14 @@
 - **Breaks:** Money is captured against holds the scheme no longer guarantees; live has 4 August authorizations whose holds expired on 4 September.
 - **Fix:** capture.ts refuses with 409 authorization_expired when the hold's expires_at is at or before the DB clock, checked under the existing row lock; partially captured authorizations are included; a test was added.
 
+### Bug: Checkout tells a charged buyer to try again, and shows server field names
+- **Status:** Fixed
+- **Type:** UX, medium
+- **Problem:** After a successful capture whose link reservation was lost (409 `payment_link_reservation_lost`), the checkout said "A payment is already being processed. Please try again", inviting a second payment; a mistyped card showed the raw text "card.pan must be a valid card number"; refused captures and unpayable links also read as "already being processed".
+- **Cause:** `CheckoutPage.tsx` sent every 409 to the "already being processed" sentence and fell back to `body.message`, which the API fills with the bare code or a field name.
+- **Breaks:** A charged buyer could pay again by another route, and buyers saw developer text instead of a sentence.
+- **Fix:** One `payFailure()` mapping (`apps/web/src/pages/checkout/payFailure.ts`): reservation lost is terminal under "Payment received" with "Do not pay again" and the payment reference; invalid card, expired authorization, unpayable or missing link and an inactive merchant each get a true sentence; anything unmapped shows a generic retry, never the server message. Tests added in `payFailure.test.ts`.
+
 ### Bug: The expire_holds janitor deletes expired holds instead of marking them expired
 - **Status:** Fixed
 - **Type:** Money, low

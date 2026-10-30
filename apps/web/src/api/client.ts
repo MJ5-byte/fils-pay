@@ -72,6 +72,7 @@ const ERROR_COPY: Record<string, string> = {
   too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
   too_many_login_attempts: "Too many failed sign-in attempts. Wait 15 minutes and try again.",
   resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
+  authorization_expired: "This authorization's hold has expired, so it can no longer be captured.",
   refund_exceeds_refundable: "That's more than is left to refund on this payment.",
   refund_amount_invalid: "Enter a refund amount above zero.",
   transaction_not_refundable: "This payment cannot be refunded in its current state.",

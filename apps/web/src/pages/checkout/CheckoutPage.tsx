@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { formatBhd, toFils } from "@filspay/money";
 import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
-import { ApiError } from "../../api/client.js";
 import { dateTime } from "../../format.js";
 import { loadFailureKind } from "./loadFailure.js";
+import { payFailure } from "./payFailure.js";
 import type { PaymentLinkPublicDto, PayPaymentLinkResponse, SimulatedCardInput } from "../../types.js";
 import "./CheckoutPage.css";
 
@@ -19,7 +19,7 @@ type PayState =
   | { kind: "submitting" }
   | { kind: "success"; result: PayPaymentLinkResponse }
   | { kind: "declined"; message: string; retryable: boolean }
-  | { kind: "terminal"; message: string };
+  | { kind: "terminal"; message: string; title?: string };
 
 const EMPTY_CARD: SimulatedCardInput = { pan: "", expiryMonth: 1, expiryYear: new Date().getFullYear() + 1, cvv: "" };
 
@@ -65,27 +65,7 @@ export function CheckoutPage() {
       const result = await payPaymentLink(token, { card, submittedAt }, idempotencyKey);
       setPayState({ kind: "success", result });
     } catch (err) {
-      if (err instanceof ApiError) {
-        const { statusCode, body } = err;
-        if (statusCode === 402) {
-          const stageLabel = body.stage === "capture" ? "Your payment could not be completed." : "Your card was declined.";
-          setPayState({ kind: "declined", message: stageLabel, retryable: true });
-        } else if (statusCode === 502) {
-          setPayState({ kind: "declined", message: "The acquirer is temporarily unavailable. Please try again.", retryable: true });
-        } else if (statusCode === 409 && body.error === "payment_link_already_paid") {
-          setPayState({ kind: "terminal", message: "This invoice has already been paid." });
-        } else if (statusCode === 409 && body.error === "payment_link_canceled") {
-          setPayState({ kind: "terminal", message: "This payment link is no longer available." });
-        } else if (statusCode === 409) {
-          setPayState({ kind: "declined", message: "A payment is already being processed for this link. Please try again shortly.", retryable: true });
-        } else if (statusCode === 410) {
-          setPayState({ kind: "terminal", message: "This payment link has expired." });
-        } else {
-          setPayState({ kind: "declined", message: body.message ?? "Something went wrong. Please try again.", retryable: true });
-        }
-      } else {
-        setPayState({ kind: "declined", message: "Something went wrong. Please try again.", retryable: true });
-      }
+      setPayState(payFailure(err));
     }
   }
 
@@ -138,7 +118,7 @@ export function CheckoutPage() {
   if (payState.kind === "terminal") {
     return (
       <main className="checkout-page">
-        <h1>Unable to pay</h1>
+        <h1>{payState.title ?? "Unable to pay"}</h1>
         <p>{payState.message}</p>
       </main>
     );
