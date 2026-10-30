@@ -4,6 +4,7 @@ import type {
   ReconciliationReport,
   SettlementBatchDetailDto,
   SettlementBatchListResponse,
+  SettlementBatchTransactionDto,
   SettlementBatchTransactionListResponse,
   SettlementBatchStatus,
 } from "../types.js";
@@ -30,10 +31,21 @@ export function getSettlementBatch(id: string): Promise<SettlementBatchDetailDto
   return request(`/v1/settlement/batches/${encodeURIComponent(id)}`);
 }
 
-export function getSettlementBatchTransactions(
+/** Follows `nextCursor` to the last page: the batch detail shows every line
+ *  of a settlement figure, so dropping the tail would misstate it. */
+export async function getSettlementBatchTransactions(
   id: string,
 ): Promise<SettlementBatchTransactionListResponse> {
-  return request(`/v1/settlement/batches/${encodeURIComponent(id)}/transactions`);
+  const transactions: SettlementBatchTransactionDto[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: SettlementBatchTransactionListResponse = await request(
+      `/v1/settlement/batches/${encodeURIComponent(id)}/transactions${buildQuery({ limit: 100, cursor })}`,
+    );
+    transactions.push(...page.transactions);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return { transactions, nextCursor: null };
 }
 
 /** `owner`/`finance` only — the one merchant-plane endpoint with a role gate

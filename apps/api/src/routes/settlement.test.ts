@@ -344,6 +344,59 @@ test("GET /v1/settlement/batches/:id/transactions returns the truncated scheme-e
   assert.equal(line.authorizedFils, 4_747);
 });
 
+test("GET /v1/settlement/batches/:id/transactions pages its lines with limit and nextCursor (BHA-114)", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("batch-txns-page", 250);
+  const txn1 = await authorize(rawKey, 1_000);
+  await capture(rawKey, txn1.id);
+  const txn2 = await authorize(rawKey, 2_000);
+  await capture(rawKey, txn2.id);
+  const batchId = await closeAndPayoutBatch(merchantId, todayBahrainDateString());
+
+  type Page = { transactions: Array<{ transactionId: string }>; nextCursor: string | null };
+  const first = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/batches/${batchId}/transactions?limit=1`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(first.statusCode, 200, first.body);
+  const firstBody = first.json() as Page;
+  assert.equal(firstBody.transactions.length, 1);
+  assert.ok(firstBody.nextCursor);
+
+  const second = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/batches/${batchId}/transactions?limit=1&cursor=${firstBody.nextCursor}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(second.statusCode, 200, second.body);
+  const secondBody = second.json() as Page;
+  assert.equal(secondBody.transactions.length, 1);
+  assert.deepEqual(
+    [firstBody.transactions[0]!.transactionId, secondBody.transactions[0]!.transactionId].sort(),
+    [txn1.id, txn2.id].sort(),
+  );
+});
+
+test("GET /v1/settlement/batches/:id/transactions keeps the batch's own capture after a later partial capture (BHA-161)", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("batch-txns-later-capture", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id, { amountFils: 4_000 });
+  const batchId = await closeAndPayoutBatch(merchantId, todayBahrainDateString());
+  // This capture is not in the closed batch; it waits for the next one.
+  await capture(rawKey, txn.id, { amountFils: 3_000 });
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/batches/${batchId}/transactions`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const line = (res.json() as { transactions: Array<{ capturedFils: number; schemeAmountFils: number }> })
+    .transactions[0]!;
+  assert.equal(line.capturedFils, 4_000);
+  assert.equal(line.schemeAmountFils, 4_000);
+});
+
 /** Fully batched = pending is 0, so this never exercises the float pending path. */
 test("GET /v1/settlement/reconciliation reports gapFils === 0 for a fully-batched period", async () => {
   const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("reconciliation", 250);

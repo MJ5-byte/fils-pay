@@ -250,9 +250,10 @@ export interface SettlementBatchTransactionDto {
 }
 
 /** The batch-transactions route wraps its rows in an object rather than
- *  returning a bare array. */
+ *  returning a bare array, and pages them by line with `nextCursor`. */
 export interface SettlementBatchTransactionListResponse {
   transactions: SettlementBatchTransactionDto[];
+  nextCursor: string | null;
 }
 
 // YA: gapFils is a string here (pre-Jan contract)

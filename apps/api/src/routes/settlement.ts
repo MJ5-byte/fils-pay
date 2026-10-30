@@ -14,6 +14,20 @@ interface BatchIdParams {
   id: string;
 }
 
+interface ListBatchTransactionsQuery {
+  limit?: string;
+  cursor?: string;
+}
+
+/** A non-numeric limit is a 400; an absent one falls back to the query layer's default. */
+function parseLimit(limit: string | undefined): number | undefined {
+  if (limit === undefined) return undefined;
+  if (!/^\d+$/.test(limit)) {
+    throw new BadRequestError("invalid_request", "limit must be a positive integer");
+  }
+  return Number.parseInt(limit, 10);
+}
+
 interface ListBatchesQuery {
   from?: string;
   to?: string;
@@ -66,10 +80,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      if (q.limit !== undefined && !/^\d+$/.test(q.limit)) {
-        throw new BadRequestError("invalid_request", "limit must be a positive integer");
-      }
-      const limit = q.limit !== undefined ? Number.parseInt(q.limit, 10) : undefined;
+      const limit = parseLimit(q.limit);
       const from = q.from ? new Date(q.from) : undefined;
       const to = q.to ? new Date(q.to) : undefined;
       if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
@@ -134,7 +145,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get<{ Params: BatchIdParams }>(
+  app.get<{ Params: BatchIdParams; Querystring: ListBatchTransactionsQuery }>(
     "/batches/:id/transactions",
     { preHandler: requireMerchantAuth },
     async (request) => {
@@ -149,8 +160,10 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
       if (!batch) {
         throw new NotFoundError("settlement_batch_not_found");
       }
-      const transactions = await listBatchTransactions(app.db, request.params.id);
-      return { transactions };
+      return listBatchTransactions(app.db, request.params.id, {
+        limit: parseLimit(request.query.limit),
+        cursor: request.query.cursor ?? null,
+      });
     },
   );
 }

@@ -640,3 +640,19 @@
 - **Cause:** `apps/web/src/pages/settlement/SettlementBatchListPage.tsx` `load` had no stale-response guard. It is recreated on every filter change and the effect re-fires, but an older in-flight response still ran `setBatches`/`setNextCursor`, and the Load more button dispatches the same `load` outside any effect, so the existing effect-cleanup pattern did not cover it.
 - **Breaks:** A filtered view (e.g. status=paid) could briefly show a batch from the unfiltered set, and the next Load more sent the current filter with the stale cursor.
 - **Fix:** A request epoch held in a `useRef`, bumped on every filter change, captured in the `load` closure at dispatch and checked before `setBatches`/`setNextCursor`/`setError`/`setLoading`, so a response for a superseded filter is dropped. Same "capture in the closure, guard before setState" shape as the sibling `SettlementBatchDetailPage` cancelled flag, widened to cover both the filter effect and the imperative Load more path. No test: a frontend ordering race is visible on the page and the repo does not unit-test this hook pattern.
+
+### Bug: Settlement batch transactions list has no row limit (BHA-114)
+- **Status:** Fixed
+- **Type:** Performance, low
+- **Problem:** `GET /v1/settlement/batches/:id/transactions` returned every line of a batch in one response, however large the batch, and ignored `limit`.
+- **Cause:** `listBatchTransactions` in `apps/api/src/settlement/query.ts` ran its query with no `LIMIT` and the route read no paging parameters, on the assumption, left in a code comment, that a batch stays small.
+- **Breaks:** A busy merchant's batch could produce an arbitrarily large response and query, the unbounded read the performance rules forbid.
+- **Fix:** Keyset pagination on `line_sequence`, the same `limit` (default 25, max 100) and opaque `nextCursor` shape as the settlement batch list; a malformed cursor is a 400 `invalid_cursor`. The merchant web client follows `nextCursor` to the last page, so the batch detail page still lists every line of the settlement figure and the page itself is unchanged. Test added.
+
+### Bug: Settlement batch transactions show the lifetime capture, not what the batch settled (BHA-161)
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** After a later partial capture on a transaction, a closed batch's transaction list changed its Captured figure (for example 4.000 BD became 7.000 BD) and no longer matched the batch's own scheme amount, showing a discrepancy that does not exist.
+- **Cause:** `listBatchTransactions` read `transactions.captured_fils`, the running lifetime total, while CloseBatch builds each line from the capture events it stamps with that batch's `settlement_batch_id`.
+- **Breaks:** Historical batch detail rewrote itself after the fact, so a merchant or finance reviewer reconciling a closed batch saw a false mismatch.
+- **Fix:** Captured is now the sum of that transaction's capture events stamped with this batch, the same deltas CloseBatch used. The column already existed, so no schema change. Test added: capture 4.000 BD, close the batch, capture 3.000 BD more, and the batch still shows 4.000 BD.

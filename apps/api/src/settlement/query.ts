@@ -202,7 +202,9 @@ export async function getSettlementBatch(
 
 /**
  * schemeAmountFils: the amount the scheme export line carries (truncated
- * to whole 10-fils units). capturedFils: the untruncated captured total.
+ * to whole 10-fils units). capturedFils: the untruncated amount this batch
+ * settled for the transaction, so a later capture that lands in another
+ * batch never changes it.
  */
 export interface SettlementBatchTransactionDto {
   transactionId: string;
@@ -224,29 +226,61 @@ interface SettlementBatchTransactionRow {
   captured_fils: string | number;
 }
 
+export interface ListBatchTransactionsResult {
+  transactions: SettlementBatchTransactionDto[];
+  nextCursor: string | null;
+}
+
+function decodeLineCursor(cursor: string | null | undefined): number | null {
+  if (!cursor) return null;
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+  if (!/^\d{1,9}$/.test(decoded)) {
+    throw new BadRequestError("invalid_cursor", "cursor is not valid");
+  }
+  return Number(decoded);
+}
+
+function encodeLineCursor(lineSequence: number): string {
+  return Buffer.from(String(lineSequence), "utf8").toString("base64url");
+}
+
 /**
  * `GET /v1/settlement/batches/:id/transactions` business logic.
  * Same 404-on-ownership-mismatch check as `getSettlementBatch`, performed
  * by the caller (routes/settlement.ts) before this is called. Reads from
  * scheme_export_lines (many, but exactly-one-per-transaction by
  * construction) joined -> transactions (one) — the safe join direction.
+ * Keyset pagination on line_sequence, same shape as `listSettlementBatches`.
+ * capturedFils sums the capture events CloseBatch stamped with this batch,
+ * the same deltas it built the line from, never transactions.captured_fils
+ * (a lifetime running total that later captures keep moving).
  */
-// unbounded but a batch is one merchant one day, max a few thousand lines — am
 export async function listBatchTransactions(
   pool: Pool,
   batchId: string,
-): Promise<SettlementBatchTransactionDto[]> {
+  page: { limit?: number; cursor?: string | null } = {},
+): Promise<ListBatchTransactionsResult> {
+  const limit = Math.min(MAX_LIMIT, Math.max(1, page.limit ?? DEFAULT_LIMIT));
+  const afterLine = decodeLineCursor(page.cursor);
+
   const result = await pool.query<SettlementBatchTransactionRow>(
     `SELECT sel.transaction_id, sel.amount_fils AS scheme_amount_fils, sel.line_sequence,
-            t.reference, t.status, t.amount_fils AS authorized_fils, t.captured_fils
+            t.reference, t.status, t.amount_fils AS authorized_fils,
+            (SELECT COALESCE(SUM(te.amount_fils), 0)
+               FROM transaction_events te
+              WHERE te.transaction_id = sel.transaction_id
+                AND te.settlement_batch_id = sel.settlement_batch_id
+                AND te.event_type IN ('captured', 'partially_captured')) AS captured_fils
        FROM scheme_export_lines sel
        JOIN transactions t ON t.id = sel.transaction_id
       WHERE sel.settlement_batch_id = $1
-      ORDER BY sel.line_sequence`,
-    [batchId],
+        AND ($2::int IS NULL OR sel.line_sequence > $2)
+      ORDER BY sel.line_sequence
+      LIMIT $3`,
+    [batchId, afterLine, limit],
   );
 
-  return result.rows.map((row) => ({
+  const transactions = result.rows.map((row) => ({
     transactionId: row.transaction_id,
     schemeAmountFils: Number(row.scheme_amount_fils),
     lineSequence: row.line_sequence,
@@ -255,6 +289,10 @@ export async function listBatchTransactions(
     authorizedFils: Number(row.authorized_fils),
     capturedFils: Number(row.captured_fils),
   }));
+  const lastRow = result.rows[result.rows.length - 1];
+  const nextCursor = result.rows.length === limit && lastRow ? encodeLineCursor(lastRow.line_sequence) : null;
+
+  return { transactions, nextCursor };
 }
 
 /**
