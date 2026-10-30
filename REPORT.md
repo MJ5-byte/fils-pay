@@ -1106,6 +1106,7 @@
 - **Cause:** `ops/nginx.conf` counted every api request from an address against one zone, `api_per_ip` (100 a second). A checkout is three requests (create link, open, pay), so new creates used up the allowance and the open and pay of checkouts in progress were turned away.
 - **Breaks:** A capacity test driven from one machine sees the stack collapse instead of serving what it can and refusing only the excess.
 - **Fix:** Opening a public payment link and paying it now count against their own per-address zone, `checkout_per_ip`, with the same 100 a second and burst of 200; creating new work stays on `api_per_ip`. The in-flight caps from #112 are unchanged and still shed the excess. Rerun of the same load against a local stack: 36.7 checkouts a second completed, no 429, and the excess turned away as 2,225 create 503s with Retry-After. No unit test, because it is config; `nginx -t` passes in the nginx image.
+
 ### Bug: Every ledger insert scans the whole ledger
 - **Status:** Fixed
 - **Type:** Performance, high
@@ -1173,6 +1174,12 @@
 - **Cause:** `refresh()` in `apps/web/src/auth/DashboardAuthContext.tsx` and `apps/admin/src/auth/AdminAuthContext.tsx` caught every `/me` failure and set the status to signed out, and neither router had an error boundary of its own.
 - **Breaks:** During any outage, signed-in merchants and operators were told to log in again, which fails too, with nothing saying the server was the problem. A crash on a page put internals on screen.
 - **Fix:** Only a 401, the one answer `/me` gives for a missing or expired session, now means signed out. A network error or another status sets a new `unavailable` status, and both route guards show "The server could not be reached, so your session could not be checked." with a Retry button. Each app gets one small class component error boundary in a pathless root route, which shows "Something went wrong on this page." and a reload link. Reproduced with the dev servers pointed at a closed port and at a stub answering 500: both apps landed on login before the change and show the retry message after; with the stub answering 401, Retry lands on login. No test added, since a break here shows on screen.
+
+### Not a bug: Overview voids and the 30 Oct capture disagree with the transactions list (BHA-239)
+- **Type:** Data
+- **Claim:** On a flowshots DB, Delta Wholesale's overview counted 4 voided payments while the transactions list showed 3, and showed a 30 Oct capture of 317.416 BHD that no transaction backs.
+- **Checked:** The overview reads `merchant_daily_volume` through `getVolumes` in `apps/api/src/analytics/query.ts`, which `apps/reporting` fills from `outbox_events`; the list reads `transactions` by `occurred_at`. That DB has only 13 outbox events: the one sample capture (transaction `3359d977`, 317.416 BHD, made 13 Aug) and one sample void per merchant that the seed wrote before #134 (BHA-198), stamped with the time the seed ran, so the consumer dated them 30 Oct. Its 275 rollup rows from July to September all share one `last_updated_at`, 12 seconds after the consumer's last event, with no outbox event behind them, so they were written straight into the table. Those rows already hold the 13 Aug capture and the 28 Aug void, so both are counted a second time on 30 Oct. On a fresh DB migrated and seeded from `main`, then caught up with `reporting catch-up`, every merchant's rollup matches its transactions: voids per Bahrain day agree on all 275 merchant days, captured fils agree per merchant, and nothing is dated on the seed day. A capture and a void made afterwards through `captureTransaction` and `voidTransaction` added exactly one capture of 12.345 BHD and one void to that day's rollup, and the list and the rollup both showed 4 voids.
+- **Why it is not a bug:** The double count comes from that DB's old seed and its hand-written rollup rows, not from the producers or the query. The seed fix from BHA-198 is already on `main`, and a reseeded DB shows the same numbers on both pages.
 
 ### Improvement: The root test command runs green on one database
 - **Type:** Deploy
