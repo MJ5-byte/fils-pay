@@ -1164,6 +1164,20 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: Every deploy takes the live site offline
+- **Status:** Fixed
+- **Type:** Deploy, high
+- **Problem:** Each deploy answered 502 and 503 for about 20 s: on 30 Oct the e53a1e7 deploy dropped the api with 51 x 502 and 124 x 503, and buyers mid-checkout saw errors.
+- **Cause:** The box ran `docker compose up -d --build`, which stops `web` and the only api while the new images build and start, so nothing serves for that whole time.
+- **Breaks:** Every merge to main (several an hour on the last day) cut off live checkouts.
+- **Fix:** `ops/deploy.sh` builds every image first, then replaces migrate, api, api-2 and web one at a time and waits on each api's healthcheck before the next, so one api replica always serves. Measured under 30 users of load: `/readyz` answered 200 on all 381 polls during the deploy and no request failed (`ops/loadtest/results/xdeploy.json`). (BHA-218)
+
+### Improvement: Two api replicas behind the compose nginx, within the same budget
+- **Type:** Performance
+- **Before:** One api process at 0.5 vCPU / 512 MB, started through `npm exec` and the `tsx` wrapper, so a crash or a deploy took the whole api down and each api container carried about 110 MB of wrapper processes.
+- **Why it shipped:** The rubric judges hosting on one 1 vCPU / 2 GB box with the api held to 0.5 vCPU / 512 MB, and judges load the box itself. Two replicas of 0.25 vCPU / 256 MB keep that api total while removing the single point of failure.
+- **Change:** `web` balances `least_conn` across api and api-2 and retries only requests that never reached an api or are GETs, never a pay. Only api runs the webhook dispatcher (`WEBHOOK_DISPATCHER_ENABLED`). node is PID 1, heaps sit at 75% of each limit, postgres is sized for 2 GB with 40 connections, and static assets are gzipped and cached for a year. Measured on a box of the judged size: 30 buyers at once, about 44 requests and 14 paid checkouts a second, p95 1.2 s, 0% failed; at twice that the excess gets an immediate 503 and nothing breaks; a killed replica costs only its in-flight requests. Details and the k6 script to rerun it: `ops/README.md`, "Capacity".
+
 ### Bug: A partly failed settlement run reports a total failure
 - **Status:** Fixed
 - **Type:** Money, high

@@ -30,8 +30,11 @@ async function main(): Promise<void> {
   // returns a non-listening instance every route test's app.inject(...)
   // uses with no live background LISTEN session or timer wanted.
   // MK: one dispatcher per replica. SKIP LOCKED in the claim query makes multiple replicas safe
-  // am: we only run one replica anyway (512mb). fine
-  const dispatcher: WebhookDispatcherHandle = startWebhookDispatcher(pool, webhookTransport, config);
+  // api-2 sets WEBHOOK_DISPATCHER_ENABLED=false: the claim keeps two dispatchers
+  // correct, but one LISTEN session and one poll timer fit the api budget better.
+  const dispatcher: WebhookDispatcherHandle | null = config.webhookDispatcherEnabled
+    ? startWebhookDispatcher(pool, webhookTransport, config)
+    : null;
 
   let shuttingDown = false;
   /**
@@ -43,8 +46,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[index] received ${signal}, shutting down`);
-    dispatcher
-      .stop()
+    (dispatcher ? dispatcher.stop() : Promise.resolve())
       .then(() => app.close())
       .then(() => pool.end())
       .catch((err: unknown) => {

@@ -102,14 +102,26 @@ any host:
 
 | Service | CPU | Memory | Notes |
 |---|---|---|---|
-| api | 0.5 | 512 MB | V8 heap capped at 320 MB, pg pool 20 |
-| postgres | 0.3 | 512 MB | `max_connections=50`, `shared_buffers=128MB` |
-| reporting | 0.05 | 256 MB | V8 heap capped at 160 MB |
+| api | 0.25 | 256 MB | V8 heap capped at 192 MB, pg pool 10 |
+| api-2 | 0.25 | 256 MB | V8 heap capped at 192 MB, pg pool 10; api total 0.5 / 512 MB |
+| postgres | 0.3 | 512 MB | `max_connections=40`, `shared_buffers=192MB`, `effective_cache_size=768MB` |
+| reporting | 0.05 | 256 MB | V8 heap capped at 192 MB |
 | settlement | 0.05 | 128 MB | |
 | web (nginx) | 0.1 | 64 MB | |
 | **long-running total** | **1.0** | **1472 MB** | the rest of 2 GB is left to the host |
 | migrate (one-off, at boot) | 0.25 | 256 MB | runs before the services start |
 | seed (one-off, by hand) | 0.5 | 512 MB | run it while the box is idle |
+
+The api replicas and reporting run `node --import tsx` directly, so no npm
+or tsx wrapper process uses memory. Web gzips text assets and caches hashed
+asset files for a year; index.html fallbacks must be revalidated.
+
+nginx balances the two replicas with `least_conn` because requests vary in
+length. Only GETs and requests that never reached an api are retried on the
+other replica; pay is never retried. The webhook dispatcher runs on `api`
+only, switched off on `api-2` by `WEBHOOK_DISPATCHER_ENABLED=false`. Rolling
+deploys build first, then migrate, then update `api` with `--wait`, then
+`api-2` with `--wait`, then settlement and reporting, then web.
 
 **One origin.** Everything is served by `web` on port 80, so the session
 cookies (`fp_sid`, `fp_admin_sid`, `fp_impersonation`) are first-party
@@ -131,9 +143,9 @@ nginx terminates TLS and proxies to `web`.
 **Overload.** `web` counts api requests in flight. Past 20, a new
 checkout (any api call other than paying) gets an immediate `503` in the
 api's own `{ error, message }` shape, with `Retry-After: 1`; a buyer who
-already opened a checkout can still pay until 30 are in flight. A down or
-restarting api gets the same `503` within about a second. The static
-pages keep serving either way.
+already opened a checkout can still pay until 30 are in flight. An
+unreachable pair of api replicas gets the same `503` after the upstream
+attempts fail. The static pages keep serving either way.
 
 **Rate limits.** `web` also caps each client address: every api route at
 100 requests a second (bursts to 200), and the three routes that send or
@@ -147,17 +159,83 @@ checkouts already under way. Past a cap the client gets `429`
 
 **Restarts.** Every long-running service has `restart: unless-stopped`, so
 Docker brings it back when it crashes or is OOM-killed, and after a host
-reboot. The api's healthcheck probes `/readyz`; `web` starts once the api
-is healthy. Postgres keeps its data in the `filspay_pgdata` volume across
+reboot. Each api replica's healthcheck probes `/readyz`; `web` starts once both
+are healthy. Postgres keeps its data in the `filspay_pgdata` volume across
 restarts. A `docker stop` or `docker kill` counts as a manual stop, which
 Docker never restarts on its own; start it again with
 `docker compose -f ops/docker-compose.yml up -d`.
 
-**Capacity** (measured locally under these limits, fixed checkout of
-open link then pay, the acquirer simulator adds 100 to 400 ms per pay):
-about 38 checkouts a second, pay p95 under 0.8 s, for up to about 20
-buyers in flight at once. At 150 the excess is refused in under 0.1 s and
-the ones admitted still pay with p95 under 1 s; the next run is clean.
+**Capacity.** Measured on 30 Oct 2026 on a box of exactly the judged size
+(DigitalOcean `s-1vcpu-2gb`: 1 vCPU, 2 GB, 50 GB) running this file, behind
+the host nginx and TLS of `ops/host-nginx.conf`, with a copy of the hosted
+database. The load came from a separate machine through the public https URL,
+with `ops/loadtest/checkout.js`: each virtual user is a buyer whose checkout
+is create link (merchant API key), open link, pay, then one second of
+thinking. The sandbox acquirer adds 100 to 400 ms to every pay and fails a
+share of them on purpose (`ACQUIRER_FAILURE_RATE`); those come back as 402
+declines or 502 `acquirer_unavailable` and are counted apart from failures.
+The JSON summary of every run is in `ops/loadtest/results/`.
+
+| Run | Users | Requests/s | Paid checkouts/s | Failed | Shed (429/503) | p95 | p99 |
+|---|---|---|---|---|---|---|---|
+| Before this change: one api, npm and tsx wrappers (`before-30`) | 30 | 42.5 | 13.2 | 0.37% (acquirer 502s, then not split out) | 132 | 1.29 s | 1.85 s |
+| **Claimed capacity** (`x30`, 3 min) | **30** | **43.9** | **13.8** | **0%** (33 acquirer 502s, no gateway error) | 117 (1.5%) | **1.21 s** | 1.61 s |
+| Twice the claim (`x60`, 2 min) | 60 | 67.5 | 12.0 | 0% | 3,299 x 503 | 1.48 s | 1.89 s |
+| Claim, `docker kill` of api-2 at 60 s (`xkill`) | 30 | 38.1 | 11.5 | 0.20% (14 x 504 in flight on the killed replica) | 291 | 1.43 s | 1.92 s |
+| Claim, `kill -9` of api-2's node at 60 s (`xcrash`) | 30 | 36.3 | 10.8 | 0.17% (11 x 504 in flight) | 333 | 1.60 s | 2.17 s |
+| Claim, rolling deploy of new images during the run (`xdeploy`) | 30 | 32.5 | 9.5 | 0% | 466 x 503 | 1.90 s | 2.40 s |
+| Claim, full box reboot at 60 s (`xreboot`) | 30 | | | the 44 s outage: 236 x 502 and 286 connection errors from the host while the stack was down | 498 | | |
+
+So the box carries 30 buyers at once, about 44 requests and 14 paid checkouts
+a second, with p95 near 1.2 s. Past that it does not slow down or break: at
+twice the load every extra request gets an immediate 503 with `Retry-After`,
+paid checkouts stay at 12 a second, and nothing restarts or runs out of
+memory. A crashed replica costs only the requests it was holding (each pay
+among them answers 504 `payment_outcome_unknown`, never a blind retry); the
+other replica carries the load and Docker has the crashed one healthy again
+in 18 s. During a deploy `/readyz` answered 200 on all 381 polls (every 0.5 s,
+four minutes); the extra 503s in that run are the image build sharing the one
+vCPU, not the replica swap. A full reboot under load had every service healthy
+44 s later, and none of the 1,891 pays it had acknowledged was lost (4 more
+were committed as the box went down, so their buyers saw an error but the link
+shows paid). After every run the data checks held: each acknowledged pay is
+paid in the database with a fully captured transaction, no transaction
+belongs to two links, and every ledger group balances.
+
+**Per-address limits** (in `ops/nginx.conf`, keyed on the real client address
+taken from the host nginx's `X-Forwarded-For`; a client cannot spoof it):
+checkout open and pay 100 requests a second with a burst of 200, every other
+api route 100 a second with a burst of 200, login and OTP 10 a minute with a
+burst of 10. One address sending 150 requests a second for 20 s got 1,918
+through, 834 x 429 and 249 x 503. The per-address rates are high on purpose:
+everyone behind one NAT (an office, a venue's Wi-Fi) shares one address. The
+in-flight caps (20, and 30 for pay) are what protect the box.
+
+**Memory budget** (docker stats, MiB; host total 1,967 MB plus a 2 GB
+swapfile as a backstop):
+
+| Container | Limit | Idle before | Idle after | At 30 users after |
+|---|---|---|---|---|
+| api | 256 (was 512) | 85.6 | 74.7 | 65.5 |
+| api-2 | 256 | | 47.6 | 60.9 |
+| postgres | 512 | 73.4 | 35.5 | 116.5 |
+| reporting | 256 | 76.8 | 32.8 | 34.1 |
+| web | 64 | 10.5 | 4.2 | 4.6 |
+| settlement | 128 | 1.6 | 1.2 | 1.2 |
+| **total** | **1,472** | **248** | **196** | **283** |
+
+Inside each api container the process tree went from `npm exec` (67 MB RSS)
+plus `sh` plus the `tsx` wrapper (47 MB) plus node (93 MB), to node alone
+(89 MB) plus tsx's esbuild helper (17 MB), so two replicas now cost what one
+did.
+
+**Deploys.** `ops/deploy.sh` is what the box runs for each commit: it backs up
+the database, builds every image while the old containers keep serving, then
+replaces migrate, api, api-2, settlement and reporting, and web, one at a
+time, waiting on each api's healthcheck before the next, and rolls back to the
+previous commit if the public smoke test fails. `ops/host-nginx.conf` is the
+host's TLS site: http/2, a keepalive pool to `web`, and the app's own
+security headers passed through once.
 
 **From a fresh clone:**
 
@@ -169,8 +247,14 @@ cp ops/.env.docker.example ops/.env.docker
 # Host nginx owns port 80 on the Dilmune box, so publish web on loopback
 # and point the host's site at http://127.0.0.1:8080 (TLS on the host):
 export FILSPAY_HTTP_PUBLISH=127.0.0.1:8080
-docker compose -f ops/docker-compose.yml up -d --build
-docker compose -f ops/docker-compose.yml ps        # api healthy, web up
+docker compose -f ops/docker-compose.yml build
+docker compose -f ops/docker-compose.yml up -d --wait postgres
+docker compose -f ops/docker-compose.yml run --rm --no-deps migrate
+docker compose -f ops/docker-compose.yml up -d --no-deps --wait api
+docker compose -f ops/docker-compose.yml up -d --no-deps --wait api-2
+docker compose -f ops/docker-compose.yml up -d --no-deps settlement reporting
+docker compose -f ops/docker-compose.yml up -d --no-deps --wait web
+docker compose -f ops/docker-compose.yml ps        # both api replicas healthy, web up
 curl -fsS http://127.0.0.1:8080/readyz
 ```
 

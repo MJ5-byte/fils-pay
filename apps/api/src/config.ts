@@ -123,6 +123,8 @@ export interface Config {
    *  independent of LISTEN/NOTIFY — the safety net that guarantees no event
    *  is stuck forever even if a NOTIFY is missed. */
   webhookPollIntervalMs: number;
+  /** Off on the second api replica, so one process holds the webhook LISTEN session and poll timer. */
+  webhookDispatcherEnabled: boolean;
   /** Per-delivery-attempt HTTP timeout passed to the transport, milliseconds. */
   webhookRequestTimeoutMs: number;
   /** Allow webhook URLs and deliveries to loopback/private/link-local addresses. Local dev and tests only; default false. */
@@ -288,6 +290,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookBackoffBaseMs: parseIntEnv(env.WEBHOOK_BACKOFF_BASE_MS, 30_000),
     webhookBackoffCapMs: parseIntEnv(env.WEBHOOK_BACKOFF_CAP_MS, 21_600_000),
     webhookPollIntervalMs: parseIntEnv(env.WEBHOOK_POLL_INTERVAL_MS, 5_000),
+    webhookDispatcherEnabled: parseBoolEnv(env.WEBHOOK_DISPATCHER_ENABLED, true),
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
     webhookAllowPrivateTargets: parseBoolEnv(env.WEBHOOK_ALLOW_PRIVATE_TARGETS, false),
 

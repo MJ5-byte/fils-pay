@@ -39,10 +39,12 @@ jobs:
           mkdir "$RUNNER_TEMP/src"
           git archive HEAD | tar x -C "$RUNNER_TEMP/src"
           # Another deploy holding the box lock answers BUSY; wait for it, then
-          # this SHA either deploys or comes back SAME.
+          # this SHA either deploys or comes back SAME. The box runs the deploy
+          # script shipped with this commit, so a change to how services roll
+          # out (api-2, BHA-218) needs no hand-installed copy on the box.
           for i in $(seq 1 20); do
             rsync -rlc --delete -e "$SSH" "$RUNNER_TEMP/src/" "$BOX:deploys/src/"
-            OUT=$($SSH "$BOX" "tar c -C ~/deploys/src . | bash ~/bin/filspay-deploy.sh $SHA" 2>&1 | tail -3) || true
+            OUT=$($SSH "$BOX" "tar c -C ~/deploys/src . | FILSPAY_PUBLIC_URL=$URL bash ~/deploys/src/ops/deploy.sh $SHA" 2>&1 | tail -3) || true
             echo "$OUT"
             case "$OUT" in
               *BUSY*) sleep 30 ;;
