@@ -197,6 +197,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--fp-brand); outli
 .dash-table tbody tr { transition: background 150ms var(--fp-ease); }
 .dash-table tbody tr:hover { background: color-mix(in oklch, var(--fp-surface-2) 60%, transparent); }
 .dash-table tbody tr:last-child td { border-bottom: 0; }
+.dash-table tbody tr.dash-row-link { cursor: pointer; }
 .dash-table td:empty::after { content: "\2013"; color: var(--fp-muted); }
 .dash-table a { font-weight: 500; }
 .dash-table .dash-num, .dash-num { text-align: right; font-variant-numeric: tabular-nums; }

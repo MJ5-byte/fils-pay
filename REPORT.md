@@ -1582,3 +1582,9 @@
 - **Before:** On a computer the sign-in coin leans toward the mouse; on a phone it stayed flat, because the tilt only listened to a mouse.
 - **Why it shipped:** Judges open the live site on their phones from the slides' QR code, and the coin is the first thing they see.
 - **Change:** `CoinLogin` now also tilts the coin while a finger drags on it and lets it spring back when the finger lifts; a touch on the form's fields, buttons or links is ignored, so typing and tapping work as before. `touch-action: pan-y pinch-zoom` on the coin alone turns a sideways drag into a tilt, while an up or down drag still scrolls the stacked phone layout and pinch zoom stays available. Reduced motion still keeps the coin flat.
+
+### Improvement: Transaction rows open on a click anywhere, and refunds confirm on the page
+- **Type:** UX
+- **Before:** Only the date in a transaction row opened the transaction; a click on the amount or status did nothing. Confirming a refund used the browser's own alert box.
+- **Why it shipped:** Refunds are the live demo: the row is what a judge clicks, and an unstyled browser alert is the one screen in the flow that does not look like FilsPay.
+- **Change:** A click anywhere on a transaction row opens it, except on the date link itself or while selecting text. The refund drawer now asks "Refund X BHD to the cardholder?" in the page, with "Yes, refund" and "Back", using the same confirm box the admin app already uses; the refund itself, its amount check and its idempotency key are unchanged.

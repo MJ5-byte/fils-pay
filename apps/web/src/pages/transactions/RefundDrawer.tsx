@@ -23,6 +23,7 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const pendingKey = useRef<{ key: string; amount: string } | null>(null);
 
@@ -31,22 +32,32 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
     (txn.status === "captured" || txn.status === "partially_captured" || txn.status === "partially_refunded");
 
   let amountError: string | null = null;
+  let typedFils: number | undefined;
   try {
-    parseRefundAmount(amount, refundableFils);
+    typedFils = parseRefundAmount(amount, refundableFils);
   } catch (err) {
     amountError = describeError(err);
   }
 
-  async function handleRefund(event: React.FormEvent): Promise<void> {
+  function askConfirm(event: React.FormEvent): void {
     event.preventDefault();
+    try {
+      parseRefundAmount(amount, refundableFils);
+    } catch (err) {
+      setError(describeError(err));
+      return;
+    }
+    setError(null);
+    setConfirming(true);
+  }
+
+  async function handleRefund(): Promise<void> {
     let amountFils: number | undefined;
     try {
       amountFils = parseRefundAmount(amount, refundableFils);
     } catch (err) {
       setError(describeError(err));
-      return;
-    }
-    if (!window.confirm("Refund this transaction? The money goes back to the cardholder and cannot be recalled.")) {
+      setConfirming(false);
       return;
     }
 
@@ -64,6 +75,7 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
       );
       pendingKey.current = null;
       setOpen(false);
+      setConfirming(false);
       setAmount("");
       // Refetch rather than patch: the refund wrote a new timeline event.
       await onRefunded();
@@ -82,8 +94,21 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
     <RequireRole allow={["owner", "finance"]}>
       <div className="fp-refund-action">
         {error ? <p className="dash-error">{error}</p> : null}
-        {open ? (
-          <form className="dash-form fp-form-card fp-action-form" onSubmit={(e) => void handleRefund(e)}>
+        {open && confirming ? (
+          <div className="dash-confirm">
+            <p>
+              <strong>Refund {bhd(typedFils ?? refundableFils)} to the cardholder?</strong>{" "}
+              The money goes back to their card and cannot be recalled.
+            </p>
+            <button type="button" className="dash-button dash-button-danger" disabled={submitting} onClick={() => void handleRefund()}>
+              <IconReturn />{submitting ? "Refunding..." : "Yes, refund"}
+            </button>{" "}
+            <button type="button" className="dash-button dash-button-ghost" disabled={submitting} onClick={() => setConfirming(false)}>
+              Back
+            </button>
+          </div>
+        ) : open ? (
+          <form className="dash-form fp-form-card fp-action-form" onSubmit={askConfirm}>
             <label>
               Amount in BHD (blank refunds everything still refundable)
               <input

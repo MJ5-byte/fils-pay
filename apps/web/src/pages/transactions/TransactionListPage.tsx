@@ -10,7 +10,7 @@ import {
   SkeletonRows,
 } from "@filspay/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { listTransactions } from "../../api/transactions.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
@@ -52,6 +52,7 @@ const SEARCH_DEBOUNCE_MS = 300;
  * browser, which would both lie about the result count and break pagination.
  */
 export function TransactionListPage() {
+  const navigate = useNavigate();
   const [statuses, setStatuses] = useState<TransactionStatus[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -175,7 +176,17 @@ export function TransactionListPage() {
             </thead>
             {loading && transactions.length === 0 ? <SkeletonRows rows={5} columns={6} /> : <tbody>
               {transactions.map((txn) => (
-                <tr key={txn.id}>
+                <tr
+                  key={txn.id}
+                  className="dash-row-link"
+                  onClick={(event) => {
+                    // The date link handles its own click and keyboard; a drag
+                    // to select a reference must not navigate either.
+                    if (event.target instanceof Element && event.target.closest("a")) return;
+                    if (window.getSelection()?.toString()) return;
+                    navigate(`/dashboard/transactions/${txn.id}`);
+                  }}
+                >
                   <td>
                     <Link to={`/dashboard/transactions/${txn.id}`}>{dateTime(txn.occurredAt)}</Link>
                   </td>
