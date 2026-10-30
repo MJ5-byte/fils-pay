@@ -128,6 +128,103 @@ func decodeJSON(t *testing.T, resp *http.Response, into any) {
 	}
 }
 
+func TestRunBatch_PartialFailureReportsSettledAndFailed(t *testing.T) {
+	pool := mustPool(t)
+	server := newTestServer(t, pool)
+	failing := insertActiveMerchant(t, pool)
+	healthy := insertActiveMerchant(t, pool)
+	// Keep the unsettled capture out of later all-merchant runs.
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `UPDATE merchants SET status = 'suspended' WHERE id = $1`, failing); err != nil {
+			t.Errorf("suspend failing merchant: %v", err)
+		}
+	})
+
+	businessDate := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	start, _ := settlement.BusinessDayWindow(businessDate)
+	refuseBatchInsert(t, pool, failing, businessDate)
+	insertCaptureEvent(t, pool, failing, 1000, start.Add(time.Hour))
+	insertCaptureEvent(t, pool, healthy, 4750, start.Add(time.Hour))
+
+	for _, rerun := range []bool{false, true} {
+		resp := post(t, server, "/internal/run-batch", "Bearer "+testToken, `{"date":"2026-04-12"}`)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("rerun %t: status = %d, want 200", rerun, resp.StatusCode)
+		}
+		var report runBatchResponse
+		decodeJSON(t, resp, &report)
+
+		var foundHealthy bool
+		for _, result := range report.MerchantResults {
+			if result.MerchantID == failing.String() {
+				t.Errorf("rerun %t: failing merchant appears in merchantResults", rerun)
+			}
+			if result.MerchantID == healthy.String() {
+				foundHealthy = true
+				if result.AlreadyClosed != rerun {
+					t.Errorf("rerun %t: healthy alreadyClosed = %t, want %t", rerun, result.AlreadyClosed, rerun)
+				}
+				if result.AlreadyPaid != rerun {
+					t.Errorf("rerun %t: healthy alreadyPaid = %t, want %t", rerun, result.AlreadyPaid, rerun)
+				}
+			}
+		}
+		if !foundHealthy {
+			t.Errorf("rerun %t: healthy merchant missing from merchantResults", rerun)
+		}
+
+		var foundFailure bool
+		for _, failure := range report.FailedMerchants {
+			if failure.MerchantID == failing.String() {
+				foundFailure = true
+				if failure.Error != "merchant_settle_failed" {
+					t.Errorf("rerun %t: failure error = %q, want merchant_settle_failed", rerun, failure.Error)
+				}
+			}
+		}
+		if !foundFailure {
+			t.Errorf("rerun %t: failing merchant missing from failedMerchants", rerun)
+		}
+	}
+
+	var paidCount int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM settlement_batches WHERE merchant_id = $1 AND status = 'paid'`, healthy).Scan(&paidCount); err != nil {
+		t.Fatalf("query healthy merchant's paid batches: %v", err)
+	}
+	if paidCount != 1 {
+		t.Errorf("healthy merchant has %d paid batches, want 1", paidCount)
+	}
+}
+
+// refuseBatchInsert makes CloseBatch fail for one merchant and business date
+// only: a test-only trigger rejects that merchant's settlement_batches insert
+// for that date, so its close rolls back. Dropped when the test ends.
+func refuseBatchInsert(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	// DDL takes no bind parameters; the id and date come from the test itself.
+	name := "test_refuse_batch_" + strings.ReplaceAll(merchantID.String(), "-", "")
+	_, err := pool.Exec(ctx, `CREATE FUNCTION `+name+`() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN RAISE EXCEPTION 'test: batch insert refused'; END $$`)
+	if err != nil {
+		t.Fatalf("refuseBatchInsert: create function: %v", err)
+	}
+	_, err = pool.Exec(ctx, `CREATE TRIGGER `+name+` BEFORE INSERT ON settlement_batches FOR EACH ROW
+		WHEN (NEW.merchant_id = '`+merchantID.String()+`' AND NEW.batch_date = '`+businessDate.Format("2006-01-02")+`')
+		EXECUTE FUNCTION `+name+`()`)
+	if err != nil {
+		t.Fatalf("refuseBatchInsert: create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS `+name+` ON settlement_batches`); err != nil {
+			t.Errorf("drop trigger: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DROP FUNCTION IF EXISTS `+name+`()`); err != nil {
+			t.Errorf("drop function: %v", err)
+		}
+	})
+}
+
 func TestRunBatch_ValidTokenAndDate(t *testing.T) {
 	pool := mustPool(t)
 	server := newTestServer(t, pool)

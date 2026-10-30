@@ -210,6 +210,8 @@ export interface SettlementMerchantOutcome {
 export interface RunBatchSummary {
   businessDate: string;
   merchantResults: SettlementMerchantOutcome[];
+  /** Merchants whose close or payout failed. */
+  failedMerchants?: { merchantId: string; error: string }[];
 }
 
 /** `POST /v1/admin/balances/rebuild` → `200 { rebuiltCount, changed }`,

@@ -1140,6 +1140,14 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: A partly failed settlement run reports a total failure
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** An all-merchant settlement run answered 500 and discarded settled merchants when another merchant failed, inviting an admin to rerun without seeing what had already paid.
+- **Cause:** The HTTP handler discarded the report whenever RunDailyBatch returned its joined error, even though the merchant loop continued and settled other merchants.
+- **Breaks:** Admins could not see which merchants settled or failed, and the audit row could not describe a partial outcome.
+- **Fix:** Per-merchant failures now return HTTP 200 with merchantResults and failedMerchants carrying only merchant_settle_failed; whole-run errors without merchant failures keep HTTP 500 run_batch_failed. The client preserves failures, the audit outcome is failed with failedMerchantIds, and the page lists failed merchants. Rerunning is safe because the unique (merchant_id, batch_date) close and AlreadyPaid prevent duplicate payment. TestRunBatch_PartialFailureReportsSettledAndFailed proves the partial response and safe rerun over HTTP.
+
 ### Bug: A capture can report a 500 after the money moved
 - **Status:** Fixed
 - **Type:** Money, high

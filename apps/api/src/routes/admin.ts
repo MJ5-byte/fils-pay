@@ -151,12 +151,14 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
         throw err;
       }
 
-      await markAdminAuditOutcome(app.db, auditLogId, "succeeded", {
+      const failedMerchantIds = summary.failedMerchants.map((f) => f.merchantId);
+      await markAdminAuditOutcome(app.db, auditLogId, failedMerchantIds.length > 0 ? "failed" : "succeeded", {
         merchantResultCount: summary.merchantResults.length,
+        failedMerchantIds,
       }).catch((updateErr: unknown) => {
         request.log.error(
           { err: updateErr, auditLogId },
-          "failed to record settlement_run_batch success outcome on admin_audit_log",
+          "failed to record settlement_run_batch outcome on admin_audit_log",
         );
       });
 

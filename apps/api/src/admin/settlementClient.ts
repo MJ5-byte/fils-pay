@@ -16,9 +16,15 @@ export interface MerchantBatchOutcome {
   netPayoutFils: number;
 }
 
+export interface MerchantBatchFailure {
+  merchantId: string;
+  error: string;
+}
+
 export interface RunBatchSummary {
   businessDate: string;
   merchantResults: MerchantBatchOutcome[];
+  failedMerchants: MerchantBatchFailure[];
 }
 
 export interface RebuildDiff {
@@ -188,6 +194,8 @@ export async function triggerSettlementRunBatch(
 
   const rawResults = pick(decoded, "MerchantResults", "merchantResults");
   const merchantResults = Array.isArray(rawResults) ? rawResults : [];
+  const rawFailures = pick(decoded, "FailedMerchants", "failedMerchants");
+  const failedMerchants = Array.isArray(rawFailures) ? rawFailures : [];
 
   return {
     businessDate: asString(pick(decoded, "BusinessDate", "businessDate")),
@@ -199,6 +207,10 @@ export async function triggerSettlementRunBatch(
       grossFils: asNumber(pick(row, "GrossFils", "grossFils")),
       feeFils: asNumber(pick(row, "FeeFils", "feeFils")),
       netPayoutFils: asNumber(pick(row, "NetPayoutFils", "netPayoutFils")),
+    })),
+    failedMerchants: failedMerchants.filter(isRecord).map((row) => ({
+      merchantId: asString(pick(row, "MerchantID", "merchantId", "MerchantId")),
+      error: asString(pick(row, "Error", "error")),
     })),
   };
 }

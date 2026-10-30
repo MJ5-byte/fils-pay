@@ -63,7 +63,7 @@ const settlementSpy: SettlementSpy = {
   runBatchCalls: [],
   rebuildCalls: 0,
   recalcMdrCalls: [],
-  runBatchImpl: async () => ({ businessDate: "2026-09-09", merchantResults: [] }),
+  runBatchImpl: async () => ({ businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] }),
   rebuildImpl: async () => ({ rebuiltCount: 0, changed: [] }),
   recalcMdrImpl: async () => ({ batchesConsidered: 0, adjusted: [] }),
 };
@@ -1491,6 +1491,7 @@ test("settlement run-batch: the audit row is COMMITTED before the call is made, 
           netPayoutFils: 975,
         },
       ],
+      failedMerchants: [],
     };
   };
 
@@ -1516,7 +1517,7 @@ test("settlement run-batch: the audit row is COMMITTED before the call is made, 
   assert.equal((audit[0]!.metadata as { date?: string }).date, "2026-09-09");
   assert.equal((audit[0]!.metadata as { merchantResultCount?: number }).merchantResultCount, 1);
 
-  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
+  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] });
 });
 
 test("settlement run-batch: a failing call surfaces its status and leaves an audit row marked failed", async () => {
@@ -1543,12 +1544,12 @@ test("settlement run-batch: a failing call surfaces its status and leaves an aud
   assert.equal(audit[0]!.target_type, "merchant");
   assert.equal((audit[0]!.metadata as { error?: string }).error, "settlement_unreachable");
 
-  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
+  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] });
 });
 
 test("cross-process admin actions: the audit row is not 'succeeded' while the call is still running", async () => {
   const finance = await signedInAdmin("finance", "outcome-pending");
-  const ok = { businessDate: "2026-09-09", merchantResults: [] };
+  const ok = { businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] };
   const outcomeDuringCall = async (action: string): Promise<string | undefined> => {
     const seen = await pool.query<{ outcome: string }>(
       `SELECT outcome FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2`,

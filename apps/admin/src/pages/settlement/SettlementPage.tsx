@@ -114,6 +114,7 @@ export function SettlementPage() {
   }
 
   const runResults = runResult?.merchantResults ?? [];
+  const runFailures = runResult?.failedMerchants ?? [];
   const mdrAdjusted = mdrResult?.adjusted ?? [];
 
   return (
@@ -167,6 +168,17 @@ export function SettlementPage() {
             Batch run for <strong>{runResult.businessDate}</strong> — {runResults.length} merchant
             {runResults.length === 1 ? "" : "s"} processed.
           </p>
+          {runFailures.length > 0 ? (
+            <p className="admin-error">
+              {runFailures.length} merchant{runFailures.length === 1 ? "" : "s"} failed to settle:{" "}
+              {runFailures.map((failure, index) => (
+                <span key={failure.merchantId}>
+                  {index > 0 ? ", " : ""}<code>{failure.merchantId}</code>
+                </span>
+              ))}
+              {" "}Rerunning this date is safe: merchants already settled are skipped.
+            </p>
+          ) : null}
           {runResults.length > 0 ? (
             <table className="admin-table">
               <thead>

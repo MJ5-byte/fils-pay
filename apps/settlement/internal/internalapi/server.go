@@ -64,10 +64,17 @@ type merchantBatchOutcomeResponse struct {
 	NetPayoutFils int64  `json:"netPayoutFils"`
 }
 
+// merchantBatchFailureResponse is the safe JSON projection of a merchant failure.
+type merchantBatchFailureResponse struct {
+	MerchantID string `json:"merchantId"`
+	Error      string `json:"error"`
+}
+
 // runBatchResponse is the JSON projection of settlement.DailyBatchReport.
 type runBatchResponse struct {
 	BusinessDate    string                         `json:"businessDate"`
 	MerchantResults []merchantBatchOutcomeResponse `json:"merchantResults"`
+	FailedMerchants []merchantBatchFailureResponse `json:"failedMerchants"`
 }
 
 // rebuildDiffResponse is the JSON projection of ledger.RebuildDiff.
@@ -208,6 +215,8 @@ func requirePost(next http.Handler) http.Handler {
 // handleRunBatch parses the request and calls the existing, unmodified
 // settlement.RunDailyBatch — the same function the `run-batch` CLI
 // subcommand calls, with the same arguments.
+// Partial failures return 200 with settled and failed merchants; errors without
+// per-merchant failures return 500 run_batch_failed.
 func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body runBatchRequest
@@ -239,6 +248,8 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 		report, err := settlement.RunDailyBatch(r.Context(), pool, businessDate, onlyMerchant)
 		if err != nil {
 			log.Printf("settlement internal api: run-batch(%s) failed: %v", body.Date, err)
+		}
+		if err != nil && len(report.Failures) == 0 {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "run_batch_failed"})
 			return
 		}
@@ -256,9 +267,18 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 			})
 		}
 
+		failures := make([]merchantBatchFailureResponse, 0, len(report.Failures))
+		for _, failure := range report.Failures {
+			failures = append(failures, merchantBatchFailureResponse{
+				MerchantID: failure.MerchantID.String(),
+				Error:      "merchant_settle_failed",
+			})
+		}
+
 		writeJSON(w, http.StatusOK, runBatchResponse{
 			BusinessDate:    report.BusinessDate.Format(businessDateLayout),
 			MerchantResults: results,
+			FailedMerchants: failures,
 		})
 	})
 }
