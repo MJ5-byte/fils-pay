@@ -987,6 +987,14 @@
 - **Cause:** Since #117 (BHA-183), `recomputeBatchFee` in `recalculate_mdr.go` priced a capture with a `capture: MDR fee` leg at the MDR alone and then subtracted the rebates already posted. Those rebates were computed on the old fee, so the discount share of the increase was never taken off.
 - **Breaks:** A discounted merchant was overcharged the discount share of any fee increase applied by recalculation, about a fil per capture at these sizes.
 - **Fix:** Every event is now priced with `ComputeSettlementFee` at the new rate, MDR first and then the discount off that fee, the same order as the ledger (#123). The only thing carried over from the ledger is the shortfall between the rebate owed on each posted MDR fee leg and the rebate that actually posted, so a rebate that never posted is still never paid back (#117's guard), and at an unchanged rate the result is the same as before. Test added with the ticket's example: it gave 38 (diff 7) before and gives 37 (diff 6) after.
+
+### Bug: MDR recalculation ignores a merchant's dated fee schedule (BHA-199)
+- **Status:** Fixed (fee schedules); the volume-tier half is Found
+- **Type:** Money, medium
+- **Problem:** For a merchant priced by a fee schedule, running Recalculate MDR with no rate change rewrote closed batches at the merchant's flat rate and posted an adjustment. A 10000 fils capture charged 200 fils at a scheduled 200 bps was recalculated to 250 fils at the flat 250 bps.
+- **Cause:** `RecalculateMDR` in `recalculate_mdr.go` read only `merchants.mdr_bps` and priced every event at it, while capture.ts and CloseBatch price each event at `EffectiveMdrBpsAt(schedules, occurredAt, mdr_bps)`, the schedule rate in effect when it happened.
+- **Breaks:** Any recalculation over a scheduled merchant charged or refunded fils the merchant was never owed.
+- **Fix:** `RecalculateMDR` loads the merchant's fee schedules once with `LoadFeeSchedules`, and `recomputeBatchFee` prices each event at `EffectiveMdrBpsAt` on its own `occurred_at`, the same calls CloseBatch makes. Test added: a scheduled merchant recalculated at an unchanged rate posted a 50 fils adjustment before and posts none after. Still Found: recalculation also ignores the volume-tier bonus, but the tier in effect at capture is not stored and BHA-147 rules out repricing journaled fees at today's tier, so that half needs a decision first.
 ### Bug: Merchant dashboard shows an expired payment link as active
 - **Status:** Fixed
 - **Type:** UX, medium

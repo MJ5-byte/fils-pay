@@ -531,6 +531,42 @@ func TestRecalculateMDR_RateIncreaseRebatesDiscountOnIncrease(t *testing.T) {
 	}
 }
 
+// BHA-199: an unchanged fee schedule must not adjust a batch priced at its scheduled rate.
+func TestRecalculateMDR_FeeScheduleUnchangedRateAdjustsNothing(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	merchantID := insertActiveMerchant(t, pool, 250)
+
+	businessDate := time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+	insertFeeSchedule(t, pool, merchantID, 200, start.AddDate(0, 0, -1))
+	var txnID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+		VALUES ($1, 'captured', 10000, 10000, $2, $3) RETURNING id
+	`, merchantID, "acq-ref-"+uuid.New().String(), start.Add(time.Hour)).Scan(&txnID); err != nil {
+		t.Fatalf("insert transaction: %v", err)
+	}
+	insertJournaledCapture(t, pool, merchantID, txnID, "captured", 10000, 200, start.Add(time.Hour))
+
+	closed, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+	if closed.FeeFils != 200 {
+		t.Fatalf("CloseBatch FeeFils = %d, want 200", closed.FeeFils)
+	}
+
+	from, to := recalcWindow(businessDate)
+	result, err := RecalculateMDR(ctx, pool, merchantID, from, to)
+	if err != nil {
+		t.Fatalf("RecalculateMDR: %v", err)
+	}
+	if len(result.Adjusted) != 0 {
+		t.Errorf("unchanged rate adjusted %d batch(es): %+v", len(result.Adjusted), result.Adjusted)
+	}
+}
+
 // A sale captured in parts on two business days has a fee leg and a rebate in
 // each day's batch. Recalculating either batch at the same rate must read only
 // that day's fee legs, the same window as its rebates, and adjust nothing.
