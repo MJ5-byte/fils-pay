@@ -1,0 +1,59 @@
+name: Deploy
+
+# Every push to main ships to the live OutVibe box. The box script backs up the
+# database first and rolls back to the previous build if the smoke test fails.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-outvibe
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'SilentYsf/fils-pay'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      BOX: dilmune@167.71.36.0
+      URL: https://outvibe.167-71-36-0.sslip.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load the deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Ship the tree and deploy
+        run: |
+          SHA=$(git rev-parse --short=7 HEAD)
+          SSH="ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=6"
+          mkdir "$RUNNER_TEMP/src"
+          git archive HEAD | tar x -C "$RUNNER_TEMP/src"
+          # Another deploy holding the box lock answers BUSY; wait for it, then
+          # this SHA either deploys or comes back SAME.
+          for i in $(seq 1 20); do
+            rsync -rlc --delete -e "$SSH" "$RUNNER_TEMP/src/" "$BOX:deploys/src/"
+            OUT=$($SSH "$BOX" "tar c -C ~/deploys/src . | bash ~/bin/filspay-deploy.sh $SHA" 2>&1 | tail -3) || true
+            echo "$OUT"
+            case "$OUT" in
+              *BUSY*) sleep 30 ;;
+              *"OK deployed"*|*SAME*) exit 0 ;;
+              *) exit 1 ;;
+            esac
+          done
+          exit 1
+
+      - name: Smoke test the live URL
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/readyz")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/dashboard")" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/")" = 302
