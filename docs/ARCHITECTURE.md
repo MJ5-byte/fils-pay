@@ -47,8 +47,9 @@ The daemon also refreshes it at 02:00 Bahrain time, and the console's
 A settlement business day runs from midnight to midnight Asia/Bahrain
 (UTC+3, no DST). The daemon closes the previous business day shortly after
 local midnight. Batch lifecycle: **close** claims unbatched capture events
-and computes gross/fee/net; **pay** posts payout legs and records
-disbursement; **notify** enqueues `settlement.paid`. Re-running a day is
+and computes gross/fee/net; **pay** posts payout legs; **notify** enqueues
+`settlement.paid` and, in the same transaction in `enqueuePaidEvent`,
+records the batch's payout disbursement. Re-running a day is
 safe; closed and paid batches are left alone.
 
 Fees are computed per capture event, not per batch total. Rates come from

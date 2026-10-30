@@ -20,6 +20,9 @@ import (
 // individually, is the one place this logic needs to exist regardless of
 // which of the two paid the batch.
 //
+// Each newly enqueued event is written together with the batch's payout
+// disbursement record (see enqueuePaidEvent).
+//
 // Idempotent: re-running this scan — on every daemon tick, a second time
 // after a crash, or from `run-batch` while the daemon ticks — never enqueues
 // a second outbox event for the same batch. outbox_events has no unique index
@@ -117,6 +120,22 @@ func enqueuePaidEvent(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID, 
 	`, batchID, payload)
 	if err != nil {
 		return false, fmt.Errorf("insert: %w", err)
+	}
+	// The disbursement is recorded with the batch's one settlement.paid event,
+	// not by webhook delivery: a merchant with no endpoint still gets one, and
+	// several endpoints or replays never add another.
+	if tag.RowsAffected() == 1 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO settlement_payout_disbursements (settlement_batch_id, amount_fils, disbursement_reference)
+			SELECT id, net_payout_fils, 'disb_' || gen_random_uuid()
+			  FROM settlement_batches
+			 WHERE id = $1 AND net_payout_fils > 0
+			   AND NOT EXISTS (
+			     SELECT 1 FROM settlement_payout_disbursements WHERE settlement_batch_id = $1
+			   )
+		`, batchID); err != nil {
+			return false, fmt.Errorf("record disbursement: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit: %w", err)

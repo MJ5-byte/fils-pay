@@ -439,7 +439,9 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
   assert.equal(rows.rows.length, 0);
 });
 
-test("settlement.paid: one disbursement row per batch across two endpoints and a replay", async () => {
+// Settlement's notify step records the disbursement with the settlement.paid
+// event (BHA-130); webhook delivery, per endpoint or replayed, must write none (BHA-140).
+test("settlement.paid: delivery to two endpoints and a replay writes no disbursement", async () => {
   const merchantId = await createMerchant("payout-disbursement");
   const firstEndpoint = await createEndpoint(merchantId, "http://first.test/webhook");
   const secondEndpoint = await createEndpoint(merchantId, "http://second.test/webhook");
@@ -488,13 +490,11 @@ test("settlement.paid: one disbursement row per batch across two endpoints and a
   assert.equal(replayDelivery.status, "succeeded");
   assert.equal(replayDelivery.attempt_count, 1);
 
-  const disbursements = await pool.query<{ count: string; amount_fils: string | null }>(
-    `SELECT count(*), min(amount_fils) AS amount_fils
-       FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
+  const disbursements = await pool.query(
+    `SELECT 1 FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
     [paidBatch.id],
   );
-  assert.equal(Number(disbursements.rows[0]?.amount_fils), 23_422);
-  assert.equal(Number(disbursements.rows[0]?.count), 1);
+  assert.equal(disbursements.rows.length, 0);
 });
 
 test("a real delivery and a test send are each signed over the exact body bytes sent (BHA-15)", async () => {
