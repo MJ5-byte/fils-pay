@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { verifyPassword } from "../auth/passwords.js";
 import { issueChallenge, verifyOtpCode } from "../auth/otp.js";
 import { requireSession } from "../auth/middleware.js";
-import { sendOtpCode } from "../auth/notifier.js";
+import { exposesOtpCode, sendOtpCode } from "../auth/notifier.js";
 import {
   createPendingSession,
   lookupPendingSession,
@@ -138,8 +138,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       otpRequired: true,
       otpExpiresAt: expiresAt.toISOString(),
     };
-    // dev only — stripped in production builds
-    if (app.config.otpDevExpose) {
+    if (exposesOtpCode(app.config, recipient.email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);
@@ -293,15 +292,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       `SELECT email FROM merchant_users WHERE id = $1`,
       [pending.merchantUserId],
     );
-    sendOtpCode(
-      request.log,
-      app.config,
-      { merchantUserId: pending.merchantUserId, email: userResult.rows[0]?.email ?? "" },
-      code,
-    );
+    const email = userResult.rows[0]?.email ?? "";
+    sendOtpCode(request.log, app.config, { merchantUserId: pending.merchantUserId, email }, code);
 
     const responseBody: Record<string, unknown> = { otpRequired: true, otpExpiresAt: expiresAt.toISOString() };
-    if (app.config.otpDevExpose) {
+    if (exposesOtpCode(app.config, email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);

@@ -4,6 +4,7 @@ import { revokeAdminImpersonationGrants } from "../admin/impersonation.js";
 import { verifyPassword } from "../adminAuth/passwords.js";
 import { issueAdminChallenge, verifyOtpCode } from "../adminAuth/otp.js";
 import { sendAdminOtpCode } from "../adminAuth/notifier.js";
+import { exposesOtpCode } from "../auth/notifier.js";
 import { requireAdminSession } from "../adminAuth/middleware.js";
 import {
   createPendingAdminSession,
@@ -126,7 +127,7 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       otpRequired: true,
       otpExpiresAt: expiresAt.toISOString(),
     };
-    if (app.config.otpDevExpose) {
+    if (exposesOtpCode(app.config, user.email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);

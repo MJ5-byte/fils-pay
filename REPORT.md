@@ -871,6 +871,13 @@
 - **Breaks:** ADR-0001 (money is integer fils). Nothing in Go, the TS API or the web apps reads the figure back, so no payout or balance was wrong; the ops figure was.
 - **Fix:** Migration 0078 changes the column to `BIGINT` (type change only, nothing dropped), the payout code adds `int64` fils, `EstimateMonthlyPayout` sums `int64`, and the seed sums exactly instead of rounding through `Math.fround`. Test added: three payouts totalling 5,016,777,221 fils land on the exact sum (it read 5,016,777,216 before). The old small-value test now scans an `int64`. `splits.PayoutSplitBatch` never bumped the estimate, so it now runs the same UPDATE in its transaction with the batch's net payout (inlined, because `settlement` imports `splits`). Test added: a split parent's estimate equals its batch net after payout. A negative net is skipped, as `PayoutBatch` refuses one. Split-parent payouts made before this change are not backfilled into the estimate. PR: https://github.com/SilentYsf/fils-pay/pull/106
 
+### Bug: Production login codes are generated but never delivered
+- **Status:** Fixed
+- **Type:** Security, high
+- **Problem:** With `NODE_ENV=production` no merchant or admin could log in, because the OTP code was created and never sent anywhere. The hosted box worked around it with `OTP_DEV_EXPOSE=true`, which put every account's code in the login response.
+- **Cause:** Both notifiers (`auth/notifier.ts`, `adminAuth/notifier.ts`) only log that a code was made, and the code comment claiming no email or SMS integration was needed is false: `OTP_DEV_EXPOSE` was the only way a code ever reached a person.
+- **Breaks:** Either nobody can log in to the hosted app, or anyone who knows a password also gets that account's second factor on screen.
+- **Fix:** Production still delivers no code to real accounts until an email provider exists. A new `OTP_EXPOSE_EMAIL_DOMAINS` list (empty by default) names the seeded demo domains, and only logins on those domains see their code on screen, for merchant login, merchant code resend and admin login. One helper, `exposesOtpCode`, decides it for all three. `OTP_DEV_EXPOSE` still shows every code in dev and test, and the API now warns at boot if it is on in production. Test added in `routes/auth.test.ts`.
 ### Improvement: The merchant app's root opens the dashboard
 - **Type:** UX
 - **Before:** The merchant app's root URL showed a bare "404 Not Found" page, because its router has no `/` route. Nothing promised a page there and nothing broke.

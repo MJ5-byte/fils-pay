@@ -82,6 +82,8 @@ All the secrets below are set in `ops/.env.docker` (from the template).
 | api | `WEBHOOK_SECRET_ENCRYPTION_KEY` | every environment, must base64-decode to 32 bytes | `.env.docker` | no, throws at boot |
 | api | `CARD_FINGERPRINT_KEY` | when `NODE_ENV=production`, must base64-decode to 32 bytes | `.env.docker` | no, throws at boot |
 | api | `NODE_ENV=production` | hosted box | `.env.docker` | yes, but dev mode leaks OTP codes and uses a dev webhook key |
+| api | `OTP_DEV_EXPOSE=false` | hosted box | `.env.docker` | yes, but every login response carries its OTP code; the API logs a warning at boot |
+| api | `OTP_EXPOSE_EMAIL_DOMAINS=filspay.test,alpharetail.example,betadigital.example,gammahospitality.example,deltawholesale.example,deltamarketplace.example,coralbaytraders.example,palmgroveretail.example,seefkiosk.example` | hosted box, until an email or SMS provider exists | `.env.docker` | yes, but nobody can log in: production delivers no code, so only these seeded demo domains see theirs on the login screen |
 | api, settlement | `SETTLEMENT_INTERNAL_TOKEN` | when `NODE_ENV=production`; no default | `.env.docker` | no, both crash-loop |
 | api | `ACQUIRER_CALLBACK_SIGNING_SECRET` | when `NODE_ENV=production` | `.env.docker` | no, throws at boot |
 | api | `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE=true` | hosted box | `.env.docker` | yes, but unsigned acquirer callbacks are accepted |

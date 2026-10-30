@@ -9,6 +9,9 @@ import { createFetchTransport } from "./webhooks/transport.js";
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
   console.log(`[index] booting, date=${formatIsoDate(new Date())}`);
+  if (config.nodeEnv === "production" && config.otpDevExpose) {
+    console.warn("[index] OTP_DEV_EXPOSE=true in production: every login response carries its OTP code");
+  }
   const pool = createPool(config);
   // One transport per process: the dispatcher's background pass and the
   // merchant-facing "send test event" route both run on this same instance.

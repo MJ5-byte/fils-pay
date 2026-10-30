@@ -207,3 +207,42 @@ test("otp verify re-issues the session cookie at the full session TTL, not the p
   assert.equal(full.value, pending.value);
   assert.equal(full.maxAge, config.sessionTtlHours * 3_600);
 });
+
+test("in production the login code is in the response only for an allowlisted email domain", async () => {
+  const demoDomain = `demo-${randomUUID().slice(0, 8)}.example`;
+  const prodConfig = loadConfig({
+    DATABASE_URL: databaseUrl,
+    NODE_ENV: "production",
+    OTP_DEV_EXPOSE: "false",
+    OTP_EXPOSE_EMAIL_DOMAINS: ` other.example, ${demoDomain.toUpperCase()} `,
+    SETTLEMENT_INTERNAL_TOKEN: "test-settlement-token",
+    ACQUIRER_CALLBACK_SIGNING_SECRET: "test-acquirer-secret",
+    WEBHOOK_SECRET_ENCRYPTION_KEY: "Y1ZTGTcYbe30GZJebys9w7T3OYZNKewuOH3SUCEdRQk=",
+    CARD_FINGERPRINT_KEY: "dGVzdC1jYXJkLWZpbmdlcnByaW50LWtleS0zMi1ieXQ=",
+  });
+  const prodApp = buildApp(prodConfig, pool);
+  try {
+    const demoEmail = `owner-${randomUUID()}@${demoDomain}`;
+    const demoMerchant = await createMerchantWithOwner("demo-domain", demoEmail, "password-demo");
+    const demoLogin = await prodApp.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { merchantId: demoMerchant, email: demoEmail, password: "password-demo" },
+    });
+    assert.equal(demoLogin.statusCode, 200, demoLogin.body);
+    assert.match(String(demoLogin.json().devOtpCode), /^\d+$/, "an allowlisted domain must see its code");
+
+    // Same domain as a subdomain suffix must not match: only the exact part after the last @ counts.
+    const realEmail = `owner-${randomUUID()}@mail.${demoDomain}`;
+    const realMerchant = await createMerchantWithOwner("real-domain", realEmail, "password-real");
+    const realLogin = await prodApp.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: { merchantId: realMerchant, email: realEmail, password: "password-real" },
+    });
+    assert.equal(realLogin.statusCode, 200, realLogin.body);
+    assert.equal(realLogin.json().devOtpCode, undefined, "any other domain must never get the code");
+  } finally {
+    await prodApp.close();
+  }
+});

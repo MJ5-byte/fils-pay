@@ -25,6 +25,10 @@ export interface Config {
   otpCodeLength: number;
   otpMaxAttempts: number;
   otpDevExpose: boolean;
+  /** Lowercased email domains whose login code is returned in the response
+   *  even when `otpDevExpose` is off: the seeded demo accounts on the hosted
+   *  box, which has no email or SMS provider to deliver a code. */
+  otpExposeEmailDomains: string[];
 
   argon2MemoryKib: number;
   argon2TimeCost: number;
@@ -234,6 +238,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     otpCodeLength: parseIntEnv(env.OTP_CODE_LENGTH, 6),
     otpMaxAttempts: parseIntEnv(env.OTP_MAX_ATTEMPTS, 5),
     otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, nodeEnv !== "production"),
+    otpExposeEmailDomains: parseCsvEnv(env.OTP_EXPOSE_EMAIL_DOMAINS, []).map((d) => d.toLowerCase()),
 
     argon2MemoryKib: parseIntEnv(env.ARGON2_MEMORY_KIB, 19_456),
     argon2TimeCost: parseIntEnv(env.ARGON2_TIME_COST, 2),
