@@ -1525,3 +1525,9 @@
 - **Before:** The cream label on the red primary buttons (Sign in, Create, Save) measured 4.33:1, just under the 4.5:1 that WCAG AA asks for at this text size. Everything worked; the label was a little hard to read.
 - **Why it shipped:** Judges and low-vision users read the main action first, and the shared design system already has a darker red that passes.
 - **Change:** One rule in `packages/ui/src/theme.css`: `.dash-button-primary` fills with the existing `--fp-brand-strong` (6.02:1) and its hover darkens it further (7.5:1). `--fp-brand` is unchanged, so links, focus rings and the logo keep their red.
+
+### Improvement: Column filter popovers stay on screen and skip disabled controls
+- **Type:** UX
+- **Before:** A column filter opened near the bottom of the window could run off-screen, `select` and `textarea` inside it were reachable by keyboard even when disabled, and `@filspay/ui` imported `react-dom` without declaring it.
+- **Why it shipped:** Nothing is wrong with the data, but the popover is the only way to filter a table and it can be unreachable on short screens. The disabled controls break the focus trap, and the undeclared import breaks installs that do not hoist `react-dom`.
+- **Change:** `ColumnFilter` flips above its trigger when it would overflow the bottom and clamps vertically, `FOCUSABLE` excludes disabled `select` and `textarea`, and `react-dom` is a peer dependency of `packages/ui` (lockfile entry only).

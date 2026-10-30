@@ -6,7 +6,7 @@ import { IconFilter } from "./icons.js";
 const GAP = 6;
 const HIDDEN: CSSProperties = { top: 0, left: 0, opacity: 0 };
 const EDGE = 8;
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), select, textarea, [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * A column header whose title opens a filter popover, so a table's filters sit
@@ -46,7 +46,12 @@ export function ColumnFilter({ icon: Icon, label, active, children, align = "lef
     const width = pop.offsetWidth;
     const preferred = align === "right" ? t.right - width : t.left;
     const left = Math.max(EDGE, Math.min(preferred, window.innerWidth - width - EDGE));
-    setPlace({ top: t.bottom + GAP, left });
+    const below = t.bottom + GAP;
+    const height = pop.offsetHeight;
+    // Flip above the trigger when the popover would run off the bottom and there is more room above.
+    const flip = below + height > window.innerHeight - EDGE && t.top - GAP - height >= EDGE;
+    const top = flip ? t.top - GAP - height : Math.max(EDGE, Math.min(below, window.innerHeight - height - EDGE));
+    setPlace({ top, left });
   }, [align]);
 
   useLayoutEffect(() => {
