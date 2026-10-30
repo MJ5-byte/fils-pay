@@ -20,6 +20,7 @@ import { OverviewPage } from "./pages/overview/OverviewPage.js";
 
 // MK: /refunds route removed until FP-212
 export const router = createBrowserRouter([
+  { path: "/", element: <Navigate to="/dashboard" replace /> },
   { path: "/pay/:token", element: <CheckoutPage /> },
 
   {

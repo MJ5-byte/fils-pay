@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "port": 5173,
+      "rootStatus": 200,
+      "proxiedAuthStatus": 401
+    },
+    {
+      "port": 5174,
+      "rootStatus": 200,
+      "proxiedAuthStatus": 401
+    }
+  ],
+  "browser": "Unavailable: browser discovery returned []",
+  "scope": "Live Vite servers proxy /v1 to loopback API; actual rendering not verified"
+}

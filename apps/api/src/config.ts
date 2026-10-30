@@ -8,6 +8,10 @@
  * rather than introducing a second config system.
  */
 export interface Config {
+  loginWindowMinutes: number;
+  loginMaxFailuresPerAccount: number;
+  loginMaxFailuresPerIp: number;
+  otpMaxChallengesPerUser: number;
   nodeEnv: "development" | "test" | "production";
   port: number;
   databaseUrl: string;
@@ -256,6 +260,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
 
     acquirerCallbackSigningSecret,
+    loginWindowMinutes: parseIntEnv(env.LOGIN_WINDOW_MINUTES, 15),
+    loginMaxFailuresPerAccount: parseIntEnv(env.LOGIN_MAX_FAILURES_PER_ACCOUNT, 5),
+    loginMaxFailuresPerIp: parseIntEnv(env.LOGIN_MAX_FAILURES_PER_IP, 50),
+    otpMaxChallengesPerUser: parseIntEnv(env.OTP_MAX_CHALLENGES_PER_USER, 5),
     acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),
   };
 }

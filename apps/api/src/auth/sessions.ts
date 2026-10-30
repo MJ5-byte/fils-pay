@@ -52,13 +52,15 @@ export async function promoteSession(
   client: PoolClient,
   sessionId: string,
   sessionTtlHours: number,
-): Promise<Date> {
+): Promise<{ expiresAt: Date; rawToken: string }> {
   const expiresAt = new Date(Date.now() + sessionTtlHours * 3_600_000);
-  await client.query(
-    `UPDATE sessions SET authenticated = true, authenticated_at = now(), expires_at = $2 WHERE id = $1`,
-    [sessionId, expiresAt],
+  const rawToken = randomToken(32);
+  const updated = await client.query(
+    `UPDATE sessions SET authenticated = true, authenticated_at = now(), expires_at = $2, token_hash = $3 WHERE id = $1 AND authenticated = false AND revoked_at IS NULL AND expires_at > now() RETURNING id`,
+    [sessionId, expiresAt, sha256Hex(rawToken)],
   );
-  return expiresAt;
+  if (updated.rowCount !== 1) throw new Error("Cannot promote an expired, revoked or authenticated session");
+  return { expiresAt, rawToken };
 }
 
 /** Takes a Pool or a PoolClient so logout can run outside a transaction. */
@@ -89,7 +91,8 @@ export async function lookupSession(
     `SELECT s.id AS session_id, s.merchant_user_id, mu.merchant_id, mu.role
        FROM live_sessions s
        JOIN merchant_users mu ON mu.id = s.merchant_user_id
-      WHERE s.token_hash = $1`,
+       JOIN merchants m ON m.id = mu.merchant_id
+      WHERE s.token_hash = $1 AND s.authenticated = true AND m.status = 'active'`,
     [tokenHash],
   );
   const row = result.rows[0];

@@ -1,0 +1,379 @@
+TAP version 13
+# {"level":30,"time":1793359282562,"pid":24776,"hostname":"hht","reqId":"req-1","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282699,"pid":24776,"hostname":"hht","reqId":"req-1","merchantUserId":"2b04e3b0-64b6-42bf-8338-ac71d7c96bea","channel":"otp","code":"347998","msg":"otp code generated (dev)"}
+# {"level":30,"time":1793359282709,"pid":24776,"hostname":"hht","reqId":"req-1","res":{"statusCode":200},"responseTime":144.64400000000023,"msg":"request completed"}
+# {"level":30,"time":1793359282711,"pid":24776,"hostname":"hht","reqId":"req-2","req":{"method":"GET","url":"/v1/auth/me","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282725,"pid":24776,"hostname":"hht","reqId":"req-2","res":{"statusCode":200},"responseTime":13.283900000000358,"msg":"request completed"}
+# Subtest: /v1/auth: pending denied, OTP rotates token and renews cookie; old token rejected
+not ok 1 - /v1/auth: pending denied, OTP rotates token and renews cookie; old token rejected
+  ---
+  duration_ms: 703.3731
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:2149'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 401
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 401
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:38:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# {"level":30,"time":1793359282828,"pid":24776,"hostname":"hht","reqId":"req-3","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282937,"pid":24776,"hostname":"hht","reqId":"req-3","merchantUserId":"2eded1a5-d3ed-47a7-8680-235a16e6d344","channel":"otp","code":"579860","msg":"otp code generated (dev)"}
+# {"level":30,"time":1793359282939,"pid":24776,"hostname":"hht","reqId":"req-3","res":{"statusCode":200},"responseTime":110.92169999999987,"msg":"request completed"}
+# {"level":30,"time":1793359282942,"pid":24776,"hostname":"hht","reqId":"req-4","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282945,"pid":24776,"hostname":"hht","reqId":"req-5","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282946,"pid":24776,"hostname":"hht","reqId":"req-6","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282948,"pid":24776,"hostname":"hht","reqId":"req-7","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282949,"pid":24776,"hostname":"hht","reqId":"req-8","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282953,"pid":24776,"hostname":"hht","reqId":"req-9","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282955,"pid":24776,"hostname":"hht","reqId":"req-a","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282957,"pid":24776,"hostname":"hht","reqId":"req-b","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282959,"pid":24776,"hostname":"hht","reqId":"req-c","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282960,"pid":24776,"hostname":"hht","reqId":"req-d","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282961,"pid":24776,"hostname":"hht","reqId":"req-e","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359282962,"pid":24776,"hostname":"hht","reqId":"req-f","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359283031,"pid":24776,"hostname":"hht","reqId":"req-4","res":{"statusCode":401},"responseTime":88.3731000000007,"msg":"request completed"}
+# {"level":30,"time":1793359283505,"pid":24776,"hostname":"hht","reqId":"req-5","res":{"statusCode":401},"responseTime":560.3378000000002,"msg":"request completed"}
+# {"level":30,"time":1793359283617,"pid":24776,"hostname":"hht","reqId":"req-6","res":{"statusCode":401},"responseTime":670.9342999999999,"msg":"request completed"}
+# {"level":30,"time":1793359283703,"pid":24776,"hostname":"hht","reqId":"req-7","res":{"statusCode":401},"responseTime":754.7271999999994,"msg":"request completed"}
+# {"level":30,"time":1793359283813,"pid":24776,"hostname":"hht","reqId":"req-8","res":{"statusCode":401},"responseTime":863.1044000000002,"msg":"request completed"}
+# {"level":30,"time":1793359283818,"pid":24776,"hostname":"hht","reqId":"req-a","res":{"statusCode":401},"responseTime":861.1918000000005,"msg":"request completed"}
+# {"level":30,"time":1793359283828,"pid":24776,"hostname":"hht","reqId":"req-9","res":{"statusCode":429},"responseTime":874.4076000000005,"msg":"request completed"}
+# {"level":30,"time":1793359283850,"pid":24776,"hostname":"hht","reqId":"req-b","res":{"statusCode":401},"responseTime":892.5827000000008,"msg":"request completed"}
+# {"level":30,"time":1793359283896,"pid":24776,"hostname":"hht","reqId":"req-c","res":{"statusCode":401},"responseTime":937.0344000000005,"msg":"request completed"}
+# {"level":30,"time":1793359283899,"pid":24776,"hostname":"hht","reqId":"req-f","res":{"statusCode":401},"responseTime":937.0399000000007,"msg":"request completed"}
+# {"level":30,"time":1793359283926,"pid":24776,"hostname":"hht","reqId":"req-e","res":{"statusCode":401},"responseTime":964.3921,"msg":"request completed"}
+# {"level":30,"time":1793359283928,"pid":24776,"hostname":"hht","reqId":"req-d","res":{"statusCode":401},"responseTime":967.7234000000008,"msg":"request completed"}
+# Subtest: /v1/auth: concurrent guesses cannot exceed the attempt budget
+not ok 2 - /v1/auth: concurrent guesses cannot exceed the attempt budget
+  ---
+  duration_ms: 1206.1385
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:2996'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    6 !== 5
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 5
+  actual: 6
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:52:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359284069,"pid":24776,"hostname":"hht","reqId":"req-g","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"198.18.101.50"},"msg":"incoming request"}
+# {"level":30,"time":1793359284170,"pid":24776,"hostname":"hht","reqId":"req-g","res":{"statusCode":401},"responseTime":100.8753000000006,"msg":"request completed"}
+# {"level":30,"time":1793359284171,"pid":24776,"hostname":"hht","reqId":"req-h","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"198.18.101.50"},"msg":"incoming request"}
+# {"level":30,"time":1793359284265,"pid":24776,"hostname":"hht","reqId":"req-h","res":{"statusCode":401},"responseTime":94.3103000000001,"msg":"request completed"}
+# {"level":30,"time":1793359284266,"pid":24776,"hostname":"hht","reqId":"req-i","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"198.18.101.50"},"msg":"incoming request"}
+# {"level":30,"time":1793359284348,"pid":24776,"hostname":"hht","reqId":"req-i","res":{"statusCode":401},"responseTime":82.23790000000008,"msg":"request completed"}
+# {"level":30,"time":1793359284349,"pid":24776,"hostname":"hht","reqId":"req-j","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"198.18.101.50"},"msg":"incoming request"}
+# {"level":30,"time":1793359284434,"pid":24776,"hostname":"hht","reqId":"req-j","res":{"statusCode":401},"responseTime":85.03939999999966,"msg":"request completed"}
+# {"level":30,"time":1793359284435,"pid":24776,"hostname":"hht","reqId":"req-k","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"198.18.101.50"},"msg":"incoming request"}
+# {"level":30,"time":1793359284515,"pid":24776,"hostname":"hht","reqId":"req-k","res":{"statusCode":401},"responseTime":80.13970000000063,"msg":"request completed"}
+# {"level":30,"time":1793359284516,"pid":24776,"hostname":"hht","reqId":"req-l","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"198.18.101.50"},"msg":"incoming request"}
+# {"level":30,"time":1793359284597,"pid":24776,"hostname":"hht","reqId":"req-l","res":{"statusCode":401},"responseTime":80.64680000000044,"msg":"request completed"}
+# Subtest: /v1/auth: password limits are scoped by IP and rejected attempts do not extend lockout
+not ok 3 - /v1/auth: password limits are scoped by IP and rejected attempts do not extend lockout
+  ---
+  duration_ms: 657.5335
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:3691'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    401 !== 429
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 429
+  actual: 401
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:57:58)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359284721,"pid":24776,"hostname":"hht","reqId":"req-m","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359284870,"pid":24776,"hostname":"hht","reqId":"req-m","adminUserId":"65e8f3a4-40a2-41d7-936f-7d8280b55fd2","channel":"admin_otp","code":"339963","msg":"admin otp code generated (dev)"}
+# {"level":30,"time":1793359284871,"pid":24776,"hostname":"hht","reqId":"req-m","res":{"statusCode":200},"responseTime":150.2448999999997,"msg":"request completed"}
+# {"level":30,"time":1793359284872,"pid":24776,"hostname":"hht","reqId":"req-n","req":{"method":"GET","url":"/v1/admin/auth/me","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359284883,"pid":24776,"hostname":"hht","reqId":"req-n","res":{"statusCode":401},"responseTime":10.655300000000352,"msg":"request completed"}
+# {"level":30,"time":1793359284883,"pid":24776,"hostname":"hht","reqId":"req-o","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359284895,"pid":24776,"hostname":"hht","reqId":"req-o","res":{"statusCode":200},"responseTime":11.48450000000048,"msg":"request completed"}
+# Subtest: /v1/admin/auth: pending denied, OTP rotates token and renews cookie; old token rejected
+not ok 4 - /v1/admin/auth: pending denied, OTP rotates token and renews cookie; old token rejected
+  ---
+  duration_ms: 298.2742
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:2149'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected "actual" to be strictly unequal to:
+    
+    'fp_admin_sid=ZJR5NZRdAkSP-Ex4GrO2YBcYUxnNc1YeBMUuNa-VBH8'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'fp_admin_sid=ZJR5NZRdAkSP-Ex4GrO2YBcYUxnNc1YeBMUuNa-VBH8'
+  actual: 'fp_admin_sid=ZJR5NZRdAkSP-Ex4GrO2YBcYUxnNc1YeBMUuNa-VBH8'
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:40:75)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359284977,"pid":24776,"hostname":"hht","reqId":"req-p","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285064,"pid":24776,"hostname":"hht","reqId":"req-p","adminUserId":"2d28a1a5-d3b4-47b5-9928-070faef741c1","channel":"admin_otp","code":"951533","msg":"admin otp code generated (dev)"}
+# {"level":30,"time":1793359285064,"pid":24776,"hostname":"hht","reqId":"req-p","res":{"statusCode":200},"responseTime":86.6939999999995,"msg":"request completed"}
+# {"level":30,"time":1793359285065,"pid":24776,"hostname":"hht","reqId":"req-q","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285066,"pid":24776,"hostname":"hht","reqId":"req-r","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285066,"pid":24776,"hostname":"hht","reqId":"req-s","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285067,"pid":24776,"hostname":"hht","reqId":"req-t","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285067,"pid":24776,"hostname":"hht","reqId":"req-u","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285068,"pid":24776,"hostname":"hht","reqId":"req-v","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285068,"pid":24776,"hostname":"hht","reqId":"req-w","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285068,"pid":24776,"hostname":"hht","reqId":"req-x","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285069,"pid":24776,"hostname":"hht","reqId":"req-y","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285069,"pid":24776,"hostname":"hht","reqId":"req-z","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285069,"pid":24776,"hostname":"hht","reqId":"req-10","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285070,"pid":24776,"hostname":"hht","reqId":"req-11","req":{"method":"POST","url":"/v1/admin/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285108,"pid":24776,"hostname":"hht","reqId":"req-q","res":{"statusCode":401},"responseTime":43.26789999999983,"msg":"request completed"}
+# {"level":30,"time":1793359285121,"pid":24776,"hostname":"hht","reqId":"req-r","res":{"statusCode":401},"responseTime":55.14690000000064,"msg":"request completed"}
+# {"level":30,"time":1793359285124,"pid":24776,"hostname":"hht","reqId":"req-s","res":{"statusCode":401},"responseTime":57.50460000000021,"msg":"request completed"}
+# {"level":30,"time":1793359285125,"pid":24776,"hostname":"hht","reqId":"req-v","res":{"statusCode":401},"responseTime":57.34450000000015,"msg":"request completed"}
+# {"level":30,"time":1793359285128,"pid":24776,"hostname":"hht","reqId":"req-z","res":{"statusCode":401},"responseTime":58.63140000000021,"msg":"request completed"}
+# {"level":30,"time":1793359285128,"pid":24776,"hostname":"hht","reqId":"req-11","res":{"statusCode":401},"responseTime":58.61920000000009,"msg":"request completed"}
+# {"level":30,"time":1793359285131,"pid":24776,"hostname":"hht","reqId":"req-u","res":{"statusCode":401},"responseTime":64.03480000000036,"msg":"request completed"}
+# {"level":30,"time":1793359285132,"pid":24776,"hostname":"hht","reqId":"req-w","res":{"statusCode":401},"responseTime":64.18369999999959,"msg":"request completed"}
+# {"level":30,"time":1793359285133,"pid":24776,"hostname":"hht","reqId":"req-10","res":{"statusCode":401},"responseTime":63.52900000000045,"msg":"request completed"}
+# {"level":30,"time":1793359285134,"pid":24776,"hostname":"hht","reqId":"req-x","res":{"statusCode":429},"responseTime":66.0609000000004,"msg":"request completed"}
+# {"level":30,"time":1793359285135,"pid":24776,"hostname":"hht","reqId":"req-t","res":{"statusCode":429},"responseTime":68.51229999999941,"msg":"request completed"}
+# {"level":30,"time":1793359285136,"pid":24776,"hostname":"hht","reqId":"req-y","res":{"statusCode":429},"responseTime":67.18920000000071,"msg":"request completed"}
+# Subtest: /v1/admin/auth: concurrent guesses cannot exceed the attempt budget
+not ok 5 - /v1/admin/auth: concurrent guesses cannot exceed the attempt budget
+  ---
+  duration_ms: 242.011
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:2996'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    9 !== 5
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 5
+  actual: 9
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:52:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359285227,"pid":24776,"hostname":"hht","reqId":"req-12","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"198.18.179.15"},"msg":"incoming request"}
+# {"level":30,"time":1793359285309,"pid":24776,"hostname":"hht","reqId":"req-12","res":{"statusCode":401},"responseTime":82.17170000000078,"msg":"request completed"}
+# {"level":30,"time":1793359285310,"pid":24776,"hostname":"hht","reqId":"req-13","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"198.18.179.15"},"msg":"incoming request"}
+# {"level":30,"time":1793359285392,"pid":24776,"hostname":"hht","reqId":"req-13","res":{"statusCode":401},"responseTime":81.58219999999983,"msg":"request completed"}
+# {"level":30,"time":1793359285392,"pid":24776,"hostname":"hht","reqId":"req-14","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"198.18.179.15"},"msg":"incoming request"}
+# {"level":30,"time":1793359285468,"pid":24776,"hostname":"hht","reqId":"req-14","res":{"statusCode":401},"responseTime":76.02670000000035,"msg":"request completed"}
+# {"level":30,"time":1793359285469,"pid":24776,"hostname":"hht","reqId":"req-15","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"198.18.179.15"},"msg":"incoming request"}
+# {"level":30,"time":1793359285549,"pid":24776,"hostname":"hht","reqId":"req-15","res":{"statusCode":401},"responseTime":80.46990000000005,"msg":"request completed"}
+# {"level":30,"time":1793359285550,"pid":24776,"hostname":"hht","reqId":"req-16","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"198.18.179.15"},"msg":"incoming request"}
+# {"level":30,"time":1793359285633,"pid":24776,"hostname":"hht","reqId":"req-16","res":{"statusCode":401},"responseTime":82.78639999999996,"msg":"request completed"}
+# {"level":30,"time":1793359285634,"pid":24776,"hostname":"hht","reqId":"req-17","req":{"method":"POST","url":"/v1/admin/auth/login","host":"localhost:80","remoteAddress":"198.18.179.15"},"msg":"incoming request"}
+# {"level":30,"time":1793359285717,"pid":24776,"hostname":"hht","reqId":"req-17","res":{"statusCode":401},"responseTime":83.24369999999999,"msg":"request completed"}
+# Subtest: /v1/admin/auth: password limits are scoped by IP and rejected attempts do not extend lockout
+not ok 6 - /v1/admin/auth: password limits are scoped by IP and rejected attempts do not extend lockout
+  ---
+  duration_ms: 579.5849
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:3691'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    401 !== 429
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 429
+  actual: 401
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:57:58)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359285890,"pid":24776,"hostname":"hht","reqId":"req-18","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285985,"pid":24776,"hostname":"hht","reqId":"req-18","merchantUserId":"b6db9bd1-f01a-478f-be44-d87bfaf5a737","channel":"otp","code":"269113","msg":"otp code generated (dev)"}
+# {"level":30,"time":1793359285986,"pid":24776,"hostname":"hht","reqId":"req-18","res":{"statusCode":200},"responseTime":96.02609999999913,"msg":"request completed"}
+# {"level":30,"time":1793359285987,"pid":24776,"hostname":"hht","reqId":"req-19","req":{"method":"POST","url":"/v1/auth/otp/verify","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359285998,"pid":24776,"hostname":"hht","reqId":"req-19","res":{"statusCode":200},"responseTime":10.8679000000011,"msg":"request completed"}
+# Subtest: shared email login remains bound to the merchant whose password was checked
+not ok 7 - shared email login remains bound to the merchant whose password was checked
+  ---
+  duration_ms: 280.8673
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:4307'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'f78f2f28-09dc-4f12-90a4-0c2ed78033d4'
+    - '3bf93f66-58a1-4d5d-ab9f-1583a5f769b1'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '3bf93f66-58a1-4d5d-ab9f-1583a5f769b1'
+  actual: 'f78f2f28-09dc-4f12-90a4-0c2ed78033d4'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:65:48)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359286086,"pid":24776,"hostname":"hht","reqId":"req-1a","req":{"method":"POST","url":"/v1/auth/login","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359286174,"pid":24776,"hostname":"hht","reqId":"req-1a","merchantUserId":"9371730e-b085-4027-ac3b-22b23a590855","channel":"otp","code":"952774","msg":"otp code generated (dev)"}
+# {"level":30,"time":1793359286175,"pid":24776,"hostname":"hht","reqId":"req-1a","res":{"statusCode":200},"responseTime":88.72920000000158,"msg":"request completed"}
+# {"level":30,"time":1793359286178,"pid":24776,"hostname":"hht","reqId":"req-1b","req":{"method":"POST","url":"/v1/auth/otp/resend","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359286179,"pid":24776,"hostname":"hht","reqId":"req-1c","req":{"method":"POST","url":"/v1/auth/otp/resend","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359286193,"pid":24776,"hostname":"hht","reqId":"req-1b","merchantUserId":"9371730e-b085-4027-ac3b-22b23a590855","channel":"otp","code":"482095","msg":"otp code generated (dev)"}
+# {"level":30,"time":1793359286193,"pid":24776,"hostname":"hht","reqId":"req-1b","res":{"statusCode":200},"responseTime":14.839200000000346,"msg":"request completed"}
+# {"level":30,"time":1793359286211,"pid":24776,"hostname":"hht","reqId":"req-1c","merchantUserId":"9371730e-b085-4027-ac3b-22b23a590855","channel":"otp","code":"097665","msg":"otp code generated (dev)"}
+# Subtest: resend preserves guess budget and serializes concurrent resends
+not ok 8 - resend preserves guess budget and serializes concurrent resends
+  ---
+  duration_ms: 215.4839
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:4742'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+        200,
+    +   200
+    -   429
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 200
+    1: 429
+  actual:
+    0: 200
+    1: 200
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:71:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359286211,"pid":24776,"hostname":"hht","reqId":"req-1c","res":{"statusCode":200},"responseTime":31.81919999999991,"msg":"request completed"}
+# {"level":30,"time":1793359286321,"pid":24776,"hostname":"hht","reqId":"req-1d","req":{"method":"GET","url":"/v1/auth/me","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359286327,"pid":24776,"hostname":"hht","reqId":"req-1d","res":{"statusCode":200},"responseTime":5.691899999999805,"msg":"request completed"}
+# Subtest: suspension revokes existing sessions and API keys
+not ok 9 - suspension revokes existing sessions and API keys
+  ---
+  duration_ms: 114.3045
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:5403'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 401
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 401
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:80:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793359286417,"pid":24776,"hostname":"hht","reqId":"req-1e","req":{"method":"POST","url":"/v1/transactions/8c90311b-6cbf-4bf7-b0b6-d83d3d3ac0cb/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793359286446,"pid":24776,"hostname":"hht","reqId":"req-1e","res":{"statusCode":404},"responseTime":28.750500000000102,"msg":"request completed"}
+# Subtest: support cannot capture or void
+not ok 10 - support cannot capture or void
+  ---
+  duration_ms: 117.7629
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:6167'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    404 !== 403
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 403
+  actual: 404
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:86:50)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: OTP and token helpers never consult Math.random
+not ok 11 - OTP and token helpers never consult Math.random
+  ---
+  duration_ms: 0.5513
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\auth\\forkBatch1.new.test.ts:1:6736'
+  failureType: 'testCodeFailure'
+  error: 'insecure RNG used'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Math.Math.random (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:89:53)
+    randomDigits (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\lib\random.ts:4:26)
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\auth\forkBatch1.new.test.ts:90:21)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 0
+# fail 11
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8983.8058
