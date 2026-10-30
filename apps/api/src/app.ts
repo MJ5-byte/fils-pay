@@ -40,7 +40,9 @@ export interface BuildAppOptions {
  * tests use `app.inject(...)` against this — no real socket needed.
  */
 export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: true });
+  // Trust exactly the configured proxy hops, so request.ip is the client the
+  // nearest untrusted hop saw, never an address the client wrote itself.
+  const app = Fastify({ logger: true, trustProxy: (_address: string, hop: number) => hop < config.trustProxyHops });
 
   app.decorate("db", pool);
   app.decorate("config", config);

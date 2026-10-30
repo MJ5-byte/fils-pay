@@ -13,6 +13,8 @@ export interface Config {
   databaseUrl: string;
 
   pgPoolMax: number;
+  /** Proxy hops in front of the api whose X-Forwarded-For entries are trusted; 0 trusts none. */
+  trustProxyHops: number;
   pgPoolMin: number;
   pgPoolIdleTimeoutMs: number;
   pgPoolConnectionTimeoutMs: number;
@@ -221,6 +223,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl,
 
     pgPoolMax: parseIntEnv(env.PG_POOL_MAX, 5),
+    trustProxyHops: parseIntEnv(env.TRUST_PROXY_HOPS, 0),
     pgPoolMin: parseIntEnv(env.PG_POOL_MIN, 0),
     pgPoolIdleTimeoutMs: parseIntEnv(env.PG_POOL_IDLE_TIMEOUT_MS, 30_000),
     pgPoolConnectionTimeoutMs: parseIntEnv(env.PG_POOL_CONNECTION_TIMEOUT_MS, 5_000),

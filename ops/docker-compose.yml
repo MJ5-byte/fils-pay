@@ -1,8 +1,9 @@
 # Local development stack for FilsPay. Brings up Postgres plus the three
 # services that talk to it directly (apps/api, apps/settlement,
 # apps/reporting) and runs the migration/seed jobs once against a fresh
-# database. apps/web and apps/admin are not included here — neither one
-# opens its own database connection; they call apps/api over HTTP.
+# database. apps/web and apps/admin open no database connection of their
+# own; the `web` service at the bottom serves their built files and they
+# call apps/api over HTTP through it.
 #
 #
 # The hosted demo box runs this same file. Service settings that aren't
@@ -23,10 +24,46 @@
 # The seed job sits behind the `seed` profile so a bare `up` never wipes
 # data. Run it deliberately:
 #   docker compose -f ops/docker-compose.yml --profile seed run --rm seed
+#
+# Hosted box budget: the whole stack fits in 1 vCPU and 2 GB, with the api
+# held to 0.5 vCPU and 512 MB. Each service carries its own `cpus` and
+# `mem_limit` (plain `docker compose up` applies both, no swarm needed);
+# the long-running ones add up to 1.0 vCPU and 1472 MB, which leaves the
+# rest of the 2 GB to the host and the one-off jobs. `web` is the public
+# front door on port 80: it serves apps/web and apps/admin and proxies the
+# api, and it answers 503 at once when the api is at capacity. See
+# ops/README.md, "Hosted box".
+
+# Cap every long-running container's log at 3 x 10 MB, so a load test or a
+# crash loop can't fill the disk with json-file logs.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.3"
+    mem_limit: 512m
+    # Sized for the 512 MB share. max_connections covers the api pool (20)
+    # plus its webhook LISTEN client, settlement (5), reporting (5 plus its
+    # LISTEN client) and migrate, with room for a psql session.
+    command:
+      - postgres
+      - -c
+      - max_connections=50
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
     environment:
       POSTGRES_USER: filspay
       POSTGRES_PASSWORD: filspay_dev_password
@@ -53,6 +90,8 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    cpus: "0.25"
+    mem_limit: 256m
     env_file:
       - .env.docker
     command: ["npm", "run", "migrate"]
@@ -78,6 +117,8 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    cpus: "0.5"
+    mem_limit: 512m
     env_file:
       - .env.docker
     command: ["npm", "run", "seed"]
@@ -91,6 +132,10 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.5"
+    mem_limit: 512m
     # WEBHOOK_SECRET_ENCRYPTION_KEY is required in every environment; the api
     # throws at boot without a valid 32-byte base64 key. Set it, plus
     # SETTLEMENT_INTERNAL_TOKEN, ACQUIRER_CALLBACK_SIGNING_SECRET and
@@ -99,8 +144,32 @@ services:
       - .env.docker
     command: ["npx", "tsx", "apps/api/src/index.ts"]
     ports:
-      - "3000:3000"
+      # Loopback only: public traffic goes through `web`, which sheds excess
+      # load before it reaches the api.
+      - "127.0.0.1:3000:3000"
+    # /readyz answers 200 once the process has reached the database at boot.
+    # The slim image has no curl, so node's own fetch makes the probe.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/readyz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 60s
     environment:
+      # Heap cap under the 512 MB limit, so V8 collects garbage before the
+      # kernel OOM-kills the container. The rest covers npx, the tsx loader
+      # and native buffers (argon2, sharp).
+      NODE_OPTIONS: --max-old-space-size=320
+      # A checkout holds its pool connection while the acquirer answers
+      # (100 to 400 ms), so the default 5 caps checkouts near 10 a second
+      # with the CPU almost idle. 20 lifts that cap and stays well inside
+      # Postgres's max_connections.
+      PG_POOL_MAX: "20"
+      # Two proxies sit in front of the api on the hosted box: the host nginx
+      # (TLS) and the web container. Trusting exactly those two hops gives
+      # the real client IP for sessions and audit rows, and a client-sent
+      # X-Forwarded-For can't push a forged address past them.
+      TRUST_PROXY_HOPS: "2"
       # One application role (filspay) owns the whole database in this
       # environment. Every service here, and the one-off migrate/seed jobs
       # above, authenticate as that same role, which keeps local
@@ -119,6 +188,10 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.go
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.05"
+    mem_limit: 128m
     # The daemon exits at boot without SETTLEMENT_INTERNAL_TOKEN; there is no
     # default. Set it in ops/.env.docker, the same value the api uses.
     env_file:
@@ -141,17 +214,41 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.05"
+    mem_limit: 256m
     # No subcommand = `worker`. (MK)
     env_file:
       - .env.docker
     command: ["npx", "tsx", "apps/reporting/src/index.ts"]
     environment:
+      NODE_OPTIONS: --max-old-space-size=160
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+
+  # Public front door: serves the built apps/web and apps/admin and proxies
+  # the api, all on one origin so the session cookies need no CORS. Config
+  # in ops/nginx.conf, image in ops/Dockerfile.web. FILSPAY_HTTP_PUBLISH
+  # picks the host side of the port: 80 by default, or 127.0.0.1:8080 when
+  # the host's own nginx owns port 80 and terminates TLS in front of this.
+  web:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.1"
+    mem_limit: 64m
+    ports:
+      - "${FILSPAY_HTTP_PUBLISH:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   filspay_pgdata:
