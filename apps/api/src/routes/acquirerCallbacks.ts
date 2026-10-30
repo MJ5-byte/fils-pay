@@ -1,15 +1,22 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { BadRequestError, UnauthorizedError } from "../lib/errors.js";
 import { verifyAcquirerCallbackSignature } from "../webhooks/inboundVerify.js";
-import { applyAcquirerCallback, withCallbackRetry, type AcquirerCallbackInput } from "../acquirer/callbacks.js";
+import {
+  applyAcquirerCallback,
+  withCallbackRetry,
+  ACQUIRER_CALLBACK_OUTCOMES,
+  type AcquirerCallbackInput,
+  type AcquirerCallbackOutcome,
+} from "../acquirer/callbacks.js";
 
 // header name confirmed with the acquirer's integration guide v3.2 — am
 const ACQUIRER_SIGNATURE_HEADER = "acquirer-callback-signature";
 
 /**
  * Body of a fraud_review.completed callback. `outcome` is validated against
- * the AcquirerCallbackInput union ("approved" | "rejected") before it is
- * applied; any other value is a 400.
+ * the allowed outcomes (cleared, confirmed_fraud) and `occurredAt` against
+ * being a real date, both at the boundary before the callback is applied;
+ * any other value is a 400.
  */
 interface AcquirerCallbackBody {
   callbackId?: string;
@@ -18,6 +25,10 @@ interface AcquirerCallbackBody {
   occurredAt?: string;
   outcome?: string;
   note?: string;
+}
+
+function isAcquirerCallbackOutcome(value: string): value is AcquirerCallbackOutcome {
+  return (ACQUIRER_CALLBACK_OUTCOMES as readonly string[]).includes(value);
 }
 
 /** Header format: "t=<unix seconds>,v1=<hex hmac>". A repeated header uses the first value. */
@@ -54,6 +65,17 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
       );
     }
 
+    if (!isAcquirerCallbackOutcome(body.outcome)) {
+      throw new BadRequestError(
+        "invalid_request",
+        `outcome must be one of: ${ACQUIRER_CALLBACK_OUTCOMES.join(", ")}`,
+      );
+    }
+
+    if (Number.isNaN(Date.parse(body.occurredAt))) {
+      throw new BadRequestError("invalid_request", "occurredAt must be a valid ISO 8601 date-time");
+    }
+
     const verification = verifyAcquirerCallbackSignature(
       body,
       getSignatureHeader(request),
@@ -69,7 +91,7 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
       type: "fraud_review.completed",
       transactionId: body.transactionId,
       occurredAt: body.occurredAt,
-      outcome: body.outcome as AcquirerCallbackInput["outcome"],
+      outcome: body.outcome,
       note: body.note,
     };
 

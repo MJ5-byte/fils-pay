@@ -43,6 +43,20 @@ func countPaidEvents(t *testing.T, pool *pgxpool.Pool, batchID uuid.UUID) int {
 	return n
 }
 
+func countDisbursements(t *testing.T, pool *pgxpool.Pool, batchID uuid.UUID) (int, int64) {
+	t.Helper()
+	var n int
+	var amountFils int64
+	err := pool.QueryRow(context.Background(), `
+		SELECT count(*), coalesce(min(amount_fils), 0) FROM settlement_payout_disbursements
+		 WHERE settlement_batch_id = $1
+	`, batchID).Scan(&n, &amountFils)
+	if err != nil {
+		t.Fatalf("countDisbursements: %v", err)
+	}
+	return n, amountFils
+}
+
 func TestEnqueuePayoutNotificationsEnqueuesOnePerPaidBatch(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
@@ -103,6 +117,27 @@ func TestEnqueuePayoutNotificationsIsIdempotent(t *testing.T) {
 	}
 }
 
+// BHA-130: the merchant has no webhook endpoint, so no delivery ever runs;
+// the disbursement must still be recorded once, with the batch's net payout.
+func TestEnqueuePayoutNotificationsRecordsOneDisbursementWithoutEndpoints(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool, 250)
+	paidBatch := insertBatch(t, pool, merchantID, time.Date(2026, 3, 7, 0, 0, 0, 0, time.UTC), "paid", 23_422)
+
+	for i := 0; i < 2; i++ {
+		if _, err := EnqueuePayoutNotifications(ctx, pool); err != nil {
+			t.Fatalf("EnqueuePayoutNotifications pass %d: %v", i+1, err)
+		}
+	}
+
+	n, amountFils := countDisbursements(t, pool, paidBatch)
+	if n != 1 || amountFils != 23_422 {
+		t.Fatalf("expected 1 disbursement of 23422 fils, got %d row(s), amount %d", n, amountFils)
+	}
+}
+
 func TestEnqueuePayoutNotificationsSkipsIneligibleBatches(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
@@ -120,5 +155,74 @@ func TestEnqueuePayoutNotificationsSkipsIneligibleBatches(t *testing.T) {
 	}
 	if got := countPaidEvents(t, pool, notPaid); got != 0 {
 		t.Fatalf("a batch that has not reached 'paid' must not be notified, got %d event(s)", got)
+	}
+	if n, _ := countDisbursements(t, pool, notPaid); n != 0 {
+		t.Fatalf("a batch that has not reached 'paid' must have no disbursement, got %d", n)
+	}
+}
+
+// The daemon tick and `run-batch` both call EnqueuePayoutNotifications. A
+// SHARE lock on outbox_events stalls every insert, so both passes finish
+// their scan before either can write; releasing it lets them race for real.
+func TestEnqueuePayoutNotificationsConcurrentPassesEnqueueOnce(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool, 250)
+	paidBatch := insertBatch(t, pool, merchantID, time.Date(2026, 3, 6, 0, 0, 0, 0, time.UTC), "paid", 33_000)
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer blocker.Rollback(ctx)
+	if _, err := blocker.Exec(ctx, `LOCK TABLE outbox_events IN SHARE MODE`); err != nil {
+		t.Fatalf("lock outbox_events: %v", err)
+	}
+
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, err := EnqueuePayoutNotifications(ctx, pool)
+			errs <- err
+		}()
+	}
+
+	// Both passes are past their scan once both wait on a lock: the old code
+	// waits in the insert, the fixed code in the insert and the batch row lock.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM pg_stat_activity
+			 WHERE datname = current_database()
+			   AND wait_event_type = 'Lock'
+			   AND (query LIKE '%INSERT INTO outbox_events%' OR query LIKE '%FROM settlement_batches%FOR UPDATE%')
+		`).Scan(&waiting)
+		if err != nil {
+			t.Fatalf("count waiting passes: %v", err)
+		}
+		if waiting >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d of 2 passes reached a lock wait", waiting)
+		}
+	}
+
+	if err := blocker.Rollback(ctx); err != nil {
+		t.Fatalf("release blocker: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("EnqueuePayoutNotifications: %v", err)
+		}
+	}
+
+	if got := countPaidEvents(t, pool, paidBatch); got != 1 {
+		t.Fatalf("two concurrent passes must enqueue one settlement.paid event, got %d", got)
+	}
+	if n, _ := countDisbursements(t, pool, paidBatch); n != 1 {
+		t.Fatalf("two concurrent passes must record one disbursement, got %d", n)
 	}
 }

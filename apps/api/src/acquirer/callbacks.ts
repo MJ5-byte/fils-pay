@@ -1,13 +1,17 @@
 import type { Pool } from "pg";
 import { NotFoundError } from "../lib/errors.js";
 
-/** @property outcome Validated against the two allowed values by the route schema. */
+/** The outcomes the acquirer's fraud-review callback may report. */
+export const ACQUIRER_CALLBACK_OUTCOMES = ["cleared", "confirmed_fraud"] as const;
+export type AcquirerCallbackOutcome = (typeof ACQUIRER_CALLBACK_OUTCOMES)[number];
+
+/** @property outcome One of ACQUIRER_CALLBACK_OUTCOMES, validated at the route boundary. */
 export interface AcquirerCallbackInput {
   callbackId: string;
   type: "fraud_review.completed";
   transactionId: string;
   occurredAt: string;
-  outcome: "cleared" | "confirmed_fraud";
+  outcome: AcquirerCallbackOutcome;
   note: string;
 }
 
@@ -18,8 +22,10 @@ interface TransactionMerchantRow {
 /**
  * Applies one acquirer callback: looks up the transaction it refers to and
  * appends a note recording the acquirer's own delayed verdict.
+ * Idempotency uses the acquirer's own callback_id so a redelivery of the
+ * same callback is a safe no-op, including concurrent deliveries.
  * acquirer_callback_notes is append-only and surfaced on the transaction
- * timeline for support/finance to read — a fraud-review verdict is
+ * timeline for support/finance to read. A fraud-review verdict is
  * informational, not a state transition, so this never touches
  * transactions.status or the ledger; a confirmed-fraud outcome still needs
  * a human decision to void/refund, exactly as today.
@@ -37,7 +43,8 @@ export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallba
   await pool.query(
     `INSERT INTO acquirer_callback_notes
         (transaction_id, merchant_id, callback_id, callback_type, outcome, note, received_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (callback_id) DO NOTHING`,
     [
       callback.transactionId,
       txnRow.merchant_id,

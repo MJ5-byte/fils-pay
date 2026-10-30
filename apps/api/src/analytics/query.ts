@@ -1,4 +1,6 @@
 import type { Pool } from "pg";
+import { BadRequestError } from "../lib/errors.js";
+import { cacheGetJson, cacheSetJson } from "../cache/redis.js";
 
 const DEFAULT_TOP_LINKS_LIMIT = 10;
 const MIN_TOP_LINKS_LIMIT = 1;
@@ -48,6 +50,8 @@ export interface VolumePointDto {
   capturedCount: number;
   capturedGrossFils: number;
   voidedCount: number;
+  refundCount: number;
+  refundGrossFils: number;
 }
 
 export interface VolumesResponse {
@@ -66,10 +70,14 @@ interface VolumeRow {
   captured_count: number;
   captured_gross_fils: string | number;
   voided_count: number;
+  refund_count: number;
+  refund_gross_fils: string | number;
 }
 
 interface CursorRow {
+  last_processed_id: string;
   updated_at: Date;
+  updated_at_text: string;
 }
 
 function pad2(n: number): string {
@@ -90,14 +98,38 @@ function serializeVolumePoint(row: VolumeRow): VolumePointDto {
     capturedCount: row.captured_count,
     capturedGrossFils: Number(row.captured_gross_fils),
     voidedCount: row.voided_count,
+    refundCount: row.refund_count,
+    refundGrossFils: Number(row.refund_gross_fils),
   };
 }
 
-async function readModelAsOf(pool: Pool): Promise<string | null> {
+/**
+ * The rollups' freshness stamp, plus a version of the read model for the
+ * cache. apps/reporting writes merchant_daily_volume and
+ * merchant_payout_trends only inside the transaction that also advances this
+ * cursor row (runConsumerPass), and the admin rebuild truncates them in the
+ * transaction that resets it, so the version changes with every rollup
+ * write: a capture, void or refund event, a batch close or a payout. A
+ * cached rollup is keyed by the version it was read under, and is never
+ * served once the version has moved on.
+ */
+async function readModelVersion(pool: Pool): Promise<{ asOf: string | null; version: string }> {
   const cursorResult = await pool.query<CursorRow>(
-    `SELECT updated_at FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
+    `SELECT last_processed_id, updated_at, updated_at::text AS updated_at_text
+       FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
   );
-  return cursorResult.rows[0]?.updated_at.toISOString() ?? null;
+  const row = cursorResult.rows[0];
+  if (!row) return { asOf: null, version: "none" };
+  return { asOf: row.updated_at.toISOString(), version: `${row.last_processed_id}@${row.updated_at_text}` };
+}
+
+/** Rollup reads only. Short enough that a missed version change still heals on its own. */
+const VOLUMES_CACHE_TTL_SECONDS = 30;
+const PAYOUT_TRENDS_CACHE_TTL_SECONDS = 60;
+
+/** One hash per merchant and endpoint, so no key is ever shared across merchants. */
+export function analyticsCacheKey(merchantId: string, endpoint: "volumes" | "payout-trends"): string {
+  return `filspay:v1:merchant:${merchantId}:analytics:${endpoint}`;
 }
 
 /**
@@ -112,22 +144,23 @@ export async function getVolumes(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
 ): Promise<VolumesResponse> {
-  const [pointsResult, asOf] = await Promise.all([
-    pool.query<VolumeRow>(
-      `SELECT volume_date, captured_count, captured_gross_fils, voided_count
-         FROM merchant_daily_volume
-        WHERE merchant_id = $1 AND volume_date >= $2 AND volume_date < $3
-        ORDER BY volume_date ASC`,
-      [input.merchantId, input.from, input.to],
-    ),
-    readModelAsOf(pool),
-  ]);
+  const { asOf, version } = await readModelVersion(pool);
+  const key = analyticsCacheKey(input.merchantId, "volumes");
+  const field = `${input.from}|${input.to}|${version}`;
+  const cached = await cacheGetJson<VolumePointDto[]>(key, field);
+  if (cached) return { points: cached, readModelAsOf: asOf, live: false };
 
-  return {
-    points: pointsResult.rows.map(serializeVolumePoint),
-    readModelAsOf: asOf,
-    live: false,
-  };
+  const pointsResult = await pool.query<VolumeRow>(
+    `SELECT volume_date, captured_count, captured_gross_fils, voided_count, refund_count, refund_gross_fils
+       FROM merchant_daily_volume
+      WHERE merchant_id = $1 AND volume_date >= $2 AND volume_date < $3
+      ORDER BY volume_date ASC`,
+    [input.merchantId, input.from, input.to],
+  );
+  const points = pointsResult.rows.map(serializeVolumePoint);
+  cacheSetJson(key, field, points, VOLUMES_CACHE_TTL_SECONDS);
+
+  return { points, readModelAsOf: asOf, live: false };
 }
 
 export interface PayoutTrendPointDto {
@@ -179,22 +212,23 @@ export async function getPayoutTrends(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
 ): Promise<PayoutTrendsResponse> {
-  const [pointsResult, asOf] = await Promise.all([
-    pool.query<PayoutTrendRow>(
-      `SELECT settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at
-         FROM merchant_payout_trends
-        WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
-        ORDER BY batch_date ASC`,
-      [input.merchantId, input.from, input.to],
-    ),
-    readModelAsOf(pool),
-  ]);
+  const { asOf, version } = await readModelVersion(pool);
+  const key = analyticsCacheKey(input.merchantId, "payout-trends");
+  const field = `${input.from}|${input.to}|${version}`;
+  const cached = await cacheGetJson<PayoutTrendPointDto[]>(key, field);
+  if (cached) return { points: cached, readModelAsOf: asOf, live: false };
 
-  return {
-    points: pointsResult.rows.map(serializePayoutTrendPoint),
-    readModelAsOf: asOf,
-    live: false,
-  };
+  const pointsResult = await pool.query<PayoutTrendRow>(
+    `SELECT settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at
+       FROM merchant_payout_trends
+      WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
+      ORDER BY batch_date ASC`,
+    [input.merchantId, input.from, input.to],
+  );
+  const points = pointsResult.rows.map(serializePayoutTrendPoint);
+  cacheSetJson(key, field, points, PAYOUT_TRENDS_CACHE_TTL_SECONDS);
+
+  return { points, readModelAsOf: asOf, live: false };
 }
 
 export interface TopLinkDto {
@@ -270,6 +304,7 @@ export interface LedgerActivityPointDto {
 
 export interface RecentLedgerActivityResponse {
   points: LedgerActivityPointDto[];
+  nextCursor: string | null;
   readModelAsOf: string;
   live: true;
 }
@@ -280,7 +315,23 @@ interface LedgerActivityRow {
   direction: "debit" | "credit";
   amount_fils: string | number;
   occurred_at: Date;
+  occurred_at_text: string;
   description: string | null;
+}
+
+const LEDGER_ACTIVITY_PAGE_SIZE = 200;
+
+/** Cursor = base64url("<occurred_at as printed by Postgres>|<id>"), the same
+ *  keyset as reporting/transactionsReportQuery.ts (microsecond-exact). */
+function decodeLedgerCursor(cursor: string): { occurredAt: string; id: string } {
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+  const separatorIndex = decoded.indexOf("|");
+  const occurredAt = decoded.slice(0, separatorIndex);
+  const id = decoded.slice(separatorIndex + 1);
+  if (separatorIndex === -1 || !occurredAt || !id) {
+    throw new BadRequestError("invalid_cursor", "cursor is not valid");
+  }
+  return { occurredAt, id };
 }
 
 /**
@@ -294,20 +345,37 @@ interface LedgerActivityRow {
  * `from`/`to` are Bahrain business-date strings (YYYY-MM-DD), matched against
  * `occurred_at` in Bahrain local calendar terms — Bahrain observes no DST
  * (fixed UTC+3 since 1972), so this reduces to a `date` comparison per row.
+ * The window is half-open `[from, to)`: `to` is exclusive, the same
+ * convention `parseDateRange`, `getVolumes` and `getTopLinks` already use,
+ * so a boundary day is counted in exactly one window, never both.
  */
 export async function getRecentLedgerActivity(
   pool: Pool,
-  input: { merchantId: string; from: string; to: string },
+  input: { merchantId: string; from: string; to: string; cursor?: string | null },
 ): Promise<RecentLedgerActivityResponse> {
-  const result = await pool.query<LedgerActivityRow>(
-    `SELECT id, account_id, direction, amount_fils, occurred_at, description
-       FROM ledger_entries
-      WHERE merchant_id = $1
-        AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date BETWEEN $2::date AND $3::date
-      ORDER BY occurred_at DESC
-      LIMIT 200`,
-    [input.merchantId, input.from, input.to],
-  );
+  // A present cursor that cannot be decoded must not fall back to page one.
+  const after = input.cursor ? decodeLedgerCursor(input.cursor) : null;
+  const result = await pool
+    .query<LedgerActivityRow>(
+      `SELECT id, account_id, direction, amount_fils, occurred_at, description,
+              occurred_at::text AS occurred_at_text
+         FROM ledger_entries
+        WHERE merchant_id = $1
+          AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date >= $2::date
+          AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date < $3::date
+          AND ($4::timestamptz IS NULL OR (occurred_at, id) < ($4::timestamptz, $5::bigint))
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT $6`,
+      [input.merchantId, input.from, input.to, after?.occurredAt ?? null, after?.id ?? null, LEDGER_ACTIVITY_PAGE_SIZE],
+    )
+    .catch((err: unknown) => {
+      // SQLSTATE class 22 with a cursor present: the decoded cursor isn't a valid timestamp/bigint.
+      if (after && (err as { code?: string }).code?.startsWith("22")) {
+        throw new BadRequestError("invalid_cursor", "cursor is not valid");
+      }
+      throw err;
+    });
+  const lastRow = result.rows[result.rows.length - 1];
 
   return {
     points: result.rows.map((row) => ({
@@ -318,6 +386,10 @@ export async function getRecentLedgerActivity(
       occurredAt: row.occurred_at.toISOString(),
       description: row.description,
     })),
+    nextCursor:
+      result.rows.length === LEDGER_ACTIVITY_PAGE_SIZE && lastRow
+        ? Buffer.from(`${lastRow.occurred_at_text}|${lastRow.id}`, "utf8").toString("base64url")
+        : null,
     readModelAsOf: new Date().toISOString(),
     live: true,
   };

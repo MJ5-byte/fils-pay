@@ -6,6 +6,7 @@ package splits
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -88,6 +89,7 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 	}
 
 	var shares []ChildShare
+	var weights []ChildWeight
 	for rows.Next() {
 		var childID uuid.UUID
 		var weightBps int64
@@ -95,14 +97,22 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 			rows.Close()
 			return SplitPayoutResult{}, err
 		}
-		share := money.ApplyRateFils(money.Fils(netPayout), weightBps)
-		shares = append(shares, ChildShare{ChildMerchantID: childID, WeightBps: weightBps, AllocatedFils: share})
+		shares = append(shares, ChildShare{ChildMerchantID: childID, WeightBps: weightBps})
+		weights = append(weights, ChildWeight{WeightBps: weightBps})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return SplitPayoutResult{}, err
 	}
 	rows.Close()
+
+	allocated, err := ChildShares(money.Fils(netPayout), weights)
+	if err != nil {
+		return SplitPayoutResult{}, fmt.Errorf("splits: PayoutSplitBatch(%s): %w", batchID, err)
+	}
+	for i := range shares {
+		shares[i].AllocatedFils = allocated[i]
+	}
 
 	var totalAllocated money.Fils
 	for _, s := range shares {
@@ -137,6 +147,21 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 	// am: should pass netPayout here not totalAllocated, otherwise the cache drifts from the batch
 	if err := balances.ApplyPayout(ctx, tx, parentMerchantID, batchID, totalAllocated); err != nil {
 		return SplitPayoutResult{}, err
+	}
+
+	// Same running total PayoutBatch bumps for a non-split payout
+	// (settlement.UpdateLifetimePayoutMonitoringEstimate, inlined because
+	// that package imports this one). A negative net is money owed, not paid
+	// out, so it never lowers the total.
+	if netPayout >= 0 {
+		_, err = tx.Exec(ctx, `
+			UPDATE merchants
+			   SET lifetime_net_payout_monitoring_estimate = lifetime_net_payout_monitoring_estimate + $2
+			 WHERE id = $1
+		`, parentMerchantID, netPayout)
+		if err != nil {
+			return SplitPayoutResult{}, err
+		}
 	}
 
 	_, err = tx.Exec(ctx, `UPDATE settlement_batches SET status = 'paid', paid_at = now() WHERE id = $1`, batchID)

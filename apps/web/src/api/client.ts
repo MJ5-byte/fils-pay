@@ -1,6 +1,6 @@
 import type { ApiErrorBody } from "../types.js";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
 
 /** Mirrors apps/api's own uniform `{ error, message? }` body
  *  (lib/errors.ts / plugins/errorHandler.ts) — one error shape end to
@@ -46,7 +46,11 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(res.status, (body as ApiErrorBody) ?? { error: "unknown_error" });
+    const errorBody = (body as (Partial<ApiErrorBody> & { code?: string }) | null) ?? {};
+    // The API answers refusals as `{ error, message }`. A body without `error`
+    // (a proxy page, an older route) falls back to `code`, then a fixed
+    // string, so the banner is never blank.
+    throw new ApiError(res.status, { ...errorBody, error: errorBody.error ?? errorBody.code ?? "unknown_error" });
   }
   return body as T;
 }
@@ -61,16 +65,53 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
   await request<unknown>(path, init);
 }
 
-/** Human-readable text for anything thrown by `request` — used by every
+/** Plain-language copy for the error codes the API answers with. */
+const ERROR_COPY: Record<string, string> = {
+  invalid_credentials: "Those details do not match an account.",
+  invalid_code: "That code is wrong or has expired.",
+  too_many_attempts: "Too many wrong codes. Start over.",
+  too_many_login_attempts: "Too many tries. Wait 15 minutes.",
+  resend_too_soon: "A code was just sent. Wait a few seconds.",
+  authorization_expired: "This authorization's hold has expired, so it can no longer be captured.",
+  refund_exceeds_refundable: "That's more than is left to refund on this payment.",
+  refund_amount_invalid: "Enter a refund amount above zero.",
+  transaction_not_refundable: "This payment cannot be refunded in its current state.",
+  refunds_on_hold: "Refunds are on hold for your account. Contact support.",
+  idempotency_key_reused: "This request was already sent with different details. Reload and try again.",
+  request_in_progress: "This request is still being processed. Wait a moment, then reload.",
+  invalid_url: "Enter a full https URL for the endpoint.",
+  invalid_expiry: "Pick an expiry date and time in the future.",
+  not_cancelable: "This link can no longer be canceled. It is paid, already canceled, or a payment is under way.",
+  endpoint_disabled: "This endpoint is disabled. Enable it before replaying deliveries.",
+  unauthenticated: "Your session has ended. Sign in again.",
+};
+
+/** A message the API wrote for developers, not for the dashboard: a bare
+ *  code (`invalid_url`), or text naming a field or function
+ *  (`amountFils ...`, `parseBhdToFils: ...`). */
+function looksInternal(message: string): boolean {
+  return /\b[a-z]+_[a-z0-9_]+\b|\b[a-z]+[A-Z]\w*\b|^\w+:/.test(message);
+}
+
+function fallbackFor(statusCode: number): string {
+  if (statusCode === 403) return "Your role does not allow this. Ask an owner or finance user on your account.";
+  if (statusCode === 404) return "That could not be found. It may have been removed.";
+  if (statusCode >= 500) return "Something went wrong on our side. Try again in a moment.";
+  return "That did not go through. Check the details and try again.";
+}
+
+/** Human-readable text for anything thrown by `request`, used by every
  *  dashboard page's error banner so a failure (including a server-side
- *  `403` from a role gate) is always shown, never silently swallowed. */
+ *  `403` from a role gate) is always shown, never silently swallowed, and
+ *  never as a raw code. */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.statusCode === 403) {
-      return `Not permitted (${err.code}) — ask an owner or finance user on your account.`;
-    }
-    return err.body.message ?? err.code;
+    const known = ERROR_COPY[err.code];
+    if (known) return known;
+    const message = err.body.message;
+    if (err.statusCode !== 403 && message && !looksInternal(message)) return message;
+    return fallbackFor(err.statusCode);
   }
-  if (err instanceof Error) return err.message;
-  return "Something went wrong.";
+  if (err instanceof Error && !looksInternal(err.message)) return err.message;
+  return "Something went wrong. Try again.";
 }

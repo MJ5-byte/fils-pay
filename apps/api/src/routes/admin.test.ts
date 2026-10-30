@@ -19,6 +19,10 @@ import { loadConfig } from "../config.js";
 import { hashPassword } from "../adminAuth/passwords.js";
 import { issueApiKey } from "../apiKeys/issue.js";
 import { createWebhookEndpoint } from "../webhooks/create.js";
+import { enqueueEvent } from "@filspay/events";
+import { toFils } from "@filspay/money";
+import { withTransaction } from "../db/withTransaction.js";
+import { recordTransactionEvent } from "../transactions/events.js";
 import type { AdminRoutesOptions } from "./admin.js";
 import type {
   MdrRecalcSummary,
@@ -39,6 +43,7 @@ const config = loadConfig({
   OTP_DEV_EXPOSE: "true",
   SETTLEMENT_INTERNAL_TOKEN: "test-settlement-token",
   WEBHOOK_SECRET_ENCRYPTION_KEY: "Y1ZTGTcYbe30GZJebys9w7T3OYZNKewuOH3SUCEdRQk=",
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: "true",
 });
 
 const pool = new Pool({ connectionString: databaseUrl, max: 5 });
@@ -58,7 +63,7 @@ const settlementSpy: SettlementSpy = {
   runBatchCalls: [],
   rebuildCalls: 0,
   recalcMdrCalls: [],
-  runBatchImpl: async () => ({ businessDate: "2026-09-09", merchantResults: [] }),
+  runBatchImpl: async () => ({ businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] }),
   rebuildImpl: async () => ({ rebuiltCount: 0, changed: [] }),
   recalcMdrImpl: async () => ({ batchesConsidered: 0, adjusted: [] }),
 };
@@ -282,6 +287,74 @@ test("admin otp verify rejects a wrong code without burning the challenge", asyn
     payload: { code: realCode },
   });
   assert.equal(rightRes.statusCode, 200, rightRes.body);
+});
+
+test("wrong admin OTP codes count across logins, so re-logging in does not reset the guess budget", async () => {
+  const { email } = await createAdminUser("support", "otplimit");
+  const login = () =>
+    app.inject({ method: "POST", url: "/v1/admin/auth/login", payload: { email, password: ADMIN_PASSWORD } });
+  const verify = (cookie: string, code: string) =>
+    app.inject({ method: "POST", url: "/v1/admin/auth/otp/verify", headers: { cookie }, payload: { code } });
+
+  const rounds = [];
+  for (let i = 0; i < 3; i++) {
+    const res = await login();
+    assert.equal(res.statusCode, 200, res.body);
+    rounds.push({
+      cookie: parseCookie(res.headers["set-cookie"], config.adminCookieName),
+      code: (res.json() as { devOtpCode: string }).devOtpCode,
+    });
+  }
+
+  // Two rounds of five wrong codes each: ten failures across two challenges.
+  for (const round of rounds.slice(0, 2)) {
+    const wrong = round.code === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 5; i++) {
+      assert.equal((await verify(round.cookie, wrong)).statusCode, 401);
+    }
+  }
+
+  const third = rounds[2];
+  assert.ok(third);
+  const lockedVerify = await verify(third.cookie, third.code);
+  assert.equal(lockedVerify.statusCode, 429, "a third challenge must not open a fresh guess budget");
+  assert.equal(lockedVerify.json().error, "too_many_attempts");
+
+  const lockedLogin = await login();
+  assert.equal(lockedLogin.statusCode, 429, "a new login must not issue a fresh challenge after the limit");
+  assert.equal(lockedLogin.json().error, "too_many_attempts");
+});
+
+test("parallel wrong admin OTP codes cannot get past the failure limit", async () => {
+  const { id, email } = await createAdminUser("support", "otprace");
+  const cookies: string[] = [];
+  for (let i = 0; i < 4; i++) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin/auth/login",
+      payload: { email, password: ADMIN_PASSWORD },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    cookies.push(parseCookie(res.headers["set-cookie"], config.adminCookieName));
+  }
+
+  // A real code is 6 digits, so "abc" never matches; 10 per pending session, all at once.
+  const results = await Promise.all(
+    cookies.flatMap((cookie) =>
+      Array.from({ length: 10 }, () =>
+        app.inject({ method: "POST", url: "/v1/admin/auth/otp/verify", headers: { cookie }, payload: { code: "abc" } }),
+      ),
+    ),
+  );
+  const statuses = results.map((r) => r.statusCode);
+  assert.equal(statuses.filter((s) => s === 401).length, 10, `statuses: ${statuses.join(",")}`);
+  assert.equal(statuses.filter((s) => s === 429).length, 30, `statuses: ${statuses.join(",")}`);
+
+  const failures = await pool.query<{ n: number }>(
+    `SELECT SUM(attempt_count)::int AS n FROM admin_otp_challenges WHERE admin_user_id = $1`,
+    [id],
+  );
+  assert.equal(failures.rows[0]?.n, 10);
 });
 
 test("a merchant session cookie grants nothing on the admin plane", async () => {
@@ -567,6 +640,11 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
   const finance = await signedInAdmin("finance", "bulkkyc-auditfail");
   const first = await createMerchant("bulkkyc-auditfail-a");
   const second = await createMerchant("bulkkyc-auditfail-b");
+  // Only under_review merchants are approvable, so without this nothing would
+  // change even if the rollback were broken.
+  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = ANY($1)`, [
+    [first.merchantId, second.merchantId],
+  ]);
 
   await pool.query(
     `ALTER TABLE admin_audit_log
@@ -590,9 +668,13 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
   );
   assert.equal(merchants.rowCount, 2);
   for (const row of merchants.rows) {
-    assert.equal(row.kyc_passed, false, "the batch UPDATE must have rolled back for every merchant");
-    assert.equal(row.onboarding_status, "submitted");
+    assert.equal(row.kyc_passed, false, "the batch approval must have rolled back for every merchant");
+    assert.equal(row.onboarding_status, "under_review");
   }
+  const reviews = await pool.query(`SELECT 1 FROM merchant_kyc_reviews WHERE merchant_id = ANY($1)`, [
+    [first.merchantId, second.merchantId],
+  ]);
+  assert.equal(reviews.rowCount, 0, "the review rows must roll back with the approval");
   assert.equal((await auditRowsFor(finance.id, "kyc_bulk_approve")).length, 0);
 
   const retry = await app.inject({
@@ -602,6 +684,7 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
     payload: { merchantIds: [first.merchantId, second.merchantId] },
   });
   assert.equal(retry.statusCode, 200, retry.body);
+  assert.equal((retry.json() as { approvedCount: number }).approvedCount, 2);
 });
 
 // ------------------------------------------------------ audit atomicity
@@ -795,9 +878,7 @@ test("GET /v1/admin/merchants/:id 404s for an unknown or malformed id", async ()
 
 // -------------------------------------------------- API key rotation
 
-// "previous key stays active" — grace period for merchants to deploy the new key. intended (am, 2026-05)
-// YA: there was never a grace period in the design. rotation = revoke
-test("API key rotation issues a new key atomically and audits it; the previous key stays active", async () => {
+test("API key rotation issues a new key and revokes the previous one atomically, and audits it", async () => {
   const finance = await signedInAdmin("finance", "rotate");
   const { merchantId, ownerUserId } = await createMerchant("rotate");
   const original = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "original" });
@@ -823,14 +904,14 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   assert.ok(rotated.rawKey.startsWith("fp_test_"));
   assert.equal(rotated.prefix, rotated.rawKey.slice(0, 16));
 
-  // The previous key keeps authenticating through the overlap window —
-  // rotation issues a replacement without cutting the old credential off.
+  // Rotation exists to retire a possibly leaked credential, so the old key
+  // must stop working the moment the new one is issued.
   const after = await app.inject({
     method: "GET",
     url: "/v1/transactions",
     headers: { authorization: `Bearer ${original.rawKey}` },
   });
-  assert.equal(after.statusCode, 200, "the previous key stays active during the overlap window");
+  assert.equal(after.statusCode, 401, "the previous key is refused after rotation");
 
   // The new key works too.
   const withNew = await app.inject({
@@ -855,8 +936,8 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   );
   assert.equal(rows.rowCount, 2);
   const [oldRow, newRow] = rows.rows;
-  assert.equal(oldRow!.revoked_at, null, "rotation does not revoke the previous key");
-  assert.equal(oldRow!.revoked_reason, null);
+  assert.ok(oldRow!.revoked_at, "rotation revokes the previous key");
+  assert.equal(oldRow!.revoked_reason, "rotated");
   assert.equal(newRow!.id, rotated.id);
   assert.equal(newRow!.revoked_at, null);
   assert.equal(newRow!.created_by, null, "0037's XOR: an admin-issued key has no merchant_users actor");
@@ -1008,6 +1089,36 @@ test("webhook batch replay replays every matching failed delivery in range, once
   assert.equal(audit[0]!.target_type, "webhook_endpoint");
   assert.equal(audit[0]!.target_id, endpoint.id);
   assert.equal((audit[0]!.metadata as { replayedDeliveryIds: string[] }).replayedDeliveryIds.length, 3);
+});
+
+test("webhook batch replay with the failed filter replays exhausted deliveries (BHA-179)", async () => {
+  const admin = await signedInAdmin("support", "replay-failed");
+  const { merchantId } = await createMerchant("replay-failed");
+  const endpoint = await createWebhookEndpoint(pool, config, {
+    merchantId,
+    url: "http://127.0.0.1:9/hook",
+    createdByType: "merchant_session",
+    createdById: randomUUID(),
+  });
+  const [exhaustedId] = await createFailedDeliveries(merchantId, endpoint.id, [
+    { status: "exhausted", createdAt: "2026-05-03T00:00:00Z" },
+    { status: "succeeded", createdAt: "2026-05-03T12:00:00Z" },
+  ]);
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/replay-batch`,
+    headers: { cookie: admin.cookie },
+    payload: { from: "2026-05-01T00:00:00Z", to: "2026-05-05T00:00:00Z", statuses: ["failed"] },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { matchedCount: number; replayedDeliveryIds: string[] };
+  assert.equal(body.matchedCount, 1);
+  const replay = await pool.query<{ replay_of_delivery_id: string }>(
+    `SELECT replay_of_delivery_id FROM webhook_deliveries WHERE id = ANY($1)`,
+    [body.replayedDeliveryIds],
+  );
+  assert.equal(replay.rows[0]!.replay_of_delivery_id, exhaustedId);
 });
 
 test("webhook batch replay accepts an explicit statuses filter, and rejects bad input / foreign endpoints", async () => {
@@ -1173,6 +1284,58 @@ test("a support impersonation grant reads merchant data but cannot perform owner
   assert.equal(audit.rows[1]!.target_id, merchantId);
 });
 
+test("an impersonation grant is read-only: it cannot capture or void, and a super_admin grant is still support", async () => {
+  const supportAdmin = await signedInAdmin("support", "imp-write");
+  const superAdmin = await signedInAdmin("super_admin", "imp-write-super");
+  const { merchantId } = await createMerchant("imp-write");
+  const txn = await pool.query<{ id: string }>(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+     VALUES ($1, 'authorized', 2000, 0, $2) RETURNING id`,
+    [merchantId, `acqref_${randomUUID()}`],
+  );
+  const transactionId = txn.rows[0]!.id;
+
+  async function grantCookie(adminCookie: string): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/impersonate`,
+      headers: { cookie: adminCookie },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return parseCookie(res.headers["set-cookie"], config.impersonationCookieName);
+  }
+
+  for (const impCookie of [await grantCookie(supportAdmin.cookie), await grantCookie(superAdmin.cookie)]) {
+    const capture = await app.inject({
+      method: "POST",
+      url: `/v1/transactions/${transactionId}/capture`,
+      headers: { cookie: impCookie, "idempotency-key": randomUUID() },
+      payload: {},
+    });
+    assert.equal(capture.statusCode, 403, capture.body);
+
+    const voided = await app.inject({
+      method: "POST",
+      url: `/v1/transactions/${transactionId}/void`,
+      headers: { cookie: impCookie, "idempotency-key": randomUUID() },
+    });
+    assert.equal(voided.statusCode, 403, voided.body);
+
+    const reconciliation = await app.inject({
+      method: "GET",
+      url: "/v1/settlement/reconciliation",
+      headers: { cookie: impCookie },
+    });
+    assert.equal(reconciliation.statusCode, 403, "an owner/finance page must stay closed to every grant");
+  }
+
+  const after = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [transactionId],
+  );
+  assert.deepEqual(after.rows[0], { status: "authorized", captured_fils: "0" });
+});
+
 test("an expired impersonation grant stops working without anyone ending it", async () => {
   const admin = await signedInAdmin("support", "imp-expiry");
   const { merchantId } = await createMerchant("imp-expiry");
@@ -1195,6 +1358,51 @@ test("an expired impersonation grant stops working without anyone ending it", as
   await pool.query(`UPDATE admin_impersonation_grants SET expires_at = now() - interval '1 second' WHERE id = $1`, [
     started.grantId,
   ]);
+
+  const after = await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } });
+  assert.equal(after.statusCode, 401);
+});
+
+test("disabling an admin stops their live impersonation grant at once", async () => {
+  const admin = await signedInAdmin("support", "imp-disabled");
+  const { merchantId } = await createMerchant("imp-disabled");
+
+  const startRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/impersonate`,
+    headers: { cookie: admin.cookie },
+  });
+  assert.equal(startRes.statusCode, 201, startRes.body);
+  const impCookie = parseCookie(startRes.headers["set-cookie"], config.impersonationCookieName);
+  assert.equal(
+    (await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } })).statusCode,
+    200,
+  );
+
+  await pool.query(`UPDATE admin_users SET status = 'disabled' WHERE id = $1`, [admin.id]);
+
+  const after = await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } });
+  assert.equal(after.statusCode, 401, "admin status must be part of the grant predicate, like the session one");
+});
+
+test("admin logout ends the admin's open impersonation grants", async () => {
+  const admin = await signedInAdmin("support", "imp-logout");
+  const { merchantId } = await createMerchant("imp-logout");
+
+  const startRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/impersonate`,
+    headers: { cookie: admin.cookie },
+  });
+  assert.equal(startRes.statusCode, 201, startRes.body);
+  const impCookie = parseCookie(startRes.headers["set-cookie"], config.impersonationCookieName);
+  assert.equal(
+    (await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } })).statusCode,
+    200,
+  );
+
+  const logoutRes = await app.inject({ method: "POST", url: "/v1/admin/auth/logout", headers: { cookie: admin.cookie } });
+  assert.equal(logoutRes.statusCode, 204);
 
   const after = await app.inject({ method: "GET", url: "/v1/transactions", headers: { cookie: impCookie } });
   assert.equal(after.statusCode, 401);
@@ -1283,6 +1491,7 @@ test("settlement run-batch: the audit row is COMMITTED before the call is made, 
           netPayoutFils: 975,
         },
       ],
+      failedMerchants: [],
     };
   };
 
@@ -1308,7 +1517,7 @@ test("settlement run-batch: the audit row is COMMITTED before the call is made, 
   assert.equal((audit[0]!.metadata as { date?: string }).date, "2026-09-09");
   assert.equal((audit[0]!.metadata as { merchantResultCount?: number }).merchantResultCount, 1);
 
-  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
+  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] });
 });
 
 test("settlement run-batch: a failing call surfaces its status and leaves an audit row marked failed", async () => {
@@ -1335,7 +1544,66 @@ test("settlement run-batch: a failing call surfaces its status and leaves an aud
   assert.equal(audit[0]!.target_type, "merchant");
   assert.equal((audit[0]!.metadata as { error?: string }).error, "settlement_unreachable");
 
-  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
+  settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] });
+});
+
+test("cross-process admin actions: the audit row is not 'succeeded' while the call is still running", async () => {
+  const finance = await signedInAdmin("finance", "outcome-pending");
+  const ok = { businessDate: "2026-09-09", merchantResults: [], failedMerchants: [] };
+  const outcomeDuringCall = async (action: string): Promise<string | undefined> => {
+    const seen = await pool.query<{ outcome: string }>(
+      `SELECT outcome FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2`,
+      [finance.id, action],
+    );
+    return seen.rows[0]?.outcome;
+  };
+
+  let runBatchSeen: string | undefined;
+  settlementSpy.runBatchImpl = async () => {
+    runBatchSeen = await outcomeDuringCall("settlement_run_batch");
+    return ok;
+  };
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/settlement/run-batch",
+    headers: { cookie: finance.cookie },
+    payload: { date: "2026-09-09" },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  settlementSpy.runBatchImpl = async () => ok;
+
+  assert.equal(runBatchSeen, "failed", "a row written before the op ran must not claim it succeeded");
+  assert.equal((await auditRowsFor(finance.id, "settlement_run_batch"))[0]!.outcome, "succeeded");
+
+  let rebuildSeen: string | undefined;
+  settlementSpy.rebuildImpl = async () => {
+    rebuildSeen = await outcomeDuringCall("balance_rebuild");
+    return { rebuiltCount: 0, changed: [] };
+  };
+  const rebuild = await app.inject({
+    method: "POST",
+    url: "/v1/admin/balances/rebuild",
+    headers: { cookie: finance.cookie },
+    payload: {},
+  });
+  assert.equal(rebuild.statusCode, 200, rebuild.body);
+  assert.equal(rebuildSeen, "failed");
+  assert.equal((await auditRowsFor(finance.id, "balance_rebuild"))[0]!.outcome, "succeeded");
+
+  let mdrSeen: string | undefined;
+  settlementSpy.recalcMdrImpl = async () => {
+    mdrSeen = await outcomeDuringCall("mdr_recalculation");
+    return { batchesConsidered: 0, adjusted: [] };
+  };
+  const mdr = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${randomUUID()}/mdr-recalculation`,
+    headers: { cookie: finance.cookie },
+    payload: { from: "2026-04-01", to: "2026-04-30" },
+  });
+  assert.equal(mdr.statusCode, 200, mdr.body);
+  assert.equal(mdrSeen, "failed");
+  assert.equal((await auditRowsFor(finance.id, "mdr_recalculation"))[0]!.outcome, "succeeded");
 });
 
 test("settlement run-batch validates its input before writing an audit row or calling anything", async () => {
@@ -1445,6 +1713,119 @@ test("a settlement action whose audit row cannot be written never makes the call
   }
 
   assert.equal(settlementSpy.rebuildCalls, 0, "an unloggable action must be BLOCKED, not merely unlogged");
+});
+
+// ------------------------------------------------------- analytics rebuild
+
+/** The shared reporting cursor, read so a test can hand it back as it found it:
+ *  apps/reporting's tests replay from wherever it is left. */
+async function reportingCursor(): Promise<string | undefined> {
+  const result = await pool.query<{ last_processed_id: string }>(
+    `SELECT last_processed_id FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
+  );
+  return result.rows[0]?.last_processed_id;
+}
+
+/** No row and a row at 0 read the same to the consumer, so only a real value is put back. */
+async function restoreReportingCursor(lastProcessedId: string | undefined): Promise<void> {
+  if (lastProcessedId === undefined) return;
+  await pool.query(`UPDATE reporting_outbox_cursor SET last_processed_id = $1 WHERE consumer_name = 'reporting'`, [
+    lastProcessedId,
+  ]);
+}
+
+test("the analytics rebuild leaves nothing for the reporting consumer to apply twice", async () => {
+  const cursorBefore = await reportingCursor();
+  const admin = await signedInAdmin("finance", "analytics-rebuild");
+  const { merchantId } = await createMerchant("analytics-rebuild");
+
+  // A capture committed while the reporting worker is behind: its outbox
+  // event sits past the cursor, waiting for the next consumer pass.
+  const outboxId = await withTransaction(pool, async (client) => {
+    const txn = await client.query<{ id: string }>(
+      `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+       VALUES ($1, 'captured', 1500, 1500, $2) RETURNING id`,
+      [merchantId, `acqref_${randomUUID()}`],
+    );
+    const transactionId = txn.rows[0]?.id;
+    assert.ok(transactionId);
+    const event = await enqueueEvent(client, {
+      eventType: "transaction.captured",
+      aggregateType: "transaction",
+      aggregateId: transactionId,
+      payload: { merchantId, amountCapturedFils: 1500, feeFils: 0, newStatus: "captured", capturedTotalFils: 1500 },
+    });
+    await recordTransactionEvent(client, {
+      transactionId,
+      eventType: "captured",
+      amountFils: toFils(1500),
+      actor: { type: "system" },
+    });
+    return BigInt(event.id);
+  });
+  await pool.query(
+    `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id)
+     VALUES ('reporting', $1)
+     ON CONFLICT (consumer_name) DO UPDATE SET last_processed_id = EXCLUDED.last_processed_id`,
+    [(outboxId - 1n).toString()],
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/reporting/rebuild",
+    headers: { cookie: admin.cookie },
+  });
+
+  const cursor = await pool.query<{ last_processed_id: string }>(
+    `SELECT last_processed_id FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
+  );
+  const cursorId = BigInt(cursor.rows[0]?.last_processed_id ?? "0");
+  const counted = await pool.query<{ captured: string }>(
+    `SELECT COALESCE(SUM(captured_count), 0) AS captured FROM merchant_daily_volume WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  // The consumer applies every event past the cursor. If the rebuilt rollups
+  // already count one of those, the next pass counts it a second time.
+  assert.ok(
+    cursorId >= outboxId || counted.rows[0]?.captured === "0",
+    `rollups count the capture (${counted.rows[0]?.captured}) while the cursor (${cursorId}) has not passed its event (${outboxId})`,
+  );
+  assert.equal(res.statusCode, 202, res.body);
+
+  const audit = await auditRowsFor(admin.id, "reporting_rebuild");
+  assert.equal(audit.length, 1);
+  await restoreReportingCursor(cursorBefore);
+});
+
+test("the analytics rebuild answers 409 and changes nothing when the reporting cursor stays locked", async () => {
+  const admin = await signedInAdmin("finance", "analytics-rebuild-busy");
+  await pool.query(
+    `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id)
+     VALUES ('reporting', 0)
+     ON CONFLICT (consumer_name) DO NOTHING`,
+  );
+  const cursorBefore = await reportingCursor();
+
+  // Stands in for a consumer pass that holds the cursor row past the rebuild's lock timeout.
+  const pass = await pool.connect();
+  let res;
+  try {
+    await pass.query("BEGIN");
+    await pass.query(`SELECT 1 FROM reporting_outbox_cursor WHERE consumer_name = 'reporting' FOR UPDATE`);
+    res = await app.inject({
+      method: "POST",
+      url: "/v1/admin/reporting/rebuild",
+      headers: { cookie: admin.cookie },
+    });
+  } finally {
+    await pass.query("ROLLBACK");
+    pass.release();
+  }
+
+  assert.equal(res.statusCode, 409, res.body);
+  assert.equal((res.json() as { error: string }).error, "reporting_rebuild_busy");
+  assert.equal(await reportingCursor(), cursorBefore);
+  assert.equal((await auditRowsFor(admin.id, "reporting_rebuild")).length, 0);
 });
 
 test("cookieValue helper sanity: the impersonation and admin cookies are genuinely different tokens", async () => {
@@ -1639,4 +2020,60 @@ test("an mdr recalculation whose audit row cannot be written never makes the cal
     0,
     "an unloggable action must be BLOCKED, not merely unlogged",
   );
+});
+
+// ------------------------------------------- recompute transaction statuses
+
+test("recompute statuses never takes a test merchant live", async () => {
+  const finance = await signedInAdmin("finance", "recompute-testmode");
+  const { merchantId } = await createMerchant("recompute-testmode");
+  await pool.query(`UPDATE merchants SET test_mode = true WHERE id = $1`, [merchantId]);
+  await pool.query(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+     VALUES ($1, 'captured', 3000, 3000, $2)`,
+    [merchantId, `recompute-${randomUUID()}`],
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/transactions/recompute-statuses`,
+    headers: { cookie: finance.cookie },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+
+  const merchant = await pool.query<{ test_mode: boolean }>(
+    `SELECT test_mode FROM merchants WHERE id = $1`,
+    [merchantId],
+  );
+  assert.equal(merchant.rows[0]!.test_mode, true);
+});
+
+test("admin login with an array email is rejected as invalid_request, not a 500", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email: ["array@admin.test"], password: ADMIN_PASSWORD },
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_request");
+});
+
+test("admin otp verify with an object code is rejected as invalid_request, not a 500", async () => {
+  const user = await createAdminUser("support", "object-code");
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email: user.email, password: ADMIN_PASSWORD },
+  });
+  assert.equal(loginRes.statusCode, 200, loginRes.body);
+  const cookie = parseCookie(loginRes.headers["set-cookie"], config.adminCookieName);
+
+  const verifyRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/otp/verify",
+    headers: { cookie },
+    payload: { code: { toString: 1 } },
+  });
+  assert.equal(verifyRes.statusCode, 400, verifyRes.body);
+  assert.equal(verifyRes.json().error, "invalid_request");
 });

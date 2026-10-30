@@ -9,8 +9,10 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import dns from "node:dns";
 import http from "node:http";
-import { test } from "node:test";
+import { syncBuiltinESMExports } from "node:module";
+import { mock, test } from "node:test";
 import { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { buildApp } from "../app.js";
@@ -42,6 +44,7 @@ const config = loadConfig({
   WEBHOOK_BACKOFF_BASE_MS: "1000",
   WEBHOOK_BACKOFF_CAP_MS: "60000",
   WEBHOOK_REQUEST_TIMEOUT_MS: "5000",
+  WEBHOOK_ALLOW_PRIVATE_TARGETS: "true",
 });
 
 const pool = new Pool({ connectionString: databaseUrl, max: 5 });
@@ -145,7 +148,7 @@ async function createEndpointViaRoute(rawKey: string, merchantId: string, url: s
 }
 
 async function authorizeAndCapture(merchantId: string, amountFils: number, label: string): Promise<string> {
-  const authRes = await authorizeTransaction(pool, app.acquirer, {
+  const authRes = await authorizeTransaction(pool, app.acquirer, config, {
     merchantId,
     amountFils: toFils(amountFils),
     card: APPROVED_CARD,
@@ -282,7 +285,7 @@ test(
       const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
       const txnId = await authorizeAndCapture(merchantId, 4_750, "e2e");
 
-      await runDispatchPass(pool, createFetchTransport(), config);
+      await runDispatchPass(pool, createFetchTransport(config), config);
 
       assert.equal(receiver.received.length, 1);
       const received = receiver.received[0]!;
@@ -326,7 +329,7 @@ test("decline path: an endpoint returning 500 leaves the delivery pending with b
     const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
     await authorizeAndCapture(merchantId, 2_000, "decline");
 
-    await runDispatchPass(pool, createFetchTransport(), config);
+    await runDispatchPass(pool, createFetchTransport(config), config);
 
     assert.equal(receiver.received.length, 1);
 
@@ -354,7 +357,7 @@ test("replay: creates a new row referencing the original, with a new delivery_ev
     const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
     await authorizeAndCapture(merchantId, 3_300, "replay");
 
-    await runDispatchPass(pool, createFetchTransport(), config);
+    await runDispatchPass(pool, createFetchTransport(config), config);
     assert.equal(receiver.received.length, 1);
 
     const originalRowResult = await pool.query<{
@@ -379,7 +382,7 @@ test("replay: creates a new row referencing the original, with a new delivery_ev
     assert.notEqual(replayBody.deliveryId, original.id);
 
     // Dispatch again so the replay row actually gets attempted.
-    await runDispatchPass(pool, createFetchTransport(), config);
+    await runDispatchPass(pool, createFetchTransport(config), config);
     assert.equal(receiver.received.length, 2);
 
     const allRows = await pool.query<{
@@ -420,7 +423,7 @@ test("disabled endpoint rejects replay with 409", async () => {
     const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
     await authorizeAndCapture(merchantId, 1_000, "disabled-replay");
 
-    await runDispatchPass(pool, createFetchTransport(), config);
+    await runDispatchPass(pool, createFetchTransport(config), config);
 
     const deliveryRow = await pool.query<{ id: string; status: string }>(
       `SELECT id, status FROM webhook_deliveries WHERE endpoint_id = $1`,
@@ -456,7 +459,7 @@ test("GET deliveries list never includes payload/signature; GET .../deliveries/:
     const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
     await authorizeAndCapture(merchantId, 1_500, "detail");
 
-    await runDispatchPass(pool, createFetchTransport(), config);
+    await runDispatchPass(pool, createFetchTransport(config), config);
 
     const listRes = await app.inject({
       method: "GET",
@@ -509,7 +512,7 @@ test("secret encryption round-trips correctly: a delivery verifies using the SAM
     assert.ok(!stored.rows[0]!.secret_ciphertext.includes(created.secret));
 
     await authorizeAndCapture(merchantId, 999, "secret-roundtrip");
-    await runDispatchPass(pool, createFetchTransport(), config);
+    await runDispatchPass(pool, createFetchTransport(config), config);
 
     assert.equal(receiver.received.length, 1);
     const received = receiver.received[0]!;
@@ -518,6 +521,233 @@ test("secret encryption round-trips correctly: a delivery verifies using the SAM
 
     const result = verifySignature(parsedBody, signatureHeader, created.secret);
     assert.deepEqual(result, { valid: true });
+  } finally {
+    await receiver.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, a loopback endpoint is refused at create and test send reaches nothing", async () => {
+  const blockedConfig = { ...config, webhookAllowPrivateTargets: false };
+  const blockedApp = buildApp(blockedConfig, pool);
+  const receiver = await startTestReceiver();
+  try {
+    const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("blocked-loopback");
+    const createRes = await blockedApp.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+      headers: authHeader(rawKey),
+      payload: { url: receiver.url },
+    });
+    assert.equal(createRes.statusCode, 400, createRes.body);
+    assert.equal(createRes.json().error, "invalid_url");
+
+    const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
+    const testRes = await blockedApp.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}/test`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(testRes.statusCode, 200, testRes.body);
+    assert.equal(testRes.json().responseBodyExcerpt, null);
+    assert.equal(testRes.json().statusCode, null);
+    assert.equal(receiver.received.length, 0);
+  } finally {
+    await receiver.close();
+    await blockedApp.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, create and update refuse CGNAT, NAT64 and IPv4-compatible targets and a trailing-dot localhost", async () => {
+  const blockedConfig = { ...config, webhookAllowPrivateTargets: false };
+  const blockedApp = buildApp(blockedConfig, pool);
+  try {
+    const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("blocked-resolved");
+    const created = await createEndpointViaRoute(rawKey, merchantId, "https://example.test/webhook");
+    // 100.100.100.200 is a cloud metadata address; "localhost." must not slip past the localhost check by its trailing dot.
+    for (const url of [
+      "https://100.100.100.200/latest/meta-data",
+      "https://[64:ff9b::a9fe:a9fe]/",
+      "https://[64:ff9b:1::a9fe:a9fe]/",
+      "https://[::7f00:1]/",
+      "https://localhost./webhook",
+    ]) {
+      const createRes = await blockedApp.inject({
+        method: "POST",
+        url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+        headers: authHeader(rawKey),
+        payload: { url },
+      });
+      assert.equal(createRes.statusCode, 400, `${url}: ${createRes.body}`);
+      assert.equal(createRes.json().error, "invalid_url");
+
+      const updateRes = await blockedApp.inject({
+        method: "PATCH",
+        url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+        headers: authHeader(rawKey),
+        payload: { url },
+      });
+      assert.equal(updateRes.statusCode, 400, `${url}: ${updateRes.body}`);
+      assert.equal(updateRes.json().error, "invalid_url");
+    }
+  } finally {
+    await blockedApp.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, create and update refuse a hostname whose DNS answer is loopback", async () => {
+  const blockedConfig = { ...config, webhookAllowPrivateTargets: false };
+  const blockedApp = buildApp(blockedConfig, pool);
+  mock.method(dns.promises, "lookup", async () => [{ address: "127.0.0.1", family: 4 }]);
+  syncBuiltinESMExports();
+  try {
+    const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("blocked-dns");
+    const created = await createEndpointViaRoute(rawKey, merchantId, "https://example.test/webhook");
+    const url = "https://rebind.example.test/webhook";
+
+    const createRes = await blockedApp.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+      headers: authHeader(rawKey),
+      payload: { url },
+    });
+    assert.equal(createRes.statusCode, 400, createRes.body);
+    assert.equal(createRes.json().error, "invalid_url");
+
+    const updateRes = await blockedApp.inject({
+      method: "PATCH",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+      headers: authHeader(rawKey),
+      payload: { url },
+    });
+    assert.equal(updateRes.statusCode, 400, updateRes.body);
+    assert.equal(updateRes.json().error, "invalid_url");
+  } finally {
+    mock.restoreAll();
+    syncBuiltinESMExports();
+    await blockedApp.close();
+  }
+});
+
+test("with WEBHOOK_ALLOW_PRIVATE_TARGETS off, the transport refuses CGNAT, NAT64 and IPv4-compatible addresses before connecting", async () => {
+  const transport = createFetchTransport({ webhookAllowPrivateTargets: false });
+  for (const url of [
+    "http://100.100.100.200/",
+    "http://[64:ff9b::a9fe:a9fe]/",
+    "http://[64:ff9b:1::a9fe:a9fe]/",
+    "http://[::7f00:1]/",
+  ]) {
+    const response = await transport({ url, headers: {}, body: "{}", timeoutMs: 200 });
+    assert.equal(response.statusCode, null, url);
+    assert.equal(response.errorMessage, "webhook target address is not allowed", url);
+  }
+});
+
+test("the transport does not follow redirects", async () => {
+  const target = await startTestReceiver();
+  const redirector = http.createServer((_req, res) => {
+    res.writeHead(302, { Location: target.url });
+    res.end();
+  });
+  await new Promise<void>((resolve) => redirector.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = redirector.address();
+    assert.ok(address && typeof address !== "string");
+    const response = await createFetchTransport(config)({
+      url: `http://127.0.0.1:${address.port}/`,
+      headers: {},
+      body: "{}",
+      timeoutMs: 2000,
+    });
+    assert.equal(response.statusCode, 302);
+    assert.equal(target.received.length, 0);
+  } finally {
+    await new Promise<void>((resolve) => redirector.close(() => resolve()));
+    await target.close();
+  }
+});
+
+// BHA-91 / BHA-93: bad limit, bad cursor and non-UUID ids must answer 4xx, never 500.
+test("GET deliveries answers 400 for a non-numeric limit and for a crafted cursor", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("bad-limit");
+  const endpoint = await createEndpointViaRoute(rawKey, merchantId, "http://127.0.0.1:9/webhook");
+  const base = `/v1/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/deliveries`;
+
+  const badLimit = await app.inject({ method: "GET", url: `${base}?limit=abc`, headers: authHeader(rawKey) });
+  assert.equal(badLimit.statusCode, 400, badLimit.body);
+
+  const crafted = Buffer.from(`not-a-date|not-a-uuid`, "utf8").toString("base64url");
+  const badCursor = await app.inject({ method: "GET", url: `${base}?cursor=${crafted}`, headers: authHeader(rawKey) });
+  assert.equal(badCursor.statusCode, 400, badCursor.body);
+});
+
+test("webhook endpoint routes answer 404 for a non-UUID endpoint or delivery id", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("bad-id");
+  const base = `/v1/merchants/${merchantId}/webhook-endpoints`;
+  const calls: Array<[string, string, string]> = [
+    ["GET", `${base}/nope/deliveries`, "deliveries list"],
+    ["GET", `${base}/nope/deliveries/nope`, "delivery detail"],
+    ["PATCH", `${base}/nope`, "update"],
+    ["DELETE", `${base}/nope`, "delete"],
+    ["POST", `${base}/nope/test`, "test send"],
+    ["POST", `${base}/nope/deliveries/nope/replay`, "replay"],
+  ];
+  for (const [method, url, label] of calls) {
+    const res = await app.inject({
+      method: method as "GET",
+      url,
+      headers: authHeader(rawKey),
+      ...(method === "PATCH" ? { payload: { status: "disabled" } } : {}),
+    });
+    assert.equal(res.statusCode, 404, `${label}: ${res.statusCode} ${res.body}`);
+  }
+});
+
+test("GET deliveries?status=failed returns the real permanently-failed (exhausted) deliveries (BHA-143)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("failed-filter");
+  const receiver = await startTestReceiver(500);
+  try {
+    const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
+    await authorizeAndCapture(merchantId, 1_500, "failed-filter");
+
+    // Drive the one delivery to 'exhausted' (WEBHOOK_MAX_ATTEMPTS = 3): pass 1
+    // creates and attempts it, then force it due and pass twice more.
+    await runDispatchPass(pool, createFetchTransport(config), config);
+    for (let attempt = 2; attempt <= 3; attempt += 1) {
+      await pool.query(
+        `UPDATE webhook_deliveries SET next_attempt_at = now() - interval '1 second' WHERE endpoint_id = $1`,
+        [created.id],
+      );
+      await runDispatchPass(pool, createFetchTransport(config), config);
+    }
+
+    const stored = await pool.query<{ status: string }>(
+      `SELECT status FROM webhook_deliveries WHERE endpoint_id = $1`,
+      [created.id],
+    );
+    assert.equal(stored.rows.length, 1);
+    assert.equal(stored.rows[0]!.status, "exhausted");
+
+    // The bug: filtering by 'failed' used to match the never-written 'failed'
+    // status and always return zero rows. It must now surface the exhausted row.
+    const failedRes = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}/deliveries?status=failed`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(failedRes.statusCode, 200, failedRes.body);
+    const failedBody = failedRes.json() as { deliveries: Array<{ status: string }> };
+    assert.equal(failedBody.deliveries.length, 1);
+    assert.equal(failedBody.deliveries[0]!.status, "exhausted");
+
+    // The mapping is narrow, not a catch-all: 'succeeded' still matches nothing here.
+    const succeededRes = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}/deliveries?status=succeeded`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(succeededRes.statusCode, 200, succeededRes.body);
+    const succeededBody = succeededRes.json() as { deliveries: unknown[] };
+    assert.equal(succeededBody.deliveries.length, 0);
   } finally {
     await receiver.close();
   }

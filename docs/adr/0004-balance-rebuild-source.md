@@ -1,6 +1,6 @@
 # 0004. Balance cache rebuild source
 
-- **Status:** Accepted
+- **Status:** Superseded by [0007](0007-balance-rebuild-from-ledger.md)
 - **Date:** 2026-05-30
 - **Deciders:** Mahmood Khalil
 - **Related:** FP-203, 834f6b0, ADMIN.md "Rebuild cached balances"

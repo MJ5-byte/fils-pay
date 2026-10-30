@@ -1,8 +1,11 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, isRouteErrorResponse, Navigate, Outlet, useRouteError } from "react-router-dom";
+import { CrashPage, NotFoundPage } from "@filspay/ui";
+import type { RouteObject } from "react-router-dom";
 import { CheckoutPage } from "./pages/checkout/CheckoutPage.js";
 import { DashboardAuthProvider } from "./auth/DashboardAuthContext.js";
 import { RequireDashboardAuth } from "./auth/RequireDashboardAuth.js";
 import { RoleGatedPage } from "./auth/RequireRole.js";
+import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { DashboardLayout } from "./components/DashboardLayout.js";
 import { LoginPage } from "./pages/dashboard-login/LoginPage.js";
 import { TransactionListPage } from "./pages/transactions/TransactionListPage.js";
@@ -18,9 +21,28 @@ import { SettlementBatchDetailPage } from "./pages/settlement/SettlementBatchDet
 import { ReconciliationPage } from "./pages/settlement/ReconciliationPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
 
+function NotFound() {
+  return <NotFoundPage homeHref="/dashboard" homeLabel="Back to dashboard" />;
+}
+
+/**
+ * The root's error element: a loader or router error (an unknown URL included)
+ * gets the designed face, never React Router's default, which prints the raw
+ * error. Render errors inside a page are caught first by AppErrorBoundary.
+ */
+function RouteError() {
+  const error = useRouteError();
+  if (isRouteErrorResponse(error) && error.status === 404) return <NotFound />;
+  return <CrashPage />;
+}
+
 // MK: /refunds route removed until FP-212
-export const router = createBrowserRouter([
+const routes: RouteObject[] = [
   { path: "/pay/:token", element: <CheckoutPage /> },
+  // The root opens the dashboard: an unauthenticated visitor lands on login
+  // through the guard below, rather than on a bare router 404. This is also
+  // where an admin "view as merchant" grant sends the operator.
+  { path: "/", element: <Navigate to="/dashboard" replace /> },
 
   {
     // The session provider wraps the dashboard subtree only — never
@@ -44,7 +66,7 @@ export const router = createBrowserRouter([
           </RequireDashboardAuth>
         ),
         children: [
-          { path: "/dashboard", element: <Navigate to="/dashboard/transactions" replace /> },
+          { path: "/dashboard", element: <Navigate to="/dashboard/overview" replace /> },
 
           { path: "/dashboard/transactions", element: <TransactionListPage /> },
           { path: "/dashboard/transactions/:id", element: <TransactionDetailPage /> },
@@ -100,5 +122,23 @@ export const router = createBrowserRouter([
         ],
       },
     ],
+  },
+
+  // Outside the session provider, so a mistyped URL answers at once without
+  // asking the API who is signed in.
+  { path: "*", element: <NotFound /> },
+];
+
+// One pathless root so a render error anywhere, /pay/:token included, lands
+// on the same short message.
+export const router = createBrowserRouter([
+  {
+    element: (
+      <AppErrorBoundary>
+        <Outlet />
+      </AppErrorBoundary>
+    ),
+    errorElement: <RouteError />,
+    children: routes,
   },
 ]);

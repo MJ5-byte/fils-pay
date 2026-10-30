@@ -1,5 +1,8 @@
 import type { Pool } from "pg";
 import { estimateFeeFils } from "../fees/estimate.js";
+import { loadFeeSchedule, resolveMdrBps } from "../fees/feeSchedule.js";
+import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
+import { BadRequestError } from "../lib/errors.js";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -116,8 +119,9 @@ export async function listSettlementBatches(
   const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
   const decodedCursor = decodeCursor(filters.cursor);
 
-  const result = await pool.query<SettlementBatchRow>(
-    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
+  const result = await pool
+    .query<SettlementBatchRow>(
+      `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
        FROM settlement_batches
       WHERE merchant_id = $1
         AND ($2::date IS NULL OR batch_date >= $2)
@@ -126,16 +130,23 @@ export async function listSettlementBatches(
         AND ($5::date IS NULL OR (batch_date, id) < ($5, $6))
       ORDER BY batch_date DESC, id DESC
       LIMIT $7`,
-    [
-      filters.merchantId,
-      filters.from ?? null,
-      filters.to ?? null,
-      statusArray,
-      decodedCursor?.batchDate ?? null,
-      decodedCursor?.id ?? null,
-      limit,
-    ],
-  );
+      [
+        filters.merchantId,
+        filters.from ?? null,
+        filters.to ?? null,
+        statusArray,
+        decodedCursor?.batchDate ?? null,
+        decodedCursor?.id ?? null,
+        limit,
+      ],
+    )
+    .catch((err: unknown) => {
+      // SQLSTATE class 22 with a cursor present: the decoded cursor isn't a valid date/uuid.
+      if (decodedCursor && (err as { code?: string }).code?.startsWith("22")) {
+        throw new BadRequestError("invalid_cursor", "cursor is not valid");
+      }
+      throw err;
+    });
 
   const batches = result.rows.map(serializeBatch);
   const lastRow = result.rows[result.rows.length - 1];
@@ -191,7 +202,9 @@ export async function getSettlementBatch(
 
 /**
  * schemeAmountFils: the amount the scheme export line carries (truncated
- * to whole 10-fils units). capturedFils: the untruncated captured total.
+ * to whole 10-fils units). capturedFils: the untruncated amount this batch
+ * settled for the transaction, so a later capture that lands in another
+ * batch never changes it.
  */
 export interface SettlementBatchTransactionDto {
   transactionId: string;
@@ -213,29 +226,61 @@ interface SettlementBatchTransactionRow {
   captured_fils: string | number;
 }
 
+export interface ListBatchTransactionsResult {
+  transactions: SettlementBatchTransactionDto[];
+  nextCursor: string | null;
+}
+
+function decodeLineCursor(cursor: string | null | undefined): number | null {
+  if (!cursor) return null;
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+  if (!/^\d{1,9}$/.test(decoded)) {
+    throw new BadRequestError("invalid_cursor", "cursor is not valid");
+  }
+  return Number(decoded);
+}
+
+function encodeLineCursor(lineSequence: number): string {
+  return Buffer.from(String(lineSequence), "utf8").toString("base64url");
+}
+
 /**
  * `GET /v1/settlement/batches/:id/transactions` business logic.
  * Same 404-on-ownership-mismatch check as `getSettlementBatch`, performed
  * by the caller (routes/settlement.ts) before this is called. Reads from
  * scheme_export_lines (many, but exactly-one-per-transaction by
  * construction) joined -> transactions (one) — the safe join direction.
+ * Keyset pagination on line_sequence, same shape as `listSettlementBatches`.
+ * capturedFils sums the capture events CloseBatch stamped with this batch,
+ * the same deltas it built the line from, never transactions.captured_fils
+ * (a lifetime running total that later captures keep moving).
  */
-// unbounded but a batch is one merchant one day, max a few thousand lines — am
 export async function listBatchTransactions(
   pool: Pool,
   batchId: string,
-): Promise<SettlementBatchTransactionDto[]> {
+  page: { limit?: number; cursor?: string | null } = {},
+): Promise<ListBatchTransactionsResult> {
+  const limit = Math.min(MAX_LIMIT, Math.max(1, page.limit ?? DEFAULT_LIMIT));
+  const afterLine = decodeLineCursor(page.cursor);
+
   const result = await pool.query<SettlementBatchTransactionRow>(
     `SELECT sel.transaction_id, sel.amount_fils AS scheme_amount_fils, sel.line_sequence,
-            t.reference, t.status, t.amount_fils AS authorized_fils, t.captured_fils
+            t.reference, t.status, t.amount_fils AS authorized_fils,
+            (SELECT COALESCE(SUM(te.amount_fils), 0)
+               FROM transaction_events te
+              WHERE te.transaction_id = sel.transaction_id
+                AND te.settlement_batch_id = sel.settlement_batch_id
+                AND te.event_type IN ('captured', 'partially_captured')) AS captured_fils
        FROM scheme_export_lines sel
        JOIN transactions t ON t.id = sel.transaction_id
       WHERE sel.settlement_batch_id = $1
-      ORDER BY sel.line_sequence`,
-    [batchId],
+        AND ($2::int IS NULL OR sel.line_sequence > $2)
+      ORDER BY sel.line_sequence
+      LIMIT $3`,
+    [batchId, afterLine, limit],
   );
 
-  return result.rows.map((row) => ({
+  const transactions = result.rows.map((row) => ({
     transactionId: row.transaction_id,
     schemeAmountFils: Number(row.scheme_amount_fils),
     lineSequence: row.line_sequence,
@@ -244,12 +289,17 @@ export async function listBatchTransactions(
     authorizedFils: Number(row.authorized_fils),
     capturedFils: Number(row.captured_fils),
   }));
+  const lastRow = result.rows[result.rows.length - 1];
+  const nextCursor = result.rows.length === limit && lastRow ? encodeLineCursor(lastRow.line_sequence) : null;
+
+  return { transactions, nextCursor };
 }
 
 /**
  * gapFils = ledgerMerchantPayableNetFils - settlementNetPayoutFils -
  * pendingUnbatchedFils. Refund legs are included both in the ledger figure
- * and in pending, so a period with refunds still explains to zero.
+ * and, until a batch claims the refund, in pending (net of the reversed
+ * fee), so a period with refunds still explains to zero.
  */
 export interface ReconciliationReport {
   periodFrom: string;
@@ -285,12 +335,23 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, merchantResult] = await Promise.all([
+  const [
+    ledgerResult,
+    settlementResult,
+    pendingResult,
+    pendingRefundResult,
+    merchantResult,
+    feeSchedule,
+    volumeTierBonusBps,
+  ] = await Promise.all([
+    // Payout legs (batch.go PayoutBatch, splits/allocate.go) are left out:
+    // settlementNetPayoutFils already subtracts every closed or paid batch.
     pool.query<{ net: string }>(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0) AS net
          FROM ledger_entries
         WHERE merchant_id = $1 AND account_id = 'merchant_payable'
-          AND occurred_at >= $2 AND occurred_at < $3`,
+          AND occurred_at >= $2 AND occurred_at < $3
+          AND NOT (settlement_batch_id IS NOT NULL AND COALESCE(description, '') LIKE 'settlement payout:%')`,
       [input.merchantId, windowStart, windowEnd],
     ),
     pool.query<{ total: string }>(
@@ -300,8 +361,8 @@ export async function getReconciliationReport(
           AND status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
-    pool.query<{ amount_fils: string | number }>(
-      `SELECT te.amount_fils
+    pool.query<{ amount_fils: string | number; occurred_at: Date }>(
+      `SELECT te.amount_fils, te.occurred_at
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
@@ -309,24 +370,43 @@ export async function getReconciliationReport(
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
     ),
+    // processRefund posts a refund's merchant_payable legs (gross debit,
+    // fee-reversal credit) straight away; until CloseBatch claims it, the
+    // refund's net sits in the ledger figure and must be pending too.
+    pool.query<{ net: string }>(
+      `SELECT COALESCE(SUM(amount_fils - fee_reversed_fils), 0) AS net
+         FROM refunds
+        WHERE merchant_id = $1 AND status = 'succeeded' AND settlement_batch_id IS NULL
+          AND occurred_at >= $2 AND occurred_at < $3`,
+      [input.merchantId, windowStart, windowEnd],
+    ),
     pool.query<{ mdr_bps: number; negotiated_discount_bps: number }>(
       `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     ),
+    loadFeeSchedule(pool, input.merchantId),
+    getVolumeTierBonusBps(pool),
   ]);
 
-  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
-  // so reading it here is the same as resolving the schedule
+  // Price each pending capture the way capture.ts priced it: the
+  // effective-dated fee schedule in force at that capture's own instant
+  // (fee_schedules, falling back to merchants.mdr_bps when none applies),
+  // net of the platform volume-tier bonus, through the same integer
+  // applyRateFils path. merchants.mdr_bps alone is only the fallback rate,
+  // not an authoritative stand-in for the schedule.
   const merchant = merchantResult.rows[0];
-  const mdrBps = merchant?.mdr_bps ?? 0;
+  const fallbackMdrBps = merchant?.mdr_bps ?? 0;
   const discountBps = merchant?.negotiated_discount_bps ?? 0;
 
   let pendingUnbatchedFils = 0;
   for (const row of pendingResult.rows) {
     const amountFils = Number(row.amount_fils);
-    const feeFils = estimateFeeFils(amountFils, mdrBps, discountBps);
-    pendingUnbatchedFils += amountFils - feeFils;
+    const scheduledMdrBps = resolveMdrBps(feeSchedule, row.occurred_at, fallbackMdrBps);
+    const effectiveMdrBps = Math.max(0, scheduledMdrBps - volumeTierBonusBps);
+    const netFeeFils = estimateFeeFils(amountFils, effectiveMdrBps, discountBps);
+    pendingUnbatchedFils += amountFils - netFeeFils;
   }
+  pendingUnbatchedFils -= Number(pendingRefundResult.rows[0]?.net ?? 0);
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);
   const settlementNetPayoutFils = Number(settlementResult.rows[0]?.total ?? 0);
@@ -355,7 +435,11 @@ interface SettlementSummaryRow {
   total_captured_fils: string | number | null;
 }
 
-/** Gross captured in window, joined through transaction_events for batch parity. */
+/**
+ * Gross captured in window, summed per capture event like CloseBatch does.
+ * transactions.captured_fils is a running total, so summing it per event
+ * counted multi-capture transactions more than once (BHA-27).
+ */
 export async function getSettlementSummary(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
@@ -364,17 +448,13 @@ export async function getSettlementSummary(
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
   const result = await pool.query<SettlementSummaryRow>(
-    `WITH captured AS (
-       SELECT t.id, t.captured_fils
-         FROM transactions t
-         JOIN transaction_events te ON te.transaction_id = t.id
-        WHERE t.merchant_id = $1
-          AND te.event_type IN ('captured', 'partially_captured')
-          AND te.occurred_at >= $2 AND te.occurred_at < $3
-     )
-     SELECT COUNT(DISTINCT id) AS transaction_count,
-            COALESCE(SUM(captured_fils), 0) AS total_captured_fils
-       FROM captured`,
+    `SELECT COUNT(DISTINCT te.transaction_id) AS transaction_count,
+            COALESCE(SUM(te.amount_fils), 0) AS total_captured_fils
+       FROM transaction_events te
+       JOIN transactions t ON t.id = te.transaction_id
+      WHERE t.merchant_id = $1
+        AND te.event_type IN ('captured', 'partially_captured')
+        AND te.occurred_at >= $2 AND te.occurred_at < $3`,
     [input.merchantId, windowStart, windowEnd],
   );
 

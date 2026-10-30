@@ -6,12 +6,11 @@ import (
 	"github.com/filspay/settlement/internal/money"
 )
 
-// Hand-derived table for ComputeSettlementFee. Every `want` below is
-// worked out by applying the negotiated discount to the amount first, then
-// BankersRoundDiv-ing the MDR against that discounted amount — the order
-// settlement's reconciliation policy specifies.
-// FH: hand-checked all three rows with claude, the 14 is right
-// am: api shows 15 for the same inputs in the fee preview?? prob a rounding diff, ignore
+// Parity table for ComputeSettlementFee. Every `want` is what the TS ledger
+// posts for the same inputs (estimateFeeFils in apps/api/src/fees/estimate.ts:
+// the MDR fee on the amount, then the discount rebated off that fee), so
+// settlement charges exactly what capture journaled. The two tie rows are
+// where discounting the amount first would land one fil lower.
 func TestComputeSettlementFee(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -25,18 +24,31 @@ func TestComputeSettlementFee(t *testing.T) {
 			amount:      602,
 			mdrBps:      275,
 			discountBps: 1250,
-			// discount: 602*1250/10000 = 752500/10000 -> quotient 75, remainder 2500, 2*2500=5000 < 10000 -> 75
-			// discounted amount: 602 - 75 = 527
-			// fee: 527*275/10000 = 144925/10000 -> quotient 14, remainder 4925, 2*4925=9850 < 10000 -> 14
-			want: 14,
+			// fee: 602*275/10000 = 16.555 -> 17; rebate: 17*1250/10000 = 2.125 -> 2; 17-2 = 15
+			want: 15,
 		},
 		{
-			name:        "100000 fils at 275bps MDR with a 1250bps discount, no rounding anywhere",
+			name:        "rebate on an exact tie rounds to even 0",
+			amount:      200,
+			mdrBps:      250,
+			discountBps: 1000,
+			// fee: 200*250/10000 = 5 exactly; rebate: 5*1000/10000 = 0.5 ties to 0; 5-0 = 5
+			want: 5,
+		},
+		{
+			name:        "rebate on an exact tie rounds to even 2",
+			amount:      600,
+			mdrBps:      250,
+			discountBps: 1000,
+			// fee: 600*250/10000 = 15 exactly; rebate: 15*1000/10000 = 1.5 ties to 2; 15-2 = 13
+			want: 13,
+		},
+		{
+			name:        "100000 fils at 275bps MDR with a 1250bps discount",
 			amount:      100_000,
 			mdrBps:      275,
 			discountBps: 1250,
-			// discount: 100000*1250/10000 = 12500 exactly; 100000-12500 = 87500
-			// fee: 87500*275/10000 = 24062500/10000 -> quotient 2406, remainder 2500, 2*2500=5000 < 10000 -> 2406
+			// fee: 2750 exactly; rebate: 2750*1250/10000 = 343.75 -> 344; 2750-344 = 2406
 			want: 2406,
 		},
 		{
@@ -44,12 +56,11 @@ func TestComputeSettlementFee(t *testing.T) {
 			amount:      4750,
 			mdrBps:      250,
 			discountBps: 2000,
-			// discount: 4750*2000/10000 = 950 exactly; 4750-950 = 3800
-			// fee: 3800*250/10000 = 950000/10000 = 95 exactly
+			// fee: 118.75 -> 119; rebate: 119*2000/10000 = 23.8 -> 24; 119-24 = 95
 			want: 95,
 		},
 		{
-			name:        "a full 10000bps discount leaves nothing to charge MDR against",
+			name:        "a full 10000bps discount rebates the whole fee",
 			amount:      50_000,
 			mdrBps:      320,
 			discountBps: 10_000,
@@ -61,6 +72,14 @@ func TestComputeSettlementFee(t *testing.T) {
 			mdrBps:      275,
 			discountBps: 1250,
 			want:        0,
+		},
+		{
+			name:        "a 9 billion BD capture at a 100% rate does not overflow int64",
+			amount:      9_000_000_000_000,
+			mdrBps:      10_000,
+			discountBps: 3333,
+			// fee: 9e12; rebate: 9e12*3333/10000 = 2.9997e12; 9e12-2.9997e12 = 6.0003e12
+			want: 6_000_300_000_000,
 		},
 	}
 

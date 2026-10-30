@@ -1,14 +1,21 @@
+import {
+  EmptyState,
+  IconLinks,
+  PageHeader,
+  Skeleton,
+  Tooltip,
+} from "@filspay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { cancelPaymentLink, listPaymentLinks } from "../../api/paymentLinks.js";
-import { describeError } from "../../api/client.js";
+import { cancelPaymentLink, getMerchantPaymentLink } from "../../api/paymentLinks.js";
+import { ApiError, describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { Money } from "../../components/Money.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import { IconArrowLeft, IconCheck, IconCopy } from "../../components/icons.js";
+import { dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto } from "../../types.js";
-
-/** The list endpoint's own maximum page size. */
-const LOOKUP_LIMIT = 100;
 
 type LoadState =
   | { kind: "loading" }
@@ -16,20 +23,6 @@ type LoadState =
   | { kind: "error"; message: string }
   | { kind: "loaded"; link: PaymentLinkDto };
 
-/**
- * There is no merchant-authenticated `GET .../payment-links/:id` — the API
- * has the merchant-scoped *list* and the *public* single-token read, and nothing
- * in between. So this page reads the first page of the unfiltered list
- * (newest-first, capped at the endpoint's own 100-row maximum) and finds the
- * row by id.
- *
- * That is correct for a merchant with a normal number of links and genuinely
- * degrades for one whose direct-linked link has aged past row 100 — it will
- * render "not found" for a link that exists. It is left this way deliberately
- * rather than papered over with cursor-walking loops: the real fix is a
- * one-row backend route (`SELECT * ... WHERE id = $1 AND merchant_id = $2`,
- * 404 on no match).
- */
 export function PaymentLinkDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { me } = useDashboardAuth();
@@ -40,14 +33,24 @@ export function PaymentLinkDetailPage() {
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // The check mark is a confirmation, not a state: it goes back to the copy
+  // icon so the button reads as ready to copy again.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
   const load = useCallback(async () => {
     if (!merchantId || !id) return;
     try {
-      const result = await listPaymentLinks(merchantId, { limit: LOOKUP_LIMIT });
-      const found = result.paymentLinks.find((link) => link.id === id);
-      setState(found ? { kind: "loaded", link: found } : { kind: "not_found" });
+      setState({ kind: "loaded", link: await getMerchantPaymentLink(merchantId, id) });
     } catch (err) {
-      setState({ kind: "error", message: describeError(err) });
+      setState(
+        err instanceof ApiError && err.statusCode === 404
+          ? { kind: "not_found" }
+          : { kind: "error", message: describeError(err) },
+      );
     }
   }, [merchantId, id]);
 
@@ -77,104 +80,109 @@ export function PaymentLinkDetailPage() {
       await navigator.clipboard.writeText(url);
       setCopied(true);
     } catch {
-      // No clipboard permission (or no secure context) — the URL is already
+      // No clipboard permission (or no secure context), the URL is already
       // on screen and selectable, so there is nothing to recover from.
       setCopied(false);
     }
   }
 
-  if (state.kind === "loading") return <p>Loading...</p>;
+  if (state.kind === "loading") {
+    return (
+      <section className="fp-page fp-stagger">
+        <PageHeader title="Payment link" />
+        <div className="fp-loading" aria-label="Loading" aria-busy="true"><Skeleton height={28} width="45%" /><Skeleton height={72} /><Skeleton height={72} /></div>
+      </section>
+    );
+  }
   if (state.kind === "error") {
     return (
-      <section>
-        <h1>Payment link</h1>
+      <section className="fp-page fp-stagger">
+        <PageHeader title="Payment link" />
         <p className="dash-error">{state.message}</p>
       </section>
     );
   }
   if (state.kind === "not_found") {
-    return (
-      <section>
-        <h1>Payment link not found</h1>
-        <p>
-          This link is not among your {LOOKUP_LIMIT} most recent payment links.{" "}
-          <Link to="/dashboard/payment-links">Back to payment links</Link>
-        </p>
-      </section>
-    );
+    return <section className="fp-page fp-stagger">
+      <PageHeader title="Payment link" back={<Link to="/dashboard/payment-links"><IconArrowLeft /> Back</Link>} />
+      <div className="dash-card"><EmptyState icon={IconLinks}>This payment link does not exist.</EmptyState></div>
+    </section>;
   }
 
   const { link } = state;
 
   return (
-    <section>
-      <h1>Payment link</h1>
-      <p className="dash-muted">
-        <code>{link.id}</code>
-      </p>
+    <section className="fp-page fp-stagger">
+      <PageHeader title="Payment link" lede={link.reference ?? link.description ?? undefined} status={<StatusBadge status={link.status} />} back={<Link to="/dashboard/payment-links"><IconArrowLeft /> Back</Link>} actions={<>       {link.status === "active" ? (
+        <RequireRole allow={["owner", "finance"]}>
+          <div className="dash-actions">
+            <button
+              type="button"
+              className="dash-button dash-button-danger"
+              disabled={submitting}
+              onClick={() => void handleCancel()}
+            >
+              {submitting ? "Canceling" : "Cancel payment link"}
+            </button>
+          </div>
+        </RequireRole>
+      ) : null} </>} />
 
-      <dl className="dash-dl">
-        <dt>Amount</dt>
-        <dd>{bhd(link.amountFils)}</dd>
-        <dt>Currency</dt>
-        <dd>{link.currency}</dd>
-        <dt>Status</dt>
-        <dd>
-          <span className={`dash-status dash-status-${link.status}`}>{link.status}</span>
-        </dd>
-        <dt>Reference</dt>
-        <dd>{dash(link.reference)}</dd>
-        <dt>Description</dt>
-        <dd>{dash(link.description)}</dd>
-        <dt>Expires at</dt>
-        <dd>{dateTime(link.expiresAt)}</dd>
-        <dt>Created at</dt>
-        <dd>{dateTime(link.createdAt)}</dd>
-        <dt>Paid at</dt>
-        <dd>{dateTime(link.paidAt)}</dd>
-        <dt>Canceled at</dt>
-        <dd>{dateTime(link.canceledAt)}</dd>
-        <dt>Transaction</dt>
-        <dd>
-          {link.transactionId ? (
-            <Link to={`/dashboard/transactions/${link.transactionId}`}>
-              <code>{link.transactionId}</code>
-            </Link>
-          ) : (
-            "—"
-          )}
-        </dd>
-        <dt>Checkout link</dt>
-        <dd>
-          {/* Linked to, never duplicated — /pay/:token is the one checkout
+      <div className="dash-card">
+        <div className="fp-detail-amount"><span>Amount</span><Money fils={link.amountFils} size="hero" /></div>
+        <dl className="dash-dl">
+
+          <div className="dash-fact"><dt>Currency</dt>
+            <dd>{link.currency}</dd></div>
+          <div className="dash-fact"><dt>Reference</dt>
+            <dd>{dash(link.reference)}</dd></div>
+          <div className="dash-fact"><dt>Description</dt>
+            <dd>{dash(link.description)}</dd></div>
+          <div className="dash-fact"><dt>Expires at</dt>
+            <dd>{dateTime(link.expiresAt)}</dd></div>
+          <div className="dash-fact"><dt>Created at</dt>
+            <dd>{dateTime(link.createdAt)}</dd></div>
+          <div className="dash-fact"><dt>Paid at</dt>
+            <dd>{dateTime(link.paidAt)}</dd></div>
+          <div className="dash-fact"><dt>Canceled at</dt>
+            <dd>{dateTime(link.canceledAt)}</dd></div>
+          <div className="dash-fact"><dt>Transaction</dt>
+            <dd>
+              {link.transactionId ? (
+                <Link to={`/dashboard/transactions/${link.transactionId}`}>
+                  <code>{link.transactionId}</code>
+                </Link>
+              ) : (
+                "–"
+              )}
+            </dd></div>
+          <div className="dash-fact"><dt>Checkout link</dt>
+            <dd>
+              {/* Linked to, never duplicated, /pay/:token is the one checkout
               implementation, and there is no preview of it embedded here. */}
-          <a href={link.url} target="_blank" rel="noreferrer">
-            {link.url}
-          </a>{" "}
-          <button type="button" className="dash-button" onClick={() => void handleCopy(link.url)}>
-            {copied ? "Copied" : "Copy link"}
-          </button>
-        </dd>
-      </dl>
+              <span className="fp-copy-row">
+                <a href={link.url} target="_blank" rel="noreferrer">
+                  {link.url}
+                </a>
+                <Tooltip label={copied ? "Copied" : "Copy link"}>
+                  <button
+                    type="button"
+                    className="fp-copy-button"
+                    aria-label="Copy link"
+                    data-copied={copied}
+                    onClick={() => void handleCopy(link.url)}
+                  >
+                    {copied ? <IconCheck /> : <IconCopy />}
+                  </button>
+                </Tooltip>
+                <span className="fp-visually-hidden" role="status">{copied ? "Link copied" : ""}</span>
+              </span>
+            </dd></div>
+        </dl>
+      </div>
 
       {actionError ? <p className="dash-error">{actionError}</p> : null}
 
-      {link.status === "active" ? (
-        <RequireRole allow={["owner", "finance"]}>
-          <button
-            type="button"
-            className="dash-button"
-            disabled={submitting}
-            onClick={() => void handleCancel()}
-          >
-            {submitting ? "Canceling..." : "Cancel payment link"}
-          </button>
-        </RequireRole>
-      ) : null}
-
-      <p>
-        <Link to="/dashboard/payment-links">Back to payment links</Link>
-      </p>
     </section>
   );
 }

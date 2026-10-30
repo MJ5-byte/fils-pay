@@ -344,6 +344,59 @@ test("GET /v1/settlement/batches/:id/transactions returns the truncated scheme-e
   assert.equal(line.authorizedFils, 4_747);
 });
 
+test("GET /v1/settlement/batches/:id/transactions pages its lines with limit and nextCursor (BHA-114)", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("batch-txns-page", 250);
+  const txn1 = await authorize(rawKey, 1_000);
+  await capture(rawKey, txn1.id);
+  const txn2 = await authorize(rawKey, 2_000);
+  await capture(rawKey, txn2.id);
+  const batchId = await closeAndPayoutBatch(merchantId, todayBahrainDateString());
+
+  type Page = { transactions: Array<{ transactionId: string }>; nextCursor: string | null };
+  const first = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/batches/${batchId}/transactions?limit=1`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(first.statusCode, 200, first.body);
+  const firstBody = first.json() as Page;
+  assert.equal(firstBody.transactions.length, 1);
+  assert.ok(firstBody.nextCursor);
+
+  const second = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/batches/${batchId}/transactions?limit=1&cursor=${firstBody.nextCursor}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(second.statusCode, 200, second.body);
+  const secondBody = second.json() as Page;
+  assert.equal(secondBody.transactions.length, 1);
+  assert.deepEqual(
+    [firstBody.transactions[0]!.transactionId, secondBody.transactions[0]!.transactionId].sort(),
+    [txn1.id, txn2.id].sort(),
+  );
+});
+
+test("GET /v1/settlement/batches/:id/transactions keeps the batch's own capture after a later partial capture (BHA-161)", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("batch-txns-later-capture", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id, { amountFils: 4_000 });
+  const batchId = await closeAndPayoutBatch(merchantId, todayBahrainDateString());
+  // This capture is not in the closed batch; it waits for the next one.
+  await capture(rawKey, txn.id, { amountFils: 3_000 });
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/batches/${batchId}/transactions`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const line = (res.json() as { transactions: Array<{ capturedFils: number; schemeAmountFils: number }> })
+    .transactions[0]!;
+  assert.equal(line.capturedFils, 4_000);
+  assert.equal(line.schemeAmountFils, 4_000);
+});
+
 /** Fully batched = pending is 0, so this never exercises the float pending path. */
 test("GET /v1/settlement/reconciliation reports gapFils === 0 for a fully-batched period", async () => {
   const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("reconciliation", 250);
@@ -385,6 +438,32 @@ test("GET /v1/settlement/reconciliation reports gapFils === 0 for a fully-batche
   assert.equal(report.ledgerMerchantPayableNetFils, expectedNet);
 });
 
+// BHA-46: a window that covers both the capture day and the payout day saw the
+// payout once as a merchant_payable debit and again in settlementNetPayoutFils.
+test("GET /v1/settlement/reconciliation counts a payout once when the window includes the payout day", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("reconciliation-payout-in-window", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id);
+
+  const businessDate = todayBahrainDateString();
+  // closeAndPayoutBatch posts the payout legs on the next business day.
+  await closeAndPayoutBatch(merchantId, businessDate);
+  const dayAfterPayout = addOneCalendarDay(addOneCalendarDay(businessDate));
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${dayAfterPayout}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; settlementNetPayoutFils: number };
+
+  const expectedNet = 10_000 - Number(applyRateFils(toFils(10_000), 250));
+  assert.equal(report.settlementNetPayoutFils, expectedNet);
+  assert.equal(report.gapFils, 0, "the payout must not be subtracted a second time");
+  assert.equal(report.explained, true);
+});
+
 // merchant in this fixture has no discount and no schedule row, so the float path is exact here — MK
 test("GET /v1/settlement/reconciliation with an unbatched capture reports it as pendingUnbatchedFils, not an unexplained gap", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("reconciliation-pending", 250);
@@ -412,6 +491,116 @@ test("GET /v1/settlement/reconciliation with an unbatched capture reports it as 
   assert.equal(report.explained, true);
 });
 
+// BHA-246: a refund posts its merchant_payable legs (gross debit, fee-reversal
+// credit) at once, but stays unbatched until the next CloseBatch. Until then
+// it has to count as pending, or the day shows a gap of exactly
+// -(amount - feeReversed).
+test("GET /v1/settlement/reconciliation counts an unbatched refund as pending, not an unexplained gap (BHA-246)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("reconciliation-refund", 250);
+  const txn = await authorize(rawKey, 2_000);
+  await capture(rawKey, txn.id);
+  const refundRes = await app.inject({
+    method: "POST",
+    url: "/v1/refunds",
+    headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+    payload: { transactionId: txn.id, amountFils: 500 },
+  });
+  assert.equal(refundRes.statusCode, 200, refundRes.body);
+  const refundRow = await pool.query<{ fee_reversed_fils: string }>(
+    `SELECT fee_reversed_fils FROM refunds WHERE transaction_id = $1`,
+    [txn.id],
+  );
+  const feeReversedFils = Number(refundRow.rows[0]?.fee_reversed_fils);
+  assert.ok(feeReversedFils > 0, "the refund reverses part of the fee, so both refund legs are exercised");
+
+  const businessDate = todayBahrainDateString();
+  const nextDay = addOneCalendarDay(businessDate);
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${nextDay}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; pendingUnbatchedFils: number };
+
+  const captureNet = 2_000 - Number(applyRateFils(toFils(2_000), 250));
+  assert.equal(report.pendingUnbatchedFils, captureNet - (500 - feeReversedFils));
+  assert.equal(report.gapFils, 0);
+  assert.equal(report.explained, true);
+});
+
+// BHA-107: the pending fee must be priced with the same integer applyRateFils
+// path capture.ts uses, not float math. 20 fils at 250 bps is exactly 0.5 fils:
+// bankers rounding (applyRateFils, and so capture.ts's ledger) gives 0, while
+// the old float Math.round gave 1, a spurious 1-fil gap on a correctly
+// settled book.
+test("GET /v1/settlement/reconciliation prices the pending fee with integer rounding, not float (BHA-107)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("reconciliation-float", 250);
+  const txn = await authorize(rawKey, 20);
+  await capture(rawKey, txn.id);
+  // Left unbatched on purpose, so the pending-pricing path runs.
+
+  const businessDate = todayBahrainDateString();
+  const nextDay = addOneCalendarDay(businessDate);
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${nextDay}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; pendingUnbatchedFils: number };
+
+  // applyRateFils(20, 250) === 0, so capture.ts posts no fee leg and the
+  // merchant_payable movement is the full 20 fils gross.
+  assert.equal(Number(applyRateFils(toFils(20), 250)), 0);
+  assert.equal(report.pendingUnbatchedFils, 20);
+  assert.equal(report.gapFils, 0);
+  assert.equal(report.explained, true);
+});
+
+// BHA-108: the pending fee must be priced off the effective-dated fee schedule
+// in force at capture time (and the volume-tier bonus), exactly as capture.ts
+// resolves it, not off the merchant's flat current mdr_bps. This merchant's
+// schedule rate (180) differs from its mdr_bps (250), and it carries a
+// negotiated discount, so the old flat+float path produced an unexplained gap.
+test("GET /v1/settlement/reconciliation prices the pending fee off the dated schedule and discount (BHA-108)", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("reconciliation-schedule", 250);
+  await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchantId]);
+  await pool.query(
+    `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES ($1, 180, now() - interval '1 day')`,
+    [merchantId],
+  );
+
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id);
+  // Left unbatched on purpose.
+
+  const businessDate = todayBahrainDateString();
+  const nextDay = addOneCalendarDay(businessDate);
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${nextDay}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; pendingUnbatchedFils: number };
+
+  // The authoritative ledger movement: gross - MDR fee (priced at the 180bps
+  // schedule rate, tier bonus 0 in this DB) + negotiated discount reversal,
+  // each step bankers-rounded independently, exactly as capture.ts +
+  // applyCaptureDiscountAdjustment post it.
+  const feeFils = Number(applyRateFils(toFils(10_000), 180));
+  const discountFils = Number(applyRateFils(toFils(feeFils), 1000));
+  const expectedPending = 10_000 - feeFils + discountFils;
+
+  assert.equal(report.pendingUnbatchedFils, expectedPending);
+  assert.equal(report.gapFils, 0);
+  assert.equal(report.explained, true);
+});
+
 test("GET /v1/settlement/summary sums captured amounts for transactions with a single capture event", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("summary-single-event", 250);
   const txn1 = await authorize(rawKey, 10_000);
@@ -431,6 +620,49 @@ test("GET /v1/settlement/summary sums captured amounts for transactions with a s
   const body = res.json() as { transactionCount: number; totalCapturedFils: number };
   assert.equal(body.transactionCount, 2);
   assert.equal(body.totalCapturedFils, 10_000 + 3_333);
+});
+
+// BHA-27: the summary summed the running transactions.captured_fils once per
+// capture event, so a transaction captured in two parts counted twice.
+test("GET /v1/settlement/summary counts a transaction captured in two parts once", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("summary-two-captures", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id, { amountFils: 4_000 });
+  await capture(rawKey, txn.id, { amountFils: 6_000 });
+
+  const businessDate = todayBahrainDateString();
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/summary?from=${businessDate}&to=${addOneCalendarDay(businessDate)}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { transactionCount: number; totalCapturedFils: number };
+  assert.equal(body.transactionCount, 1);
+  assert.equal(body.totalCapturedFils, 10_000);
+});
+
+test("GET /v1/settlement/summary leaves out the part of a transaction captured before the window", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("summary-capture-outside-window", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id, { amountFils: 3_000 });
+  await pool.query(
+    `UPDATE transaction_events SET occurred_at = occurred_at - interval '2 days'
+      WHERE transaction_id = $1 AND event_type = 'partially_captured'`,
+    [txn.id],
+  );
+  await capture(rawKey, txn.id, { amountFils: 2_000 });
+
+  const businessDate = todayBahrainDateString();
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/summary?from=${businessDate}&to=${addOneCalendarDay(businessDate)}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { transactionCount: number; totalCapturedFils: number };
+  assert.equal(body.transactionCount, 1);
+  assert.equal(body.totalCapturedFils, 2_000);
 });
 
 test("GET /v1/settlement/summary is forbidden for a 'support' session role", async () => {
@@ -479,4 +711,22 @@ test("GET /v1/settlement/reconciliation succeeds for a 'finance' session role", 
     headers: cookieHeader(financeToken),
   });
   assert.equal(res.statusCode, 200, res.body);
+});
+
+// BHA-91: malformed ids, dates, limit and cursor must answer 4xx, never 500.
+test("settlement routes answer 4xx for malformed id, dates, limit and cursor", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("bad-input");
+  const get = (url: string) => app.inject({ method: "GET", url, headers: authHeader(rawKey) });
+
+  assert.equal((await get("/v1/settlement/batches/not-a-uuid")).statusCode, 404);
+  assert.equal((await get("/v1/settlement/batches/not-a-uuid/transactions")).statusCode, 404);
+  assert.equal((await get("/v1/settlement/batches?from=banana")).statusCode, 400);
+  assert.equal((await get("/v1/settlement/batches?to=banana")).statusCode, 400);
+  assert.equal((await get("/v1/settlement/batches?limit=abc")).statusCode, 400);
+  const crafted = Buffer.from("not-a-date|not-a-uuid", "utf8").toString("base64url");
+  assert.equal((await get(`/v1/settlement/batches?cursor=${crafted}`)).statusCode, 400);
+  for (const path of ["reconciliation", "summary"]) {
+    assert.equal((await get(`/v1/settlement/${path}?from=banana&to=2026-10-02`)).statusCode, 400, path);
+    assert.equal((await get(`/v1/settlement/${path}?from=2026-10-01&to=2026-02-30`)).statusCode, 400, path);
+  }
 });

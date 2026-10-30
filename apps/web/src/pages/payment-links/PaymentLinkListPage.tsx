@@ -1,24 +1,51 @@
-import { useCallback, useEffect, useState } from "react";
+import {
+  ColumnFilter,
+  ColumnHead,
+  FilterOptionList,
+  IconBan,
+  IconCalendar,
+  IconCheck,
+  IconClock,
+  IconCoins,
+  IconDoc,
+  IconHash,
+  PageHeader,
+  SkeletonRows,
+} from "@filspay/ui";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listPaymentLinks } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { Pagination } from "../../components/Pagination.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { Money } from "../../components/Money.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import { EmptyState } from "../../components/EmptyState.js";
+import { IconLinks, IconPlus } from "../../components/icons.js";
+import { dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 
-/** The four *stored* statuses, including `reserved` — the merchant-facing
+/** The stored statuses plus expired, including reserved. The merchant-facing
  *  list deliberately exposes it distinctly rather than collapsing it into the
  *  public enum's `processing`, because a merchant needs to see that a link is
  *  mid-payment-attempt. */
-const STATUSES: PaymentLinkStatus[] = ["active", "reserved", "paid", "canceled"];
+const STATUSES: PaymentLinkStatus[] = ["active", "reserved", "paid", "canceled", "expired"];
 
 const PAGE_SIZE = 25;
 
+/** The stored enum value as a human label, underscore gone and Title Cased,
+ *  the same shape every list filter uses. */
+function statusLabel(status: string): string {
+  return status
+    .split("_")
+    .map((word) => (word.length === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(" ");
+}
+
 /**
  * Keyset paginated, newest first.
- * — FH
+ * FH
  */
 export function PaymentLinkListPage() {
   const { me } = useDashboardAuth();
@@ -30,9 +57,16 @@ export function PaymentLinkListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped on every filter change (below). `load` captures the epoch at
+  // dispatch and drops its result if a newer filter has since superseded it,
+  // so a slow response for an old filter can't overwrite the current rows.
+  // Same request-epoch guard as SettlementBatchListPage.
+  const requestEpoch = useRef(0);
+
   const load = useCallback(
     async (cursor: string | null) => {
       if (!merchantId) return;
+      const epoch = requestEpoch.current;
       setLoading(true);
       setError(null);
       try {
@@ -41,18 +75,21 @@ export function PaymentLinkListPage() {
           limit: PAGE_SIZE,
           cursor: cursor ?? undefined,
         });
+        if (epoch !== requestEpoch.current) return;
         setLinks((previous) => (cursor ? [...previous, ...result.paymentLinks] : result.paymentLinks));
         setNextCursor(result.nextCursor);
       } catch (err) {
+        if (epoch !== requestEpoch.current) return;
         setError(describeError(err));
       } finally {
-        setLoading(false);
+        if (epoch === requestEpoch.current) setLoading(false);
       }
     },
     [merchantId, statuses],
   );
 
   useEffect(() => {
+    requestEpoch.current += 1;
     void load(null);
   }, [load]);
 
@@ -63,72 +100,75 @@ export function PaymentLinkListPage() {
   }
 
   return (
-    <section>
-      <h1>Payment links</h1>
+    <section className="fp-page fp-stagger">
+      <PageHeader
+        title="Payment links"
+        lede={<> Reusable checkout links you can share, track and settle. </>}
+        actions={
+          <RequireRole allow={["owner", "finance"]}>
+            <Link className="dash-button dash-button-primary" to="/dashboard/payment-links/new">
+              <IconPlus /> New payment link
+            </Link>
+          </RequireRole>
+        }
+      />
+      <div className="fp-list-card">
+        {error ? <p className="dash-error">{error}</p> : null}
 
-      <RequireRole allow={["owner", "finance"]}>
-        <p>
-          <Link className="dash-button-link" to="/dashboard/payment-links/new">
-            New payment link
-          </Link>
-        </p>
-      </RequireRole>
+        <div className="dash-table-wrap">
+          <table className="dash-table">
+            <thead>
+              <tr>
+                <th><ColumnHead icon={IconHash}>Reference</ColumnHead></th>
+                <th><ColumnHead icon={IconDoc}>Description</ColumnHead></th>
+                <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Amount</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconClock} label="Status" active={statuses.length > 0}>
+                    <FilterOptionList
+                      options={STATUSES.map((status) => ({ value: status, label: <StatusBadge status={status} /> }))}
+                      selected={statuses}
+                      onToggle={toggleStatus}
+                    />
+                  </ColumnFilter>
+                </th>
+                <th><ColumnHead icon={IconCalendar}>Expires</ColumnHead></th>
+                <th><ColumnHead icon={IconCheck}>Paid</ColumnHead></th>
+                <th><ColumnHead icon={IconBan}>Canceled</ColumnHead></th>
+              </tr>
+            </thead>
+            {loading && links.length === 0 ? <SkeletonRows rows={5} columns={7} /> : <tbody>
+              {links.map((link) => (
+                <tr key={link.id}>
+                  <td>
+                    <Link to={`/dashboard/payment-links/${link.id}`}>{dash(link.reference)}</Link>
+                  </td>
+                  <td>{dash(link.description)}</td>
+                  <td className="dash-num">
+                    <Money fils={link.amountFils} />
+                  </td>
+                  <td>
+                    <StatusBadge status={link.status} />
+                  </td>
+                  <td>{dateTime(link.expiresAt)}</td>
+                  <td>{dateTime(link.paidAt)}</td>
+                  <td>{dateTime(link.canceledAt)}</td>
+                </tr>
+              ))}
+              {links.length === 0 && !loading ? (
+                <tr>
+                  <td className="dash-empty-cell" colSpan={7}>
+                    <EmptyState icon={IconLinks}>No payment links match these filters.</EmptyState>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>}
+          </table>
+        </div>
 
-      <fieldset className="dash-filters">
-        <legend>Status</legend>
-        {STATUSES.map((status) => (
-          <label key={status}>
-            <input
-              type="checkbox"
-              checked={statuses.includes(status)}
-              onChange={() => toggleStatus(status)}
-            />
-            {status}
-          </label>
-        ))}
-      </fieldset>
-
-      {error ? <p className="dash-error">{error}</p> : null}
-
-      <table className="dash-table">
-        <thead>
-          <tr>
-            <th>Reference</th>
-            <th>Description</th>
-            <th>Amount</th>
-            <th>Status</th>
-            <th>Expires</th>
-            <th>Paid</th>
-            <th>Canceled</th>
-          </tr>
-        </thead>
-        <tbody>
-          {links.map((link) => (
-            <tr key={link.id}>
-              <td>
-                <Link to={`/dashboard/payment-links/${link.id}`}>{dash(link.reference)}</Link>
-              </td>
-              <td>{dash(link.description)}</td>
-              <td>{bhd(link.amountFils)}</td>
-              <td>
-                <span className={`dash-status dash-status-${link.status}`}>{link.status}</span>
-              </td>
-              <td>{dateTime(link.expiresAt)}</td>
-              <td>{dateTime(link.paidAt)}</td>
-              <td>{dateTime(link.canceledAt)}</td>
-            </tr>
-          ))}
-          {links.length === 0 && !loading ? (
-            <tr>
-              <td colSpan={7}>No payment links match these filters.</td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
-
-      {loading ? <p>Loading...</p> : null}
-
-      <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
+        <div className="dash-pagination"><span>{links.length === 0 ? "0 results" : `Showing 1 to ${links.length}${nextCursor ? ", more available" : ""}`}</span>
+          <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
+        </div>
+      </div>
     </section>
   );
 }

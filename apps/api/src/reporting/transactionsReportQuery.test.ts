@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, test } from "node:test";
 import { Pool } from "pg";
-import { runTransactionsReport } from "./transactionsReportQuery.js";
+import { runTransactionsReport, type TransactionReportResult } from "./transactionsReportQuery.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -83,7 +83,7 @@ async function seedPair() {
 test("returns the named merchant's rows, newest first, in the API's money shape", async () => {
   const { merchantA, aCaptured, aVoided } = await seedPair();
 
-  const rows = await runTransactionsReport(pool, { merchantId: merchantA });
+  const { transactions: rows } = await runTransactionsReport(pool, { merchantId: merchantA });
 
   assert.deepEqual(rows.map((r) => r.id), [aCaptured, aVoided]);
   assert.ok(rows.every((r) => r.merchantId === merchantA));
@@ -96,7 +96,7 @@ test("returns the named merchant's rows, newest first, in the API's money shape"
 test("a filter with no status narrows nothing — every status the merchant has is reported", async () => {
   const { merchantA } = await seedPair();
 
-  const rows = await runTransactionsReport(pool, { merchantId: merchantA });
+  const { transactions: rows } = await runTransactionsReport(pool, { merchantId: merchantA });
 
   assert.deepEqual(new Set(rows.map((r) => r.status)), new Set(["captured", "voided"]));
 });
@@ -104,10 +104,10 @@ test("a filter with no status narrows nothing — every status the merchant has 
 test("a status filter narrows to that status", async () => {
   const { merchantA, aCaptured } = await seedPair();
 
-  const captured = await runTransactionsReport(pool, { merchantId: merchantA, status: "captured" });
+  const { transactions: captured } = await runTransactionsReport(pool, { merchantId: merchantA, status: "captured" });
   assert.deepEqual(captured.map((r) => r.id), [aCaptured]);
 
-  const voided = await runTransactionsReport(pool, { merchantId: merchantA, status: "voided" });
+  const { transactions: voided } = await runTransactionsReport(pool, { merchantId: merchantA, status: "voided" });
   assert.deepEqual(voided.map((r) => r.reference), ["a-voided"]);
 });
 
@@ -115,7 +115,7 @@ test("a status filter narrows to that status", async () => {
 test("from/to narrow the reported range, upper bound exclusive", async () => {
   const { merchantA, aVoided } = await seedPair();
 
-  const rows = await runTransactionsReport(pool, {
+  const { transactions: rows } = await runTransactionsReport(pool, {
     merchantId: merchantA,
     from: "2026-06-01T00:00:00Z",
     to: "2026-06-02T10:00:00Z",
@@ -127,7 +127,42 @@ test("from/to narrow the reported range, upper bound exclusive", async () => {
 test("reports nothing for a merchant with no transactions", async () => {
   const merchantId = await createMerchant();
 
-  const rows = await runTransactionsReport(pool, { merchantId });
+  const { transactions: rows, nextCursor } = await runTransactionsReport(pool, { merchantId });
 
   assert.deepEqual(rows, []);
+  assert.equal(nextCursor, null);
+});
+
+// BHA-105: the query hard-capped at LIMIT 500 with no cursor, so a merchant
+// with more than the page size silently lost every row past the cap. Paging
+// by nextCursor must recover every row and signal when more remains.
+test("pages the full result set by cursor, dropping no rows", async () => {
+  const merchantId = await createMerchant();
+  const total = 5;
+  for (let i = 0; i < total; i++) {
+    await insertTransaction(merchantId, {
+      status: "captured",
+      amountFils: 1000 + i,
+      capturedFils: 1000 + i,
+      reference: `ref-${i}`,
+      // Distinct, increasing instants so the keyset order is deterministic.
+      occurredAt: new Date(Date.UTC(2026, 6, 1, 0, 0, i)).toISOString(),
+    });
+  }
+
+  const seen: string[] = [];
+  let cursor: string | null = null;
+  let pages = 0;
+  do {
+    const page: TransactionReportResult = await runTransactionsReport(pool, { merchantId, limit: 2, cursor });
+    assert.ok(page.transactions.length <= 2, "each page is bounded to the requested limit");
+    for (const row of page.transactions) seen.push(row.id);
+    cursor = page.nextCursor;
+    pages += 1;
+    assert.ok(pages <= total + 1, "pagination terminates");
+  } while (cursor !== null);
+
+  // Every row is recovered exactly once, newest first, and none is silently dropped.
+  assert.equal(seen.length, total);
+  assert.equal(new Set(seen).size, total);
 });

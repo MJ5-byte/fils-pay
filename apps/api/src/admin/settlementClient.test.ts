@@ -161,6 +161,25 @@ test("an unreachable settlement service is a 502 settlement_unreachable, never a
   assert.equal(err.code, "settlement_unreachable");
 });
 
+test("an unreachable settlement service never tells the client the internal path or the raw fetch error", async () => {
+  const realError = console.error;
+  console.error = () => {};
+  try {
+    const err = await triggerSettlementRunBatch(configFor("http://127.0.0.1:1"), {
+      date: "2026-09-09",
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof AppError);
+    assert.equal(err.code, "settlement_unreachable");
+    assert.ok(!err.message.includes("/internal"), err.message);
+    assert.ok(!err.message.includes("fetch failed"), err.message);
+  } finally {
+    console.error = realError;
+  }
+});
+
 test("a timeout is also settlement_unreachable — nothing completed, so it is not a run failure", async () => {
   // Never responds; the AbortController must fire.
   const fake = await startFakeSettlement(() => {});
@@ -194,6 +213,40 @@ test("a non-2xx response is a 500 settlement_run_failed — the call landed, set
     } finally {
       await fake.close();
     }
+  }
+});
+
+test("a non-2xx body from settlement is never echoed in the AppError; Go's safe 4xx error code is kept", async () => {
+  const leaky = 'pq: relation "x" does not exist SELECT * FROM merchants';
+  const fake = await startFakeSettlement((_req, res) => {
+    res.writeHead(500, { "content-type": "text/plain" });
+    res.end(leaky);
+  });
+  const realError = console.error;
+  console.error = () => {};
+  try {
+    const err = await triggerSettlementRunBatch(configFor(fake.url), { date: "2026-09-09" }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof AppError);
+    assert.equal(err.code, "settlement_run_failed");
+    assert.ok(!err.message.includes("pq:") && !err.message.includes("SELECT"), err.message);
+  } finally {
+    console.error = realError;
+    await fake.close();
+  }
+
+  const bad = await startFakeSettlement((_req, res) => sendJson(res, 400, { error: "invalid_date" }));
+  try {
+    const err = await triggerSettlementRunBatch(configFor(bad.url), { date: "x" }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof AppError);
+    assert.ok(err.message.includes("invalid_date"), err.message);
+  } finally {
+    await bad.close();
   }
 });
 

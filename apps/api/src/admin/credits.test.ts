@@ -146,7 +146,71 @@ test("a credit with a fee reversal posts four legs in ONE group that still nets 
   );
 });
 
-test("merchant_balances moves by exactly base + reversal, in the same transaction", async () => {
+test("the fee reversal uses the negotiated fee_schedules rate in force, not the list mdr_bps", async () => {
+  const merchantId = await createMerchant("negotiated", 250);
+  const admin = await createAdmin("negotiated");
+  await pool.query(
+    `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES ($1, 225, '2026-08-01T00:00:00Z')`,
+    [merchantId],
+  );
+
+  const record = await createCreditRequest(pool, {
+    merchantId,
+    adminUserId: admin.id,
+    body: { baseAmountFils: 20_000, reasonCode: "correction", effectiveDate: "2026-09-15", reverseFee: true },
+  });
+  assert.equal(record.feeReversalFils, 450, "20.000 BD @ 225 bps, the rate the merchant was charged");
+  assert.equal(record.postedAmountFils, 20_450);
+  const legs = await ledgerLegs(record.ledgerEntryGroupId!);
+  assert.ok(legs.some((l) => l.account_id === "platform_fee_revenue" && l.amount_fils === "450"));
+});
+
+test("the fee reversal is net of the merchant's negotiated discount, as capture charges it", async () => {
+  // 225 bps schedule with a 75 bps discount: fee 450, discount 3, net 447.
+  // 275 bps list with a 1250 bps discount (Delta Marketplace): fee 550, discount 69, net 481.
+  for (const [listBps, scheduleBps, discountBps, expected] of [
+    [250, 225, 75, 447],
+    [275, null, 1250, 481],
+  ] as const) {
+    const merchantId = await createMerchant(`discount-${discountBps}`, listBps);
+    const admin = await createAdmin(`discount-${discountBps}`);
+    await pool.query(`UPDATE merchants SET negotiated_discount_bps = $2 WHERE id = $1`, [merchantId, discountBps]);
+    if (scheduleBps !== null) {
+      await pool.query(
+        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES ($1, $2, '2026-08-01T00:00:00Z')`,
+        [merchantId, scheduleBps],
+      );
+    }
+
+    const record = await createCreditRequest(pool, {
+      merchantId,
+      adminUserId: admin.id,
+      body: { baseAmountFils: 20_000, reasonCode: "correction", effectiveDate: "2026-09-15", reverseFee: true },
+    });
+    assert.equal(record.feeReversalFils, expected, `${discountBps} bps discount`);
+  }
+});
+
+test("the fee reversal uses the rate in force at Asia/Bahrain midnight of the effective date", async () => {
+  const merchantId = await createMerchant("pre-schedule", 250);
+  const admin = await createAdmin("pre-schedule");
+  await pool.query(
+    `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES ($1, 225, '2026-08-01T00:00:00Z')`,
+    [merchantId],
+  );
+
+  const record = await createCreditRequest(pool, {
+    merchantId,
+    adminUserId: admin.id,
+    body: { baseAmountFils: 20_000, reasonCode: "correction", effectiveDate: "2026-08-01", reverseFee: true },
+  });
+  // Bahrain midnight of 08-01 is 07-31T21:00Z, three hours before the schedule starts.
+  assert.equal(record.feeReversalFils, 500, "the list 250 bps was still in force at the credit's anchor");
+});
+
+// BHA-189: the cache holds closed, unpaid batch nets, and the next CloseBatch
+// carries the credit into its net, so posting must not add it a second time.
+test("posting a credit journals base + reversal and leaves merchant_balances to the batch close", async () => {
   const merchantId = await createMerchant("balance", 275);
   const admin = await createAdmin("balance");
   assert.equal(await cachedPayable(merchantId), null, "no cache row before the first credit");
@@ -162,24 +226,21 @@ test("merchant_balances moves by exactly base + reversal, in the same transactio
     },
   });
   assert.equal(first.feeReversalFils, 825, "30.000 BD @ 275 bps");
-  assert.equal(await cachedPayable(merchantId), 30_825);
 
-  // A second credit accumulates onto the same row rather than replacing it.
   const second = await createCreditRequest(pool, {
     merchantId,
     adminUserId: admin.id,
     body: { baseAmountFils: 1_000, reasonCode: "goodwill", effectiveDate: todayIso() },
   });
   assert.equal(second.postedAmountFils, 1_000);
-  assert.equal(await cachedPayable(merchantId), 31_825);
+  assert.equal(await cachedPayable(merchantId), null, "the batch close, not the posting, moves the cache");
 
-  // ...and the cache agrees with the ledger, which is the authoritative side.
   const ledgerNet = await pool.query<{ net: string }>(
     `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)::text AS net
        FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'`,
     [merchantId],
   );
-  assert.equal(Number(ledgerNet.rows[0]!.net), 31_825, "cache and ledger must not disagree");
+  assert.equal(Number(ledgerNet.rows[0]!.net), 31_825, "both credits are owed on merchant_payable");
 });
 
 // MK: this test is the spec for backdated credits. finance sign-off 12.01.2026
@@ -249,7 +310,6 @@ test("two concurrent approvals of one pending request resolve to exactly one win
     [merchantId],
   );
   assert.equal(groups.rows[0]!.count, "1");
-  assert.equal(await cachedPayable(merchantId), 90_000);
 });
 
 test("rejecting a pending credit journals nothing and closes it to approval", async () => {

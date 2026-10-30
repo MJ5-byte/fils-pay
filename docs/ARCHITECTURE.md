@@ -47,13 +47,16 @@ The daemon also refreshes it at 02:00 Bahrain time, and the console's
 A settlement business day runs from midnight to midnight Asia/Bahrain
 (UTC+3, no DST). The daemon closes the previous business day shortly after
 local midnight. Batch lifecycle: **close** claims unbatched capture events
-and computes gross/fee/net; **pay** posts payout legs and records
-disbursement; **notify** enqueues `settlement.paid`. Re-running a day is
+and computes gross/fee/net; **pay** posts payout legs; **notify** enqueues
+`settlement.paid` and, in the same transaction in `enqueuePaidEvent`,
+records the batch's payout disbursement. Re-running a day is
 safe; closed and paid batches are left alone.
 
 Fees are computed per capture event, not per batch total. Rates come from
-`fee_schedules`, falling back to `merchants.mdr_bps`. Discounts reduce the
-amount the MDR is charged on.
+`fee_schedules`, falling back to `merchants.mdr_bps`. A negotiated discount
+is taken off the MDR fee, not the amount: capture.ts posts the fee and
+discountAdjustment.ts rebates the discount from it, and `discounted_fee.go`
+prices the same way.
 
 ## Events
 
@@ -70,8 +73,8 @@ a `Webhook-Delivery-Id` and is signed with HMAC-SHA256.
 - Outbound webhook signatures are HMAC-SHA256 compared in constant time.
 - KYC uploads are validated by detected content type (magic bytes).
 
-Payment links are single-use. Expiry is checked against the paying client's
-clock when it sends `submittedAt` (offline terminals), otherwise the server's.
+Payment links are single-use. Expiry is checked against the server's clock;
+a `submittedAt` sent by the client is ignored.
 Tokens are 128-bit, from `crypto.randomBytes`.
 
 ## The admin plane
@@ -88,7 +91,7 @@ the action. Credits above the threshold need a second approver.
 | `DATABASE_URL` | all | — |
 | `PGCONN_SETTLEMENT` | settlement | unset |
 | `SETTLEMENT_INTERNAL_TOKEN` | api, settlement | `dev-token` in dev |
-| `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE` | api | `false` |
+| `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE` | api | `true` (only `false` or `0` turns it off) |
 | `FEATURE_ASYNC_CLOSE` | settlement | `0` |
 
 The API is sized for 0.5 vCPU / 512 MB. In compose, all services connect as

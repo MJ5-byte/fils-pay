@@ -70,7 +70,7 @@ export async function listPaymentLinks(
   const result = await pool.query<PaymentLinkRow & { created_at_text: string }>(
     `SELECT *, created_at::text AS created_at_text FROM payment_links
       WHERE merchant_id = $1
-        AND ($2::text[] IS NULL OR status = ANY($2))
+        AND ($2::text[] IS NULL OR CASE WHEN status = 'active' AND expires_at <= now() THEN 'expired' ELSE status END = ANY($2))
         AND ($3::timestamptz IS NULL OR (created_at, id) < ($3, $4))
       ORDER BY created_at DESC, id DESC
       LIMIT $5`,
@@ -83,4 +83,19 @@ export async function listPaymentLinks(
     result.rows.length === limit && lastRow ? encodeCursor(lastRow.created_at_text, lastRow.id) : null;
 
   return { paymentLinks, nextCursor };
+}
+
+/** One of a merchant's own links by id, whatever its age; null when it is not theirs. */
+export async function getMerchantPaymentLink(
+  pool: Pool,
+  config: { checkoutBaseUrl: string },
+  merchantId: string,
+  id: string,
+): Promise<PaymentLinkDto | null> {
+  const result = await pool.query<PaymentLinkRow>(
+    "SELECT * FROM payment_links WHERE id = $1 AND merchant_id = $2",
+    [id, merchantId],
+  );
+  const row = result.rows[0];
+  return row ? serializePaymentLink(row, config.checkoutBaseUrl) : null;
 }

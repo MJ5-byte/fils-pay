@@ -1,4 +1,5 @@
 import { buildApp } from "./app.js";
+import { connectCache, disconnectCache } from "./cache/redis.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/pool.js";
 import { markDbConnectedOnce } from "./health/state.js";
@@ -9,10 +10,15 @@ import { createFetchTransport } from "./webhooks/transport.js";
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
   console.log(`[index] booting, date=${formatIsoDate(new Date())}`);
+  if (config.nodeEnv === "production" && config.otpDevExpose) {
+    console.warn("[index] OTP_DEV_EXPOSE=true in production: every login response carries its OTP code");
+  }
   const pool = createPool(config);
+  // Connects in the background; the api boots and serves with Redis down.
+  void connectCache(config.redisUrl);
   // One transport per process: the dispatcher's background pass and the
   // merchant-facing "send test event" route both run on this same instance.
-  const webhookTransport = createFetchTransport();
+  const webhookTransport = createFetchTransport(config);
   const app = buildApp(config, pool, { webhookTransport });
 
   // Fail fast if the DB is unreachable at boot.
@@ -27,8 +33,11 @@ async function main(): Promise<void> {
   // returns a non-listening instance every route test's app.inject(...)
   // uses with no live background LISTEN session or timer wanted.
   // MK: one dispatcher per replica. SKIP LOCKED in the claim query makes multiple replicas safe
-  // am: we only run one replica anyway (512mb). fine
-  const dispatcher: WebhookDispatcherHandle = startWebhookDispatcher(pool, webhookTransport, config);
+  // api-2 sets WEBHOOK_DISPATCHER_ENABLED=false: the claim keeps two dispatchers
+  // correct, but one LISTEN session and one poll timer fit the api budget better.
+  const dispatcher: WebhookDispatcherHandle | null = config.webhookDispatcherEnabled
+    ? startWebhookDispatcher(pool, webhookTransport, config)
+    : null;
 
   let shuttingDown = false;
   /**
@@ -40,9 +49,9 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[index] received ${signal}, shutting down`);
-    dispatcher
-      .stop()
+    (dispatcher ? dispatcher.stop() : Promise.resolve())
       .then(() => app.close())
+      .then(() => disconnectCache())
       .then(() => pool.end())
       .catch((err: unknown) => {
         console.error("[index] error during shutdown", err);

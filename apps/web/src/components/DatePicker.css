@@ -1,0 +1,106 @@
+/* Date picker: the app's own input, square and on the paper surface, opening a
+   calendar in the same family instead of the browser's default popup. */
+.fp-dp { position: relative; display: block; min-width: 0; }
+
+.fp-dp-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-width: 184px; height: 40px; padding: 8px 12px;
+  border: 1px solid var(--fp-input-border); border-radius: var(--fp-r);
+  background: var(--fp-surface); color: var(--fp-ink);
+  font: 400 15px/22px var(--fp-body); text-align: left; text-transform: none; letter-spacing: normal;
+  transition: border-color 150ms var(--fp-ease), background 150ms var(--fp-ease);
+}
+@media (hover: hover) { .fp-dp-trigger:hover { border-color: color-mix(in srgb, var(--fp-dark) 45%, transparent); } }
+.fp-dp-trigger[data-open] { border-color: var(--fp-ink); }
+.fp-dp-trigger svg { color: var(--fp-ink); }
+.fp-dp-value { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.fp-dp-placeholder { color: var(--fp-muted); }
+
+/* Invisible, but still in the form, so `required` blocks submit and the
+   browser's message anchors under the trigger. */
+.fp-dp input.fp-dp-proxy[type="text"] {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 1px; padding: 0; border: 0;
+  opacity: 0; pointer-events: none;
+}
+
+.fp-dp-scrim { display: none; }
+
+.fp-dp-pop {
+  position: absolute; z-index: 40;
+  display: flex; flex-direction: column; gap: 12px; width: 320px; padding: 16px;
+  background: var(--fp-surface); border: 1px solid var(--fp-rule); border-radius: var(--fp-r);
+  box-shadow: var(--fp-shadow-pop); color: var(--fp-ink); font: 400 15px/22px var(--fp-body);
+  cursor: default; animation: fp-dp-in 180ms var(--fp-ease);
+}
+.fp-dp-pop[data-up] { transform: translateY(-100%); animation-name: fp-dp-in-up; }
+@keyframes fp-dp-in { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes fp-dp-in-up { from { opacity: 0; transform: translateY(calc(-100% + 4px)); } }
+
+.fp-dp-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fp-dp-title { font: 400 20px/1 var(--fp-display); text-transform: uppercase; letter-spacing: .01em; }
+.fp-dp-nav {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 1px solid var(--fp-input-border); border-radius: var(--fp-r); background: transparent; color: var(--fp-ink);
+  transition: background 150ms var(--fp-ease), color 150ms var(--fp-ease);
+}
+@media (hover: hover) { .fp-dp-nav:not(:disabled):hover { background: var(--fp-ink); color: var(--fp-page); border-color: var(--fp-ink); } }
+.fp-dp-nav:disabled { opacity: .35; cursor: default; }
+
+.fp-dp-grid { display: flex; flex-direction: column; gap: 2px; }
+.fp-dp-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.fp-dp-dow {
+  display: grid; place-items: center; height: 28px;
+  font: 500 11px/1 var(--fp-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--fp-muted);
+}
+.fp-dp-row > [role="gridcell"] { display: block; }
+.fp-dp-day {
+  position: relative; display: grid; place-items: center; width: 100%; height: 38px; padding: 0;
+  border: 0; border-radius: var(--fp-r); background: transparent; color: var(--fp-ink);
+  font: 400 14px/1 var(--fp-mono); font-variant-numeric: tabular-nums;
+  transition: background 120ms var(--fp-ease), color 120ms var(--fp-ease);
+}
+.fp-dp-day[data-outside] { color: var(--fp-faint); }
+@media (hover: hover) { .fp-dp-day:not(:disabled):hover { background: var(--fp-surface-2); } }
+.fp-dp-day:focus-visible { outline: 2px solid var(--fp-ink); outline-offset: -2px; }
+/* Today is a short brand bar under the numeral, so it never competes with the
+   red fill of the selected day. */
+.fp-dp-day[data-today]::after {
+  content: ""; position: absolute; left: 50%; bottom: 6px; width: 14px; height: 2px;
+  margin-left: -7px; background: var(--fp-brand);
+}
+.fp-dp-day[data-today] { font-weight: 600; }
+[aria-selected="true"] > .fp-dp-day,
+[aria-selected="true"] > .fp-dp-day:hover { background: var(--fp-brand); color: var(--fp-on-brand); font-weight: 600; }
+@media (hover: hover) { [aria-selected="true"] > .fp-dp-day:hover { background: var(--fp-brand-strong); } }
+[aria-selected="true"] > .fp-dp-day[data-today]::after { background: var(--fp-on-brand); }
+[aria-selected="true"] > .fp-dp-day:focus-visible { outline-color: var(--fp-dark); outline-offset: 2px; }
+.fp-dp-day:disabled { color: var(--fp-faint); opacity: .45; cursor: not-allowed; }
+
+.fp-dp-time { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 4px; }
+.fp-dp-eyebrow { font: 500 12px/1.55 var(--fp-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--fp-ink-2); }
+.fp-dp-time-fields { display: flex; align-items: center; gap: 6px; }
+.fp-dp-time-fields select { width: 76px; font-family: var(--fp-mono); font-variant-numeric: tabular-nums; }
+.fp-dp-time-fields select:disabled { opacity: .5; cursor: not-allowed; }
+.fp-dp-colon { font: 400 20px/1 var(--fp-display); }
+
+.fp-dp-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* On a phone the calendar becomes a bottom sheet, so the grid gets the full
+   width and thumb-sized days instead of a popover clipped by the viewport. */
+@media (max-width: 560px) {
+  .fp-dp-scrim {
+    display: block; position: fixed; inset: 0; z-index: 60;
+    background: color-mix(in srgb, var(--fp-dark) 45%, transparent); animation: fp-dp-fade 180ms var(--fp-ease);
+  }
+  .fp-dp-pop, .fp-dp-pop[data-up] {
+    position: fixed; z-index: 61; top: auto !important; left: 0 !important; right: 0; bottom: 0; width: auto; transform: none;
+    padding: 20px 16px calc(16px + env(safe-area-inset-bottom));
+    border-width: 1px 0 0; animation: fp-dp-sheet 220ms var(--fp-ease) both;
+  }
+  .fp-dp-day { height: 44px; font-size: 15px; }
+  .fp-dp-foot > button { flex: 1; }
+  .fp-dp-foot > span:empty { display: none; }
+}
+@keyframes fp-dp-fade { from { opacity: 0; } }
+@keyframes fp-dp-sheet { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { .fp-dp-pop, .fp-dp-scrim { animation: none; } }

@@ -271,7 +271,7 @@ test("KYC upload accepts a real tiny PDF and moves onboarding_status to under_re
   assert.equal(meRes.json().merchant.onboardingStatus, "under_review");
 });
 
-test("KYC upload rejects a commercial_registration submitted as a non-PDF filename", async () => {
+test("KYC upload accepts a real PDF for commercial_registration regardless of its filename", async () => {
   const { merchantId, cookie } = await signupLoginAndVerify("kycnonpdf");
 
   const pdfBuffer = Buffer.from("%PDF-1.4\n%mock minimal pdf for test\n%%EOF");
@@ -286,8 +286,84 @@ test("KYC upload rejects a commercial_registration submitted as a non-PDF filena
     headers: { cookie, "content-type": contentType },
     payload: body,
   });
+  assert.equal(res.statusCode, 201, res.body);
+  assert.equal(res.json().onboardingStatus, "under_review");
+});
+
+test("KYC upload rejects a PNG renamed .pdf for a PDF-only document type", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("kycpng");
+
+  const pngBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const { body, contentType } = buildMultipart(
+    { documentType: "commercial_registration" },
+    { fieldName: "file", filename: "evil.pdf", contentType: "application/pdf", data: pngBuffer },
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/kyc/documents`,
+    headers: { cookie, "content-type": contentType },
+    payload: body,
+  });
   assert.equal(res.statusCode, 422, res.body);
   assert.equal(res.json().error, "document_must_be_pdf");
+});
+
+async function uploadPdfAndDownload(emailPrefix: string, filename: string, storedName?: string) {
+  const { merchantId, cookie } = await signupLoginAndVerify(emailPrefix);
+  const { body, contentType } = buildMultipart(
+    { documentType: "owner_id" },
+    {
+      fieldName: "file",
+      filename,
+      contentType: "application/pdf",
+      data: Buffer.from("%PDF-1.4\n%mock minimal pdf for test\n%%EOF"),
+    },
+  );
+  const upload = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/kyc/documents`,
+    headers: { cookie, "content-type": contentType },
+    payload: body,
+  });
+  assert.equal(upload.statusCode, 201, upload.body);
+  const { id } = upload.json() as { id: string };
+  if (storedName !== undefined) {
+    await pool.query(`UPDATE kyc_documents SET file_name = $1 WHERE id = $2`, [storedName, id]);
+  }
+  return app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/kyc/documents/${id}/file`,
+    headers: { cookie },
+  });
+}
+
+test("KYC download of a document with an Arabic filename answers 200 with an RFC 5987 filename*", async () => {
+  const res = await uploadPdfAndDownload("kycarabic", "سجل.pdf");
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(
+    res.headers["content-disposition"],
+    `inline; filename="___.pdf"; filename*=UTF-8''${encodeURIComponent("سجل.pdf")}`,
+  );
+});
+
+test("KYC download cannot be used to inject a header through a filename with quotes and CRLF", async () => {
+  const res = await uploadPdfAndDownload("kycinject", "id.pdf", 'a"b\\c\r\nX-Evil: 1.pdf');
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.headers["x-evil"], undefined);
+  assert.equal(
+    res.headers["content-disposition"],
+    `inline; filename="a_b_c__X-Evil: 1.pdf"; filename*=UTF-8''${encodeURIComponent('a"b\\c\r\nX-Evil: 1.pdf')}`,
+  );
+});
+
+test("KYC download keeps a plain ASCII filename unchanged", async () => {
+  const res = await uploadPdfAndDownload("kycascii", "id card.pdf");
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(
+    res.headers["content-disposition"],
+    `inline; filename="id card.pdf"; filename*=UTF-8''id%20card.pdf`,
+  );
 });
 
 test("API key issuance shows the raw key exactly once; a subsequent list never exposes it", async () => {
@@ -318,4 +394,123 @@ test("API key issuance shows the raw key exactly once; a subsequent list never e
   assert.equal(serialized.includes(issueBody.rawKey), false, "raw key must never appear in the list response");
   assert.equal("rawKey" in (listBody[0] ?? {}), false);
   assert.equal("keyHash" in (listBody[0] ?? {}), false);
+});
+
+test("login with a non-UUID merchantId is rejected with 400, not a 500 cast error (BHA-75)", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    payload: { merchantId: "not-a-uuid", email: "someone@example.test", password: "whatever-123" },
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_request");
+});
+
+test("listing API keys is bounded by the limit query parameter (BHA-78)", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("apikey-limit");
+
+  for (let i = 0; i < 3; i += 1) {
+    const issueRes = await app.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/api-keys`,
+      headers: { cookie },
+      payload: { label: `key ${i}` },
+    });
+    assert.equal(issueRes.statusCode, 201, issueRes.body);
+  }
+
+  const listRes = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/api-keys?limit=2`,
+    headers: { cookie },
+  });
+  assert.equal(listRes.statusCode, 200, listRes.body);
+  const listBody = listRes.json() as Array<Record<string, unknown>>;
+  assert.equal(listBody.length, 2);
+});
+
+test("revoking an API key with a non-UUID id answers 404, not 500 (BHA-77)", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("apikeybadid");
+  for (const id of ["not-a-uuid", "123", "%27%20OR%201%3D1"]) {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/v1/merchants/${merchantId}/api-keys/${id}`,
+      headers: { cookie },
+    });
+    assert.equal(res.statusCode, 404, `${id}: ${res.body}`);
+    assert.equal(res.json().error, "api_key_not_found");
+  }
+});
+
+test("signup rejects an unknown business type or a badly typed field with 400, not 500 (BHA-99)", async () => {
+  const bad = [
+    { businessType: "cooperative" },
+    { businessType: 7 },
+    { legalName: 42 },
+    { contactEmail: { a: 1 } },
+    { country: "BHR" },
+    { city: "Man\u0000ama" },
+  ];
+  for (const override of bad) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/merchants",
+      payload: {
+        businessProfile: { ...businessProfilePayload("badsignup"), ...override },
+        owner: { email: uniqueEmail("badsignup"), password: "correct horse battery staple 1!" },
+      },
+    });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(override)}: ${res.body}`);
+    assert.equal(res.json().error, "invalid_business_profile");
+  }
+});
+
+test("business profile update rejects invalid values and unknown keys with 400 and changes nothing (BHA-100, BHA-101)", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("bpbad");
+  const url = `/v1/merchants/${merchantId}/business-profile`;
+  const bad: Array<[Record<string, unknown>, string]> = [
+    [{ businessType: "cooperative" }, "invalid_business_profile"],
+    [{ legalName: null }, "invalid_business_profile"],
+    [{ legalName: "" }, "invalid_business_profile"],
+    [{ city: 5 }, "invalid_business_profile"],
+    [{ country: "BHR" }, "invalid_business_profile"],
+    [{ addressLine2: 5 }, "invalid_business_profile"],
+    [{ city: "Man\u0000ama" }, "invalid_business_profile"],
+    [{ "city = 'x', merchant_id": "y" }, "unknown_field"],
+    [{ merchantId: randomUUID() }, "unknown_field"],
+    [{ updatedAt: "2020-01-01" }, "unknown_field"],
+    [{ city: "Riffa", surprise: 1 }, "unknown_field"],
+  ];
+  for (const [patch, code] of bad) {
+    const res = await app.inject({ method: "PATCH", url, headers: { cookie }, payload: patch });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(patch)}: ${res.body}`);
+    assert.equal(res.json().error, code);
+    assert.equal(res.body.includes("surprise"), false, "input must not be echoed");
+  }
+  const after = await app.inject({ method: "GET", url, headers: { cookie } });
+  assert.equal(after.json().city, "Manama");
+
+  const ok = await app.inject({ method: "PATCH", url, headers: { cookie }, payload: { city: "Riffa", addressLine2: null } });
+  assert.equal(ok.statusCode, 200, ok.body);
+  assert.equal(ok.json().city, "Riffa");
+});
+
+test("signup refuses a NUL in the owner email and still accepts omitted or null optional fields (BHA-99)", async () => {
+  const password = "correct horse battery staple 1!";
+  const nul = await app.inject({
+    method: "POST",
+    url: "/v1/merchants",
+    payload: { businessProfile: businessProfilePayload("nulmail"), owner: { email: "a\u0000@example.test", password } },
+  });
+  assert.equal(nul.statusCode, 400, nul.body);
+
+  const ok = await app.inject({
+    method: "POST",
+    url: "/v1/merchants",
+    payload: {
+      businessProfile: { ...businessProfilePayload("nullopt"), addressLine2: null, postalCode: null, country: null },
+      owner: { email: uniqueEmail("nullopt"), password },
+    },
+  });
+  assert.equal(ok.statusCode, 201, ok.body);
 });

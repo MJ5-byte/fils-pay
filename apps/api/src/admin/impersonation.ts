@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { randomToken, sha256Hex } from "../lib/crypto.js";
@@ -75,18 +75,21 @@ export async function endImpersonation(
   });
 }
 
+/** Revokes every grant the admin still holds; called on admin logout. */
+export async function revokeAdminImpersonationGrants(
+  client: PoolClient | Pool,
+  adminUserId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE admin_impersonation_grants
+        SET revoked_at = now()
+      WHERE admin_user_id = $1 AND revoked_at IS NULL AND ended_at IS NULL AND expires_at > now()`,
+    [adminUserId],
+  );
+}
+
 /** The merchant plane's own role vocabulary (`merchant_users.role`). */
 export type ImpersonationMerchantRole = "owner" | "finance" | "support";
-
-/** `admin_users.role` (migration 0031). */
-type AdminUserRole = "support" | "finance" | "super_admin";
-
-/** Maps the admin's role to the merchant-plane role used during impersonation. */
-const MERCHANT_ROLE_FOR_ADMIN_ROLE: Record<AdminUserRole, ImpersonationMerchantRole> = {
-  support: "support",
-  finance: "finance",
-  super_admin: "owner",
-};
 
 /** @property merchantRole Always "support" (ARCH §8): a grant is view-only. */
 export interface ImpersonationGrantLookup {
@@ -99,10 +102,10 @@ export interface ImpersonationGrantLookup {
 /**
  * The sole definition of "this request carries a live impersonation grant",
  * called only from `requireMerchantAuth`. Same predicate discipline as every
- * other session-shaped lookup here: never a bare token match.
+ * other session-shaped lookup here: never a bare token match. The admin's
+ * `status = 'active'` is part of the predicate, as in the admin session
+ * lookup, because nothing revokes grants when an admin is disabled.
  */
-// no admin_users.status check here (adminAuth/sessions.ts has one) — disabled admin keeps their grant? — am
-// FH: revoked_at gets set by the admin-disable trigger, so it's covered
 export async function lookupImpersonationGrant(
   pool: Pool,
   rawToken: string,
@@ -112,12 +115,12 @@ export async function lookupImpersonationGrant(
     id: string;
     admin_user_id: string;
     merchant_id: string;
-    admin_role: AdminUserRole;
   }>(
-    `SELECT g.id, g.admin_user_id, g.merchant_id, au.role AS admin_role
+    `SELECT g.id, g.admin_user_id, g.merchant_id
        FROM admin_impersonation_grants g
        JOIN admin_users au ON au.id = g.admin_user_id
       WHERE g.token_hash = $1
+        AND au.status = 'active'
         AND g.revoked_at IS NULL
         AND g.ended_at IS NULL
         AND g.expires_at > now()`,
@@ -129,6 +132,7 @@ export async function lookupImpersonationGrant(
     grantId: row.id,
     adminUserId: row.admin_user_id,
     merchantId: row.merchant_id,
-    merchantRole: MERCHANT_ROLE_FOR_ADMIN_ROLE[row.admin_role],
+    // Every admin views as "support", whatever their admin role (docs/HANDOVER.md).
+    merchantRole: "support",
   };
 }

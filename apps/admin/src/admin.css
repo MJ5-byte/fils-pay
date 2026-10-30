@@ -1,228 +1,76 @@
-/* No design system, no UI kit — the same "real but small" minimalism
-   apps/web's checkout page ships with. Just enough for dense operational
-   tables to be readable and for the impersonation banner to be impossible
-   to overlook. */
+/* The admin console wears the one shared design system, @filspay/ui, so it
+   reads as the same product as the merchant dashboard. Everything the two
+   planes share (tokens, shell, nav, tables, status badges, tags, charts,
+   forms, buttons, motion) comes from the import below. Only the handful of
+   things the admin plane alone needs live here: the staff marker on the
+   wordmark, the paused-screens notice, and the persistent
+   impersonation banner. */
+@import "../../../packages/ui/src/theme.css";
+@import "../../../packages/ui/src/coin-login.css";
 
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
-  color: #1a1a1a;
-  background: #fafafa;
-}
+.admin-frame { min-height: 100dvh; }
+.admin-eyebrow { color: var(--fp-brand-ink); font: 500 12px/1.55 var(--fp-mono); letter-spacing: .16em; text-transform: uppercase; }
 
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-}
-
-.admin-shell {
-  min-height: 100vh;
-}
-
-.admin-header {
+/* The operator-tools launchpad: a row of equal links to the tools that have
+   no queue of their own, wrapping on narrow viewports. */
+.admin-tools {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
-  background: #fff;
-  border-bottom: 1px solid #ddd;
+  gap: var(--fp-3);
 }
 
-.admin-brand {
-  font-weight: 700;
-}
-
-.admin-nav {
-  display: flex;
-  gap: 1rem;
-}
-
-.admin-nav a {
-  color: #1a1a1a;
-  text-decoration: none;
-}
-
-.admin-nav a.active {
-  font-weight: 700;
-  text-decoration: underline;
-}
-
-.admin-identity {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.admin-role-chip {
-  padding: 0.1rem 0.4rem;
-  border: 1px solid #999;
-  border-radius: 3px;
-  font-size: 0.8em;
-}
-
-.admin-main {
-  max-width: 70rem;
-  margin: 0 auto;
-  padding: 1.5rem;
-}
-
+/* A screen that stands in for the whole console (session check, crash): the
+   shared error banner and its one action, flush left like every error face. */
 .admin-centered {
-  max-width: 26rem;
-  margin: 4rem auto;
-  padding: 1.5rem;
-}
-
-.admin-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin: 1rem 0;
-  max-width: 40rem;
-}
-
-.admin-form-inline {
-  flex-direction: row;
-  align-items: flex-end;
-}
-
-.admin-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.admin-form input,
-.admin-form select,
-.admin-form textarea {
-  padding: 0.4rem;
-  font: inherit;
-  border: 1px solid #bbb;
-  border-radius: 3px;
-}
-
-/* MK: global button style, temporary until the design system (Nov 2025) */
-button {
-  padding: 0.4rem 0.8rem;
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid #888;
-  border-radius: 3px;
-  background: #fff;
-}
-
-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.admin-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  border: 1px solid #ddd;
-  padding: 0.5rem 0.75rem;
-  margin: 1rem 0;
-}
-
-.admin-filters label {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.admin-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
-  background: #fff;
-}
-
-.admin-table th,
-.admin-table td {
-  border: 1px solid #e0e0e0;
-  padding: 0.4rem 0.6rem;
-  text-align: left;
-  vertical-align: top;
-}
-
-.admin-dl {
   display: grid;
-  grid-template-columns: 12rem 1fr;
-  gap: 0.25rem 1rem;
-  margin: 1rem 0;
+  justify-items: start;
+  gap: var(--fp-3);
+  max-width: 44rem;
+  padding: 48px 24px;
 }
 
-.admin-dl dt {
-  font-weight: 600;
-}
-
-.admin-dl dd {
+.admin-centered > .dash-error {
   margin: 0;
 }
 
-.admin-muted {
-  color: #666;
+/* The view-as-merchant pause: a flush-left designed face, not a bare error. */
+.admin-paused {
+  max-width: 44rem;
 }
 
-.admin-error {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #b00020;
-  background: #fdeaea;
-  color: #7a0016;
+.admin-paused h1 {
+  margin-top: 0;
 }
 
-.admin-notice {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #2a6f2a;
-  background: #eef7ee;
-  margin: 1rem 0;
-}
-
-.admin-confirm {
-  padding: 0.8rem;
-  border: 2px solid #b06000;
-  background: #fff6e8;
-  margin: 1rem 0;
-  max-width: 40rem;
-}
-
+/* A scrollable list of ids inside a confirm step (bulk actions). */
 .admin-id-list {
   max-height: 14rem;
   overflow-y: auto;
+  margin: var(--fp-2) 0 0;
+  padding-left: var(--fp-5);
 }
 
-/* Deliberately loud: an active impersonation grant must never be something
-   an operator can fail to notice. */
+/* The active grant stays visible above workspace content. */
 .impersonation-banner {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1.5rem;
-  background: #7a0016;
-  color: #fff;
-  border-bottom: 4px solid #ffcc00;
-  position: sticky;
-  top: 0;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 24px;
+  margin: -24px -24px 24px;
+  background: var(--fp-warn-wash);
+  color: var(--fp-warn);
+  position: relative;
   z-index: 10;
+  font-size: 13px;
 }
-
-.impersonation-banner code {
-  color: #ffe;
-}
-
-.impersonation-banner button {
-  margin-left: auto;
-  background: #fff;
-  color: #7a0016;
-  font-weight: 700;
-  border-color: #fff;
-  white-space: nowrap;
-}
-
-.impersonation-banner-error {
-  margin-top: 0.4rem;
-  font-weight: 700;
+.impersonation-banner-mark { display: inline-flex; padding-top: 2px; }
+.impersonation-banner-mark svg { width: 20px; height: 20px; }
+.impersonation-banner-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.impersonation-banner-body strong { display: block; font: 400 20px/1.25 var(--fp-display); text-transform: uppercase; letter-spacing: .01em; margin-bottom: 4px; }
+.impersonation-banner code { color: inherit; }
+.impersonation-banner .dash-button { flex-shrink: 0; }
+.impersonation-banner-error { margin-top: 12px; font-weight: 600; }
+@media (max-width: 1023px) {
+  .impersonation-banner { flex-wrap: wrap; margin: -16px -16px 24px; padding: 16px; }
+  .impersonation-banner .dash-button { margin-left: 32px; }
 }

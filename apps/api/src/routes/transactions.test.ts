@@ -11,6 +11,7 @@ import { Pool } from "pg";
 import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { issueApiKey } from "../apiKeys/issue.js";
+import { randomToken, sha256Hex } from "../lib/crypto.js";
 import { recordKycReview } from "../onboarding/review.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -94,6 +95,29 @@ async function capture(
     headers: { ...authHeader(rawKey), "idempotency-key": idempotencyKey },
     payload: body,
   });
+}
+
+/** Inserts an authenticated session directly (bypassing the password+OTP
+ *  login flow) for a new merchant_user with the given role, and returns the
+ *  raw cookie token. */
+async function createSessionWithRole(merchantId: string, role: "owner" | "finance" | "support") {
+  const userResult = await pool.query<{ id: string }>(
+    `INSERT INTO merchant_users (merchant_id, email, role, password_hash)
+     VALUES ($1, $2, $3, 'unused-in-these-tests')
+     RETURNING id`,
+    [merchantId, `${role}-${randomUUID()}@example.test`, role],
+  );
+  const rawToken = randomToken(32);
+  await pool.query(
+    `INSERT INTO sessions (merchant_user_id, token_hash, authenticated, expires_at)
+     VALUES ($1, $2, true, now() + interval '1 hour')`,
+    [userResult.rows[0]!.id, sha256Hex(rawToken)],
+  );
+  return rawToken;
+}
+
+function cookieHeader(rawToken: string) {
+  return { cookie: `${config.cookieName}=${rawToken}` };
 }
 
 test("authorize -> capture (full) happy path posts correct, balanced ledger legs", async () => {
@@ -215,6 +239,56 @@ test("capture with a reused idempotency key and identical body replays without a
   assert.ok(Number(countAfterFirst.rows[0]!.c) > 0);
 });
 
+test("a capture whose discount adjustment fails commits nothing, and a same-key retry captures with the rebate", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("discount-adjustment-retry");
+  await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchantId]);
+  const txn = await authorize(rawKey, 10_000);
+  const key = randomUUID();
+  const suffix = randomUUID().replace(/-/g, "");
+  const fn = `bha224_fail_${suffix}`;
+  await pool.query(
+    `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+     BEGIN
+       IF NEW.transaction_id = '${txn.id}' AND NEW.description = 'capture: negotiated discount adjustment' THEN
+         RAISE EXCEPTION 'injected discount adjustment failure';
+       END IF;
+       RETURN NEW;
+     END $$`,
+  );
+  try {
+    await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+
+    // The rebate posts in the capture's own transaction (BHA-235), so its
+    // failure rolls the capture back instead of committing the fee in full.
+    const first = await capture(rawKey, txn.id, {}, key);
+    assert.equal(first.statusCode, 500, first.body);
+
+    const beforeReplay = await pool.query<{ status: string; c: number }>(
+      `SELECT t.status, (SELECT COUNT(*)::int FROM ledger_entries l WHERE l.transaction_id = t.id) AS c
+         FROM transactions t WHERE t.id = $1`,
+      [txn.id],
+    );
+    assert.deepEqual(beforeReplay.rows[0], { status: "authorized", c: 0 });
+
+    await pool.query(`DROP TRIGGER ${fn} ON ledger_entries`);
+
+    const replay = await capture(rawKey, txn.id, {}, key);
+    assert.equal(replay.statusCode, 200, replay.body);
+    assert.equal(replay.json().status, "captured");
+
+    const afterReplay = await pool.query<{ c: number }>(
+      `SELECT COUNT(*)::int AS c FROM ledger_entries
+        WHERE transaction_id = $1 AND description = 'capture: negotiated discount adjustment'
+          AND account_id = 'platform_fee_revenue' AND direction = 'debit'`,
+      [txn.id],
+    );
+    assert.equal(afterReplay.rows[0]!.c, 1);
+  } finally {
+    await pool.query(`DROP TRIGGER IF EXISTS ${fn} ON ledger_entries`);
+    await pool.query(`DROP FUNCTION ${fn}()`);
+  }
+});
+
 // FH: should also cover same key + same body on a DIFFERENT transaction -> 422 (API.md). Claude says
 // that case can't happen because keys are per transaction
 test("capture with a reused idempotency key but a different body is rejected as a conflict", async () => {
@@ -230,7 +304,30 @@ test("capture with a reused idempotency key but a different body is rejected as 
   assert.equal(conflicting.json().error, "idempotency_key_reused");
 });
 
-/** Covers GET detail/events and capture. Refunds are not routed yet, so cross-tenant refund is not covered. */
+test("capture with an idempotency key reused on a different transaction is rejected as a conflict", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("idempotent-cross-txn");
+  const firstTxn = await authorize(rawKey, 8_000);
+  const secondTxn = await authorize(rawKey, 8_000);
+  const key = randomUUID();
+
+  const first = await capture(rawKey, firstTxn.id, {}, key);
+  assert.equal(first.statusCode, 200, first.body);
+
+  const conflicting = await capture(rawKey, secondTxn.id, {}, key);
+  assert.equal(conflicting.statusCode, 422, conflicting.body);
+  assert.equal(conflicting.json().error, "idempotency_key_reused");
+
+  const result = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [secondTxn.id],
+  );
+  const txn = result.rows[0];
+  assert.ok(txn);
+  assert.equal(txn.status, "authorized");
+  assert.equal(Number(txn.captured_fils), 0);
+});
+
+/** Covers GET detail/events and capture. Cross-tenant refund has its own test below. */
 test("cross-tenant transaction access (wrong merchant) returns 404, not 403 or 500", async () => {
   const owner = await createApprovedMerchantWithApiKey("cross-tenant-owner");
   const intruder = await createApprovedMerchantWithApiKey("cross-tenant-intruder");
@@ -265,6 +362,28 @@ test("capture amount exceeding remaining is rejected 422", async () => {
   assert.equal(res.json().remainingFils, 5_000);
 });
 
+test("capture with a malformed or non-positive amount is rejected 400 invalid_amount, not 500 or 422", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("capture-bad-amount");
+  const txn = await authorize(rawKey, 5_000);
+
+  // Wrong type, non-integer, negative, null, and zero. Each must be a clean
+  // 400 invalid_amount: the first four would otherwise crash toFils into a 500,
+  // and zero would slip through to a 422 capture_exceeds_remaining.
+  for (const amountFils of ["abc", 1.5, -5, null, 0]) {
+    const res = await capture(rawKey, txn.id, { amountFils } as { amountFils?: number });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(amountFils)} -> ${res.body}`);
+    assert.equal(res.json().error, "invalid_amount");
+  }
+
+  // The transaction is untouched by any of the rejected attempts.
+  const after = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [txn.id],
+  );
+  assert.equal(after.rows[0]!.status, "authorized");
+  assert.equal(Number(after.rows[0]!.captured_fils), 0);
+});
+
 test("GET /v1/transactions/:id/events returns the timeline in chronological order", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("events-timeline");
   const txn = await authorize(rawKey, 6_000);
@@ -286,16 +405,260 @@ test("GET /v1/transactions/:id/events returns the timeline in chronological orde
   assert.equal(events[2]!.amountFils, 4_000);
 });
 
-// delete/replace this when FP-212 lands — am
-// MK: keep it until the route is behind the feature flag (REFUNDS_V2), then flip the assertion
-test("POST /v1/refunds returns 501 not_implemented", async () => {
-  const { rawKey } = await createApprovedMerchantWithApiKey("refund-stub");
-  const res = await app.inject({
+async function refund(
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  idempotencyKey: string = randomUUID(),
+) {
+  return app.inject({
+    method: "POST",
+    url: "/v1/refunds",
+    headers: { ...headers, "idempotency-key": idempotencyKey },
+    payload: body,
+  });
+}
+
+async function refundCount(transactionId: string): Promise<number> {
+  const result = await pool.query<{ c: number }>(
+    `SELECT COUNT(*)::int AS c FROM refunds WHERE transaction_id = $1`,
+    [transactionId],
+  );
+  return result.rows[0]!.c;
+}
+
+test("POST /v1/refunds refunds the caller's captured transaction and replays a same-key retry", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("refund-route", 250);
+  const txn = await authorize(rawKey, 10_000);
+  assert.equal((await capture(rawKey, txn.id)).statusCode, 200);
+  const key = randomUUID();
+
+  const first = await refund(authHeader(rawKey), { transactionId: txn.id, amountFils: 4_000 }, key);
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json().amountFils, 4_000);
+  assert.equal(first.json().feeReversedFils, 100);
+  assert.equal(first.json().transactionStatus, "partially_refunded");
+
+  const retry = await refund(authHeader(rawKey), { transactionId: txn.id, amountFils: 4_000 }, key);
+  assert.equal(retry.statusCode, 200, retry.body);
+  assert.deepEqual(retry.json(), first.json());
+
+  assert.equal(await refundCount(txn.id), 1);
+  const row = await pool.query<{ refunded_fils: string; reason: string }>(
+    `SELECT t.refunded_fils, r.reason FROM transactions t JOIN refunds r ON r.transaction_id = t.id WHERE t.id = $1`,
+    [txn.id],
+  );
+  assert.equal(Number(row.rows[0]!.refunded_fils), 4_000);
+  assert.equal(row.rows[0]!.reason, "unspecified");
+});
+
+test("POST /v1/refunds rejects a zero or negative amount and writes nothing", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("refund-bad-amount");
+  const txn = await authorize(rawKey, 5_000);
+  assert.equal((await capture(rawKey, txn.id)).statusCode, 200);
+
+  for (const amountFils of [0, -500, 1.5, "100"]) {
+    const res = await refund(authHeader(rawKey), { transactionId: txn.id, amountFils });
+    assert.equal(res.statusCode, 422, `${String(amountFils)}: ${res.body}`);
+    assert.equal(res.json().error, "refund_amount_invalid");
+  }
+  assert.equal(await refundCount(txn.id), 0);
+});
+
+test("POST /v1/refunds answers refusals in the same { error, message } shape as every other error", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("refund-error-shape");
+  const txn = await authorize(rawKey, 4_000);
+  assert.equal((await capture(rawKey, txn.id)).statusCode, 200);
+
+  const overKey = randomUUID();
+  const over = await refund(authHeader(rawKey), { transactionId: txn.id, amountFils: 4_001 }, overKey);
+  assert.equal(over.statusCode, 422, over.body);
+  assert.deepEqual(over.json(), {
+    error: "refund_exceeds_refundable",
+    message: "amountFils is more than is still refundable",
+    refundableFils: 4_000,
+  });
+  // The stored rejection replays through the same mapping.
+  const overReplay = await refund(authHeader(rawKey), { transactionId: txn.id, amountFils: 4_001 }, overKey);
+  assert.equal(overReplay.statusCode, 422, overReplay.body);
+  assert.deepEqual(overReplay.json(), over.json());
+
+  assert.equal((await refund(authHeader(rawKey), { transactionId: txn.id })).statusCode, 200);
+  const again = await refund(authHeader(rawKey), { transactionId: txn.id, amountFils: 1 });
+  assert.equal(again.statusCode, 409, again.body);
+  assert.deepEqual(again.json(), {
+    error: "transaction_not_refundable",
+    message: "transaction cannot be refunded in its current status",
+    status: "refunded",
+  });
+});
+
+/** A merchantId in the body must not let one merchant refund another's transaction. */
+test("POST /v1/refunds on another merchant's transaction answers 404 and refunds nothing", async () => {
+  const owner = await createApprovedMerchantWithApiKey("refund-owner");
+  const intruder = await createApprovedMerchantWithApiKey("refund-intruder");
+  const txn = await authorize(owner.rawKey, 5_000);
+  assert.equal((await capture(owner.rawKey, txn.id)).statusCode, 200);
+
+  const res = await refund(authHeader(intruder.rawKey), { transactionId: txn.id, merchantId: owner.merchantId });
+  assert.equal(res.statusCode, 404, res.body);
+  assert.equal(res.json().error, "transaction_not_found");
+  assert.equal(await refundCount(txn.id), 0);
+});
+
+test("POST /v1/refunds needs an Idempotency-Key, a transactionId and an owner or finance session", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("refund-guards");
+  const txn = await authorize(rawKey, 3_000);
+  assert.equal((await capture(rawKey, txn.id)).statusCode, 200);
+
+  const noKey = await app.inject({
     method: "POST",
     url: "/v1/refunds",
     headers: authHeader(rawKey),
+    payload: { transactionId: txn.id },
+  });
+  assert.equal(noKey.statusCode, 400, noKey.body);
+  assert.equal(noKey.json().error, "idempotency_key_required");
+
+  const badId = await refund(authHeader(rawKey), { transactionId: "not-a-uuid" });
+  assert.equal(badId.statusCode, 400, badId.body);
+
+  // A NUL would fail the refunds INSERT after the acquirer had already paid out.
+  const nulReason = await refund(authHeader(rawKey), { transactionId: txn.id, reason: "x\u0000" });
+  assert.equal(nulReason.statusCode, 400, nulReason.body);
+  assert.deepEqual(nulReason.json(), {
+    error: "invalid_request",
+    message: "reason must not contain a NUL character",
+  });
+  for (const reason of ["x".repeat(501), 42]) {
+    const badReason = await refund(authHeader(rawKey), { transactionId: txn.id, reason });
+    assert.equal(badReason.statusCode, 400, badReason.body);
+    assert.equal(badReason.json().message, "reason must be text of at most 500 characters");
+  }
+
+  const support = await refund(cookieHeader(await createSessionWithRole(merchantId, "support")), {
+    transactionId: txn.id,
+  });
+  assert.equal(support.statusCode, 403, support.body);
+  assert.equal(await refundCount(txn.id), 0);
+
+  const finance = await refund(cookieHeader(await createSessionWithRole(merchantId, "finance")), {
+    transactionId: txn.id,
+    reason: "requested_by_customer",
+  });
+  assert.equal(finance.statusCode, 200, finance.body);
+  assert.equal(finance.json().transactionStatus, "refunded");
+});
+
+test("a 'support' session cannot capture or void; 'finance' can", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("support-role");
+  const supportToken = await createSessionWithRole(merchantId, "support");
+  const financeToken = await createSessionWithRole(merchantId, "finance");
+  const toCapture = await authorize(rawKey, 2_000);
+  const toVoid = await authorize(rawKey, 2_000);
+
+  const supportCapture = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toCapture.id}/capture`,
+    headers: { ...cookieHeader(supportToken), "idempotency-key": randomUUID() },
     payload: {},
   });
-  assert.equal(res.statusCode, 501, res.body);
-  assert.equal(res.json().error, "not_implemented");
+  assert.equal(supportCapture.statusCode, 403, supportCapture.body);
+  const supportVoid = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toVoid.id}/void`,
+    headers: cookieHeader(supportToken),
+  });
+  assert.equal(supportVoid.statusCode, 403, supportVoid.body);
+
+  const statuses = await pool.query<{ status: string }>(
+    `SELECT status FROM transactions WHERE id = ANY($1::uuid[])`,
+    [[toCapture.id, toVoid.id]],
+  );
+  assert.deepEqual(statuses.rows.map((r) => r.status), ["authorized", "authorized"]);
+
+  const financeCapture = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toCapture.id}/capture`,
+    headers: { ...cookieHeader(financeToken), "idempotency-key": randomUUID() },
+    payload: {},
+  });
+  assert.equal(financeCapture.statusCode, 200, financeCapture.body);
+  const financeVoid = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${toVoid.id}/void`,
+    headers: cookieHeader(financeToken),
+  });
+  assert.equal(financeVoid.statusCode, 200, financeVoid.body);
+});
+
+test("list rejects a garbage cursor and a non-numeric limit with 400 instead of silently serving page one (BHA-88)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("list-bad-cursor");
+  const crafted = Buffer.from("not-a-date|not-a-uuid", "utf8").toString("base64url");
+  const badDate = Buffer.from(`2026-13-45 99:99:99+00|${randomUUID()}`, "utf8").toString("base64url");
+  for (const query of ["cursor=garbage", "cursor=%%%", `cursor=${crafted}`, `cursor=${badDate}`, "limit=abc"]) {
+    const res = await app.inject({ method: "GET", url: `/v1/transactions?${query}`, headers: authHeader(rawKey) });
+    assert.equal(res.statusCode, 400, `${query}: ${res.body}`);
+  }
+});
+
+test("authorize rejects a zero, negative, fractional, NaN or non-number amount with 400 before the acquirer is called (BHA-79)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("authorize-bad-amount");
+  const original = app.acquirer.authorize;
+  let acquirerCalls = 0;
+  app.acquirer.authorize = (req) => {
+    acquirerCalls += 1;
+    return original.call(app.acquirer, req);
+  };
+  try {
+    // JSON cannot carry NaN, so it arrives as null or a string; both must be refused too.
+    for (const amountFils of [0, -5, 1.5, null, "NaN", "100", Number.MAX_SAFE_INTEGER + 2]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/transactions",
+        headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+        payload: { amountFils, card: VALID_CARD },
+      });
+      assert.equal(res.statusCode, 400, `${String(amountFils)}: ${res.body}`);
+      assert.equal(res.json().error, "invalid_amount");
+    }
+    assert.equal(acquirerCalls, 0);
+  } finally {
+    app.acquirer.authorize = original;
+  }
+});
+
+test("authorize rejects an empty or malformed card with 400 before the acquirer is called, never a 500 (BHA-80)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("authorize-bad-card");
+  const original = app.acquirer.authorize;
+  let acquirerCalls = 0;
+  app.acquirer.authorize = (req) => {
+    acquirerCalls += 1;
+    return original.call(app.acquirer, req);
+  };
+  try {
+    const malformedCards = [
+      {},
+      { expiryMonth: 12, expiryYear: 2030, cvv: "123" }, // pan missing
+      { pan: 4242424242424242, expiryMonth: 12, expiryYear: 2030, cvv: "123" }, // pan not a string
+      { pan: "4242424242424242", expiryYear: 2030, cvv: "123" }, // expiryMonth missing
+      { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030 }, // cvv missing
+      null,
+      "4242424242424242",
+    ];
+    for (const card of malformedCards) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/transactions",
+        headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+        payload: { amountFils: 1_000, card },
+      });
+      assert.equal(res.statusCode, 400, `${JSON.stringify(card)}: ${res.body}`);
+      assert.equal(res.json().error, "invalid_request", res.body);
+      // The error response must not leak internals (stack trace, SQL, pg detail).
+      assert.ok(!/\binternal_error\b|\n\s+at\s|SELECT |INSERT /.test(res.body), `leaked internals: ${res.body}`);
+    }
+    assert.equal(acquirerCalls, 0);
+  } finally {
+    app.acquirer.authorize = original;
+  }
 });

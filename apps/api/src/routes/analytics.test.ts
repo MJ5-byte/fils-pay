@@ -132,6 +132,10 @@ test("GET /v1/analytics/volumes: readModelAsOf/live present, date-range filters,
   const { merchantId: otherMerchantId, rawKey: otherRawKey } = await createApprovedMerchantWithApiKey("volumes-other");
 
   await insertVolumeRow(merchantId, "2026-01-10", { capturedCount: 3, capturedGrossFils: 9_000, voidedCount: 1 });
+  await pool.query(
+    `UPDATE merchant_daily_volume SET refund_count = 2, refund_gross_fils = 1250 WHERE merchant_id = $1 AND volume_date = '2026-01-10'`,
+    [merchantId],
+  );
   await insertVolumeRow(merchantId, "2026-01-15", { capturedCount: 1, capturedGrossFils: 500 });
   // Outside the query window below — must never appear in the response.
   await insertVolumeRow(merchantId, "2026-03-01", { capturedCount: 99 });
@@ -145,7 +149,7 @@ test("GET /v1/analytics/volumes: readModelAsOf/live present, date-range filters,
   });
   assert.equal(res.statusCode, 200, res.body);
   const body = res.json() as {
-    points: Array<{ date: string; capturedCount: number; capturedGrossFils: number; voidedCount: number }>;
+    points: Array<{ date: string; capturedCount: number; capturedGrossFils: number; voidedCount: number; refundCount: number; refundGrossFils: number }>;
     readModelAsOf: string | null;
     live: boolean;
   };
@@ -161,6 +165,8 @@ test("GET /v1/analytics/volumes: readModelAsOf/live present, date-range filters,
   assert.equal(first.capturedCount, 3);
   assert.equal(first.capturedGrossFils, 9_000);
   assert.equal(first.voidedCount, 1);
+  assert.equal(first.refundCount, 2);
+  assert.equal(first.refundGrossFils, 1250);
 
   // Merchant scoping: the other merchant never sees this merchant's rows
   // and vice versa.
@@ -191,6 +197,29 @@ test("GET /v1/analytics/volumes: invalid date query params are rejected 400", as
     headers: authHeader(rawKey),
   });
   assert.equal(res2.statusCode, 400, res2.body);
+});
+
+// BHA-163/164: an impossible but correctly-shaped date (Feb 30, Apr 31) used
+// to slip past Date.parse (which normalizes it) and 500 inside Postgres. It
+// must be rejected at the boundary with a clean 400.
+test("GET /v1/analytics/volumes: an impossible date is rejected 400, not 500", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("volumes-impossible-date");
+
+  const feb30 = await app.inject({
+    method: "GET",
+    url: "/v1/analytics/volumes?from=2026-02-30&to=2026-03-10",
+    headers: authHeader(rawKey),
+  });
+  assert.equal(feb30.statusCode, 400, feb30.body);
+  assert.equal(feb30.json().error, "invalid_date");
+
+  const apr31 = await app.inject({
+    method: "GET",
+    url: "/v1/analytics/volumes?from=2026-01-01&to=2026-04-31",
+    headers: authHeader(rawKey),
+  });
+  assert.equal(apr31.statusCode, 400, apr31.body);
+  assert.equal(apr31.json().error, "invalid_date");
 });
 
 test("GET /v1/analytics/volumes: default from/to window (no query params) succeeds and is a real 31-day window", async () => {

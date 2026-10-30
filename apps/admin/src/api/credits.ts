@@ -5,9 +5,14 @@ import type { CreditRequestDto, CreditRequestListResponse, IssueCreditInput } fr
  *  sent: asking for one is a boolean, and the server computes the figure
  *  from the merchant's own `mdr_bps`. */
 // server blocks support from issuing — am
-export function issueCredit(merchantId: string, input: IssueCreditInput): Promise<CreditRequestDto> {
+export function issueCredit(
+  merchantId: string,
+  input: IssueCreditInput,
+  idempotencyKey: string,
+): Promise<CreditRequestDto> {
   return request(`/v1/admin/merchants/${merchantId}/credits`, {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
   });
 }

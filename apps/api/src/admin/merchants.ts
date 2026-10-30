@@ -281,7 +281,8 @@ export async function getMerchantDetailForAdmin(
   );
 
   const [apiKeys, webhookEndpoints, currentFeeSchedule] = await Promise.all([
-    listApiKeys(pool, merchantId),
+    // MAX_LIMIT: the admin detail view lists every key, unchanged by the default page cap.
+    listApiKeys(pool, merchantId, 100),
     listWebhookEndpoints(pool, merchantId),
     getCurrentFeeScheduleForDisplay(pool, merchantId),
   ]);

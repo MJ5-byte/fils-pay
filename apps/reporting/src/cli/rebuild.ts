@@ -1,5 +1,7 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { Pool } from "pg";
 import type { ReportingConfig } from "../config.js";
+import { GAP_RETRY_MS } from "./catchUp.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { resetCursor } from "../consumer/cursor.js";
 import { runConsumerPass, CONSUMER_NAME } from "../consumer/runConsumerPass.js";
@@ -26,7 +28,7 @@ async function getRollupCounts(pool: Pool): Promise<RollupCounts> {
 /**
  * `reporting rebuild` — CLI-only recovery tool. Truncates
  * merchant_daily_volume and merchant_payout_trends, resets this consumer's watermark to 0, and
- * replays the ENTIRE outbox history for the three event types this worker
+ * replays the ENTIRE outbox history for the event types this worker
  * consumes through the exact same runConsumerPass/applyEvent path used for
  * live consumption — one code path, no second implementation that could
  * drift from what the daemon does every day.
@@ -57,9 +59,11 @@ export async function runRebuild(pool: Pool, config: ReportingConfig): Promise<v
 
   let totalProcessed = 0;
   for (;;) {
-    const { processedCount } = await runConsumerPass(pool, config);
+    const { processedCount, blockedAtGap } = await runConsumerPass(pool, config);
     totalProcessed += processedCount;
-    if (processedCount === 0) break;
+    if (processedCount > 0) continue;
+    if (!blockedAtGap) break;
+    await delay(GAP_RETRY_MS);
   }
 
   // TODO: diff against apps/api admin/reportingRebuild.ts output (YA 2026-02)

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requireAdminRole, requireAdminSession } from "../adminAuth/middleware.js";
 import {
   approveCreditRequest,
@@ -7,7 +7,7 @@ import {
   rejectCreditRequest,
 } from "../admin/credits.js";
 import { UUID_RE } from "../admin/merchants.js";
-import { NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
 
 interface MerchantIdParams {
   id: string;
@@ -37,6 +37,16 @@ function assertUuidParam(value: string, code: string): void {
   }
 }
 
+/** Same contract as the transactions routes: the header is required on a money-moving POST. */
+function getIdempotencyKey(request: FastifyRequest): string {
+  const header = request.headers["idempotency-key"];
+  const key = Array.isArray(header) ? header[0] : header;
+  if (!key) {
+    throw new BadRequestError("idempotency_key_required", "Idempotency-Key header is required");
+  }
+  return key;
+}
+
 export async function adminCreditRoutes(app: FastifyInstance): Promise<void> {
   app.register(async (scope) => {
     scope.addHook("preHandler", requireAdminSession);
@@ -59,18 +69,23 @@ export async function adminCreditRoutes(app: FastifyInstance): Promise<void> {
       },
     );
 
+    // Under the approval threshold a new credit posts straight to the ledger,
+    // so creating one is as money-moving as approving one.
     scope.post<{ Params: MerchantIdParams; Body: unknown }>(
       "/merchants/:id/credits",
+      { preHandler: requireAdminRole("finance", "super_admin") },
       async (request, reply) => {
         const adminAuth = request.adminAuth;
         if (!adminAuth) throw new UnauthorizedError("unauthenticated");
 
         assertUuidParam(request.params.id, "merchant_not_found");
+        const idempotencyKey = getIdempotencyKey(request);
 
         const record = await createCreditRequest(app.db, {
           merchantId: request.params.id,
           adminUserId: adminAuth.adminUserId,
           body: request.body,
+          idempotencyKey,
         });
         reply.code(201).send(record);
       },

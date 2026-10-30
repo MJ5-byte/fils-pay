@@ -7,14 +7,16 @@
  * point at a real, migrated Postgres (run `npm run migrate` first).
  */
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { enqueueEvent } from "@filspay/events";
 import { loadConfig } from "../config.js";
 import { createWebhookEndpoint } from "./create.js";
 import { backoffDelayMs, runDispatchPass } from "./dispatcher.js";
+import { replayWebhookDelivery } from "./replay.js";
 import { verifySignature } from "./sign.js";
+import { sendTestWebhookEvent } from "./testSend.js";
 import { WEBHOOK_DELIVERY_ID_HEADER, WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
 import type { WebhookTransport, WebhookTransportRequest } from "./transport.js";
 
@@ -85,6 +87,7 @@ interface DeliveryRow {
   attempt_count: number;
   next_attempt_at: Date;
   response_status_code: number | null;
+  response_body_excerpt: string | null;
   signature: string | null;
   delivery_event_id: string;
 }
@@ -192,8 +195,11 @@ test("failing endpoint: backoff/exhaustion sequence across repeated runDispatchP
   assert.equal(delivery.status, "pending");
   assert.equal(delivery.attempt_count, 1);
   assert.equal(delivery.response_status_code, 500);
-  const expectedDelay1 = backoffDelayMs(1, config);
+  // backoffDelayMs applies ±10 % jitter by design; pin it to the midpoint for the exact base delay.
+  const expectedDelay1 = backoffDelayMs(1, config, () => 0.5);
   assert.equal(expectedDelay1, 1000);
+  assert.equal(backoffDelayMs(1, config, () => 0), 900);
+  assert.equal(backoffDelayMs(1, config, () => 1), 1100);
   const actualDelay1 = delivery.next_attempt_at.getTime() - Date.now();
   assert.ok(Math.abs(actualDelay1 - expectedDelay1) < 3000, `expected ~${expectedDelay1}ms, got ${actualDelay1}ms`);
 
@@ -212,7 +218,7 @@ test("failing endpoint: backoff/exhaustion sequence across repeated runDispatchP
   delivery = await getDelivery(String(outboxEvent.id), endpoint.id);
   assert.equal(delivery.status, "pending");
   assert.equal(delivery.attempt_count, 2);
-  const expectedDelay2 = backoffDelayMs(2, config);
+  const expectedDelay2 = backoffDelayMs(2, config, () => 0.5);
   assert.equal(expectedDelay2, 2000);
   const actualDelay2 = delivery.next_attempt_at.getTime() - Date.now();
   assert.ok(Math.abs(actualDelay2 - expectedDelay2) < 3000, `expected ~${expectedDelay2}ms, got ${actualDelay2}ms`);
@@ -251,6 +257,34 @@ test("transport-level failure (thrown/rejected transport): treated as a non-2xx 
   assert.equal(delivery.attempt_count, 1);
   assert.equal(delivery.response_status_code, null);
 });
+
+for (const statusCode of [200, 500]) {
+  test(`receiver body containing a NUL byte (${statusCode}): the attempt is still recorded and other deliveries are sent`, async () => {
+    const merchantId = await createMerchant(`nul-body-${statusCode}`);
+    const nulEndpoint = await createEndpoint(merchantId, `http://nul.test/webhook-${randomUUID()}`);
+    const okUrl = `http://ok.test/webhook-${randomUUID()}`;
+    const okEndpoint = await createEndpoint(merchantId, okUrl);
+    const outboxEvent = await enqueueCaptured(merchantId);
+
+    const sentToOk: string[] = [];
+    const transport: WebhookTransport = async (req) => {
+      if (req.url.includes("nul.test")) return { statusCode, body: "bad\u0000body" };
+      if (req.url === okUrl) sentToOk.push(req.url);
+      return { statusCode: 200, body: "ok" };
+    };
+
+    await runDispatchPass(pool, transport, config);
+
+    const nul = await getDelivery(String(outboxEvent.id), nulEndpoint.id);
+    assert.equal(nul.attempt_count, 1);
+    assert.equal(nul.status, statusCode === 200 ? "succeeded" : "pending");
+    assert.equal(nul.response_status_code, statusCode);
+    assert.equal(nul.response_body_excerpt, "badbody");
+    const ok = await getDelivery(String(outboxEvent.id), okEndpoint.id);
+    assert.equal(ok.status, "succeeded");
+    assert.equal(sentToOk.length, 1);
+  });
+}
 
 test("multi-endpoint independence: one endpoint succeeds, the other exhausts, unaffected by each other", async () => {
   const merchantId = await createMerchant("multi-endpoint");
@@ -407,4 +441,196 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
     endpoint.id,
   ]);
   assert.equal(rows.rows.length, 0);
+});
+
+test("refund.succeeded: one delivery per active endpoint with the documented body, and a later event is not stalled", async () => {
+  const merchantId = await createMerchant("refund-succeeded");
+  const urlA = `http://refund-a.test/webhook-${randomUUID()}`;
+  const urlB = `http://refund-b.test/webhook-${randomUUID()}`;
+  const urlOff = `http://refund-off.test/webhook-${randomUUID()}`;
+  const endpointA = await createEndpoint(merchantId, urlA);
+  const endpointB = await createEndpoint(merchantId, urlB);
+  const disabled = await createEndpoint(merchantId, urlOff);
+  await pool.query(`UPDATE webhook_endpoints SET status = 'disabled' WHERE id = $1`, [disabled.id]);
+
+  const transactionId = randomUUID();
+  const refundId = randomUUID();
+  const refundEvent = await enqueueEvent(pool, {
+    eventType: "refund.succeeded",
+    aggregateType: "transaction",
+    aggregateId: transactionId,
+    payload: {
+      merchantId,
+      refundId,
+      amountFils: 300,
+      feeReversedFils: 8,
+      refundedTotalFils: 300,
+      newStatus: "refund_partial",
+    },
+  });
+  const laterCapture = await enqueueCaptured(merchantId);
+
+  const captured: WebhookTransportRequest[] = [];
+  const transport: WebhookTransport = async (req) => {
+    if ([urlA, urlB, urlOff].includes(req.url)) captured.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+  await Promise.all([runDispatchPass(pool, transport, config), runDispatchPass(pool, transport, config)]);
+
+  const refundBodies = captured
+    .map((req) => ({ url: req.url, body: JSON.parse(req.body) as { type: string; data: Record<string, unknown> } }))
+    .filter((c) => c.body.type === "refund.succeeded");
+  assert.deepEqual(refundBodies.map((c) => c.url).sort(), [urlA, urlB].sort());
+  for (const { body } of refundBodies) {
+    assert.deepEqual(body.data, {
+      refundId,
+      transactionId,
+      merchantId,
+      amountFils: 300,
+      feeReversedFils: 8,
+      refundedTotalFils: 300,
+      transactionStatus: "refund_partial",
+    });
+  }
+
+  for (const endpoint of [endpointA, endpointB]) {
+    assert.equal((await getDelivery(String(refundEvent.id), endpoint.id)).status, "succeeded");
+    assert.equal((await getDelivery(String(laterCapture.id), endpoint.id)).status, "succeeded");
+  }
+  const none = await pool.query(`SELECT 1 FROM webhook_deliveries WHERE outbox_event_id = $1 AND endpoint_id = $2`, [
+    String(refundEvent.id),
+    disabled.id,
+  ]);
+  assert.equal(none.rows.length, 0);
+});
+
+// Settlement's notify step records the disbursement with the settlement.paid
+// event (BHA-130); webhook delivery, per endpoint or replayed, must write none (BHA-140).
+test("settlement.paid: delivery to two endpoints and a replay writes no disbursement", async () => {
+  const merchantId = await createMerchant("payout-disbursement");
+  const firstEndpoint = await createEndpoint(merchantId, "http://first.test/webhook");
+  const secondEndpoint = await createEndpoint(merchantId, "http://second.test/webhook");
+  const batch = await pool.query<{ id: string; batch_date: string }>(
+    `INSERT INTO settlement_batches
+        (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+     VALUES ($1, current_date, 'paid', $2, 0, $2, now(), now())
+     RETURNING id, batch_date::text`,
+    [merchantId, 23_422],
+  );
+  const paidBatch = batch.rows[0];
+  assert.ok(paidBatch);
+  const outboxEvent = await enqueueEvent(pool, {
+    eventType: "settlement.paid",
+    aggregateType: "settlement_batch",
+    aggregateId: paidBatch.id,
+    payload: {
+      merchantId,
+      batchDate: paidBatch.batch_date,
+      netPayoutFils: 23_422,
+    },
+  });
+
+  const transport = alwaysRespond(200);
+  await Promise.all([runDispatchPass(pool, transport, config), runDispatchPass(pool, transport, config)]);
+
+  const firstDelivery = await getDelivery(String(outboxEvent.id), firstEndpoint.id);
+  const secondDelivery = await getDelivery(String(outboxEvent.id), secondEndpoint.id);
+  assert.equal(firstDelivery.status, "succeeded");
+  assert.equal(secondDelivery.status, "succeeded");
+
+  const replay = await replayWebhookDelivery(pool, {
+    merchantId,
+    endpointId: firstEndpoint.id,
+    deliveryId: firstDelivery.id,
+  });
+  await forceDueNow(replay.deliveryId);
+  await runDispatchPass(pool, transport, config);
+
+  const replayResult = await pool.query<DeliveryRow>(
+    `SELECT * FROM webhook_deliveries WHERE id = $1`,
+    [replay.deliveryId],
+  );
+  const replayDelivery = replayResult.rows[0];
+  assert.ok(replayDelivery);
+  assert.equal(replayDelivery.status, "succeeded");
+  assert.equal(replayDelivery.attempt_count, 1);
+
+  const disbursements = await pool.query(
+    `SELECT 1 FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
+    [paidBatch.id],
+  );
+  assert.equal(disbursements.rows.length, 0);
+});
+
+test("a real delivery and a test send are each signed over the exact body bytes sent (BHA-15)", async () => {
+  function assertRawSignature(header: string, body: string, secret: string): void {
+    const match = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(header);
+    assert.ok(match, "the signature header must contain a timestamp and SHA-256 HMAC");
+    const [, t, v1] = match;
+    assert.equal(createHmac("sha256", secret).update(`${t}.${body}`).digest("hex"), v1);
+  }
+
+  const merchantId = await createMerchant("raw-body-signature");
+  const endpointUrl = `http://fake-receiver.test/webhook-${randomUUID()}`;
+  const endpoint = await createEndpoint(merchantId, endpointUrl);
+  await enqueueCaptured(merchantId);
+
+  const captured: WebhookTransportRequest[] = [];
+  const transport: WebhookTransport = async (req) => {
+    if (req.url === endpointUrl) captured.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+
+  await runDispatchPass(pool, transport, config);
+
+  assert.equal(captured.length, 1);
+  const deliveryRequest = captured[0];
+  assert.ok(deliveryRequest);
+  const deliveryHeader = deliveryRequest.headers[WEBHOOK_SIGNATURE_HEADER];
+  assert.ok(deliveryHeader);
+  assertRawSignature(deliveryHeader, deliveryRequest.body, endpoint.secret);
+
+  const testRequests: WebhookTransportRequest[] = [];
+  const testTransport: WebhookTransport = async (req) => {
+    testRequests.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+
+  await sendTestWebhookEvent(pool, config, testTransport, { merchantId, endpointId: endpoint.id });
+
+  assert.equal(testRequests.length, 1);
+  const testRequest = testRequests[0];
+  assert.ok(testRequest);
+  const testHeader = testRequest.headers[WEBHOOK_SIGNATURE_HEADER];
+  assert.ok(testHeader);
+  assertRawSignature(testHeader, testRequest.body, endpoint.secret);
+});
+
+test("disabled endpoint: queued delivery is not attempted, and is sent once the endpoint is active again", async () => {
+  const merchantId = await createMerchant("paused-endpoint");
+  const endpointUrl = `http://fake-receiver.test/paused-${randomUUID()}`;
+  const endpoint = await createEndpoint(merchantId, endpointUrl);
+  const outboxEvent = await enqueueCaptured(merchantId);
+
+  const captured: WebhookTransportRequest[] = [];
+  const transport: WebhookTransport = async (req) => {
+    if (req.url === endpointUrl) captured.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+
+  // Step A creates the pending row only when it sees an active endpoint, so
+  // create it with a failing pass, then disable the endpoint before the retry.
+  await runDispatchPass(pool, alwaysRespond(500), config);
+  const queued = await getDelivery(String(outboxEvent.id), endpoint.id);
+  await forceDueNow(queued.id);
+  await pool.query(`UPDATE webhook_endpoints SET status = 'disabled' WHERE id = $1`, [endpoint.id]);
+
+  await runDispatchPass(pool, transport, config);
+  assert.equal(captured.length, 0);
+  assert.equal((await getDelivery(String(outboxEvent.id), endpoint.id)).status, "pending");
+
+  await pool.query(`UPDATE webhook_endpoints SET status = 'active' WHERE id = $1`, [endpoint.id]);
+  await runDispatchPass(pool, transport, config);
+  assert.equal(captured.length, 1);
+  assert.equal((await getDelivery(String(outboxEvent.id), endpoint.id)).status, "succeeded");
 });

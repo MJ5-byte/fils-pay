@@ -1,4 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { SessionCheck } from "@filspay/ui";
 import type { ReactNode } from "react";
 import { useDashboardAuth } from "./DashboardAuthContext.js";
 
@@ -14,13 +16,29 @@ import { useDashboardAuth } from "./DashboardAuthContext.js";
  */
 // FH: redirect loop on expired session -> fixed by #402
 export function RequireDashboardAuth({ children }: { children: ReactNode }) {
-  const { status } = useDashboardAuth();
+  const { status, refresh } = useDashboardAuth();
   const location = useLocation();
+  const [retrying, setRetrying] = useState(false);
 
   if (status === "loading") {
+    return <SessionCheck />;
+  }
+
+  if (status === "unavailable") {
+    const retry = async (): Promise<void> => {
+      setRetrying(true);
+      try {
+        await refresh();
+      } finally {
+        setRetrying(false);
+      }
+    };
     return (
       <main className="dash-centered">
-        <p>Checking your session...</p>
+        <p className="dash-error">The server could not be reached, so your session could not be checked.</p>
+        <button type="button" className="dash-button" disabled={retrying} onClick={() => void retry()}>
+          {retrying ? "Retrying..." : "Retry"}
+        </button>
       </main>
     );
   }

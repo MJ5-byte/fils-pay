@@ -1,4 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { SessionCheck } from "@filspay/ui";
 import type { ReactNode } from "react";
 import { useAdminAuth } from "../auth/AdminAuthContext.js";
 
@@ -14,13 +16,29 @@ import { useAdminAuth } from "../auth/AdminAuthContext.js";
  */
 /** Redirects to /login while status is anonymous. */
 export function RequireAdminAuth({ children }: { children: ReactNode }) {
-  const { status } = useAdminAuth();
+  const { status, refresh } = useAdminAuth();
   const location = useLocation();
+  const [retrying, setRetrying] = useState(false);
 
   if (status === "loading") {
+    return <SessionCheck />;
+  }
+
+  if (status === "unavailable") {
+    const retry = async (): Promise<void> => {
+      setRetrying(true);
+      try {
+        await refresh();
+      } finally {
+        setRetrying(false);
+      }
+    };
     return (
       <main className="admin-centered">
-        <p>Checking your session...</p>
+        <p className="dash-error">The server could not be reached, so your session could not be checked.</p>
+        <button type="button" className="dash-button" disabled={retrying} onClick={() => void retry()}>
+          {retrying ? "Retrying..." : "Retry"}
+        </button>
       </main>
     );
   }

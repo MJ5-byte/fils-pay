@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { NotFoundError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import { todayStamp } from "../lib/dateUtil.js";
 
 export interface BusinessProfile {
@@ -90,6 +90,47 @@ const PATCHABLE_COLUMNS: Record<keyof BusinessProfilePatch, string> = {
   city: "city",
   postalCode: "postal_code",
 };
+
+const BUSINESS_TYPES: readonly string[] = ["sole_proprietorship", "llc", "partnership", "public_company", "other"];
+const REQUIRED_TEXT_FIELDS = ["legalName", "registrationNumber", "contactEmail", "contactPhone", "addressLine1", "city"];
+const OPTIONAL_TEXT_FIELDS = ["addressLine2", "postalCode"];
+
+export function isCleanText(value: unknown): value is string {
+  // NUL is rejected by Postgres text columns.
+  return typeof value === "string" && !value.includes("\u0000");
+}
+
+/**
+ * Boundary check for signup (`partial: false`, required fields must be present) and PATCH
+ * (`partial: true`). Keys outside PATCHABLE_COLUMNS are refused, and error messages never echo input.
+ */
+export function assertValidBusinessProfile(input: unknown, partial: boolean): void {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new BadRequestError("invalid_business_profile", "business profile must be an object");
+  }
+  const fields = input as Record<string, unknown>;
+  for (const key of Object.keys(fields)) {
+    if (!Object.hasOwn(PATCHABLE_COLUMNS, key)) {
+      throw new BadRequestError("unknown_field", "request contains a field that cannot be set");
+    }
+  }
+  const invalid = (): never => {
+    throw new BadRequestError("invalid_business_profile", "a business profile field is missing or invalid");
+  };
+  for (const key of REQUIRED_TEXT_FIELDS) {
+    const value = fields[key];
+    if (value === undefined ? !partial : !isCleanText(value) || value.trim() === "") invalid();
+  }
+  for (const key of OPTIONAL_TEXT_FIELDS) {
+    const value = fields[key];
+    if (value !== undefined && value !== null && !isCleanText(value)) invalid();
+  }
+  const { businessType, country } = fields;
+  if (businessType === undefined ? !partial : typeof businessType !== "string" || !BUSINESS_TYPES.includes(businessType)) invalid();
+  // Signup treats a null country as omitted (defaults to BH); the column is NOT NULL, so PATCH refuses it.
+  if (country === null && !partial) return;
+  if (country !== undefined && (typeof country !== "string" || !/^[A-Z]{2}$/.test(country))) invalid();
+}
 
 /** Partial update of the editable business-profile fields (all except
  *  merchant_id). Does not touch onboarding_status — editing profile fields

@@ -70,8 +70,8 @@ function bahrainLocalMidnightUtc(dateStr: string): Date {
 
 /**
  * settlement.batch_closed — a single-row lookup against settlement_batches
- * by id (not a fan-out join), capturing whatever
- * status/paid_at it carries at the moment this event is applied. A missing
+ * by id (not a fan-out join), capturing whatever status/paid_at and
+ * gross/fee/net it carries at the moment this event is applied. A missing
  * batch row (only possible for a hand-constructed test event — CloseBatch
  * always inserts the row in the same transaction it enqueues this event
  * from) is a no-op, never a thrown error that would poison the whole pass.
@@ -90,8 +90,17 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
     netPayoutFils: number;
   };
 
-  const batchResult = await client.query<{ status: string; paid_at: Date | null }>(
-    `SELECT status, paid_at FROM settlement_batches WHERE id = $1`,
+  // Money columns come from the batch row, not the payload: recalculate_mdr.go
+  // rewrites fee_fils/net_payout_fils after close and emits no event, so the
+  // payload's figures go stale and a rebuild replay would restore them.
+  const batchResult = await client.query<{
+    status: string;
+    paid_at: Date | null;
+    gross_fils: string;
+    fee_fils: string;
+    net_payout_fils: string;
+  }>(
+    `SELECT status, paid_at, gross_fils, fee_fils, net_payout_fils FROM settlement_batches WHERE id = $1`,
     [payload.batchId],
   );
   const batch = batchResult.rows[0];
@@ -110,9 +119,9 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
       payload.batchId,
       payload.batchDate,
       batch.status,
-      payload.grossFils,
-      payload.feeFils,
-      payload.netPayoutFils,
+      batch.gross_fils,
+      batch.fee_fils,
+      batch.net_payout_fils,
       batch.paid_at,
     ],
   );
@@ -140,34 +149,50 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
   const groundTruthCount = Number(groundTruth.rows[0]?.event_count ?? "0");
 
   if (groundTruthCount > 0) {
-    const rollupResult = await client.query(
+    const rollupResult = await client.query<{ captured_count: number }>(
       `SELECT captured_count FROM merchant_daily_volume WHERE merchant_id = $1 AND volume_date = $2`,
       [payload.merchantId, payload.batchDate],
     );
-    const rollup = rollupResult.rows[0] as { captured_count: number };
-    if (rollup.captured_count < groundTruthCount) {
+    // No row yet means no capture for that day was applied: the rollup is at
+    // zero and lags, which this check reports rather than throwing on.
+    const rollupCount = rollupResult.rows[0]?.captured_count ?? 0;
+    if (rollupCount < groundTruthCount) {
       console.warn(
         `reporting rollup lags ground truth for merchant ${payload.merchantId} on ${payload.batchDate}: ` +
-          `rollup=${rollup.captured_count} ground_truth=${groundTruthCount}`,
+          `rollup=${rollupCount} ground_truth=${groundTruthCount}`,
       );
     }
   }
 }
 
+/**
+ * settlement.paid — the batch went closed -> paid after its batch_closed
+ * event was applied, so the trend row still carries the old status. Re-reads
+ * status/paid_at from settlement_batches, the same source applyBatchClosed
+ * copies them from; with no trend row yet it changes nothing. Re-applying it
+ * writes the same values, so the rebuild replay stays idempotent.
+ */
+async function applySettlementPaid(client: PoolClient, row: OutboxEventRow): Promise<void> {
+  const payload = row.payload as { merchantId: string; batchId: string };
+  await client.query(
+    `UPDATE merchant_payout_trends t
+        SET status = sb.status, paid_at = sb.paid_at, last_updated_at = now()
+       FROM settlement_batches sb
+      WHERE sb.id = $2
+        AND t.merchant_id = $1 AND t.settlement_batch_id = sb.id`,
+    [payload.merchantId, payload.batchId],
+  );
+}
 
 /**
- * Rolls up a running daily refund summary, keyed by calendar date.
- * Called from the refund event path once refund events are wired into
- * the outbox (the consumer SELECT in runConsumerPass will include
- * "transaction.refunded" once the refund flow lands).
+ * refund.succeeded - adds the refund's amountFils to the merchant's Bahrain
+ * business day (ADR-0003), the same day rule the capture rollup uses: the
+ * outbox row's created_at, written in the refund's own transaction. Exactly-once
+ * comes from the watermark, as for captures.
  */
-export async function applyDailySummaryRollup(
-  client: PoolClient,
-  merchantId: string,
-  occurredAt: Date,
-  amountFils: number,
-): Promise<void> {
-  const summaryDate = occurredAt.toISOString().slice(0, 10);
+async function applyRefundSucceeded(client: PoolClient, row: OutboxEventRow): Promise<void> {
+  const payload = row.payload as { merchantId: string; amountFils: number };
+  const volumeDate = toBahrainDateString(row.created_at);
   await client.query(
     `INSERT INTO merchant_daily_volume (merchant_id, volume_date, refund_count, refund_gross_fils, last_updated_at)
      VALUES ($1, $2, 1, $3, now())
@@ -175,7 +200,7 @@ export async function applyDailySummaryRollup(
        SET refund_count = merchant_daily_volume.refund_count + 1,
            refund_gross_fils = merchant_daily_volume.refund_gross_fils + EXCLUDED.refund_gross_fils,
            last_updated_at = now()`,
-    [merchantId, summaryDate, amountFils],
+    [payload.merchantId, volumeDate, payload.amountFils],
   );
 }
 
@@ -185,7 +210,7 @@ export async function applyDailySummaryRollup(
  * wired into this switch fails loudly (a thrown error rolls back the whole
  * pass, per runConsumerPass's transactional discipline) rather than
  * silently dropping the event — runConsumerPass's own SELECT already
- * filters to the three types handled below, so this branch should never
+ * filters to the types handled below, so this branch should never
  * actually run against real data.
  */
 export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promise<void> {
@@ -196,6 +221,10 @@ export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promi
       return applyTransactionVoided(client, row);
     case "settlement.batch_closed":
       return applyBatchClosed(client, row);
+    case "settlement.paid":
+      return applySettlementPaid(client, row);
+    case "refund.succeeded":
+      return applyRefundSucceeded(client, row);
     default:
       throw new Error(`applyEvent: unhandled event_type ${row.event_type}`);
   }

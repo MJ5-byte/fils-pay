@@ -51,13 +51,13 @@ interface ReplayBatchBody {
 }
 
 /**
- * from/to bound the deliveries archived (created_at, to exclusive). The
- * archive is written in pages of 500 rows, so memory stays flat no matter
- * how wide the range is.
+ * from/to bound the deliveries archived (created_at, to exclusive). One call
+ * archives at most 500 rows; `after` is the previous call's `nextCursor`.
  */
 interface ArchiveCreateBody {
   from?: string;
   to?: string;
+  after?: string;
 }
 
 interface ArchiveReplayParams extends EndpointParams {
@@ -66,6 +66,7 @@ interface ArchiveReplayParams extends EndpointParams {
 
 interface ArchiveReplayBody {
   targetEndpointId?: string;
+  offset?: number;
 }
 
 /** A path id that isn't UUID-shaped can't name a row in any of these tables,
@@ -276,12 +277,18 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
         throw new BadRequestError("invalid_request", "from must be strictly before to");
       }
 
+      const after = request.body?.after;
+      if (after !== undefined && (typeof after !== "string" || !UUID_RE.test(after))) {
+        throw new BadRequestError("invalid_request", "after must be a delivery id");
+      }
+
       const result = await createWebhookDeliveryArchive(app.db, {
         merchantId: request.params.id,
         endpointId: request.params.endpointId,
         adminUserId: adminAuth.adminUserId,
         from: fromDate,
         to: toDate,
+        ...(after !== undefined && { after }),
       });
 
       reply.code(201).send(result);
@@ -307,11 +314,17 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
       const targetEndpointId = request.body?.targetEndpointId ?? request.params.endpointId;
       assertUuidParam(targetEndpointId, "webhook_endpoint_not_found");
 
+      const offset = request.body?.offset;
+      if (offset !== undefined && (!Number.isInteger(offset) || offset < 0)) {
+        throw new BadRequestError("invalid_request", "offset must be a non-negative integer");
+      }
+
       const result = await replayWebhookDeliveryArchive(app.db, {
         merchantId: request.params.id,
         archiveId: request.params.archiveId,
         targetEndpointId,
         adminUserId: adminAuth.adminUserId,
+        ...(offset !== undefined && { offset }),
       });
 
       reply.code(200).send(result);

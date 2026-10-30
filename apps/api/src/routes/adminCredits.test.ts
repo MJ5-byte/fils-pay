@@ -113,7 +113,7 @@ async function issueCredit(
   const res = await app.inject({
     method: "POST",
     url: `/v1/admin/merchants/${merchantId}/credits`,
-    headers: { cookie },
+    headers: { cookie, "idempotency-key": randomUUID() },
     payload: { reasonCode: "goodwill", effectiveDate: todayIso(), ...payload },
   });
   assert.equal(res.statusCode, 201, res.body);
@@ -162,6 +162,26 @@ test("a support admin is 403'd on approve and reject — the decision that moves
     [pending.id],
   );
   assert.equal(row.rows[0]!.status, "pending_approval");
+});
+
+test("a support admin is 403'd on creating a credit, and nothing is journaled", async () => {
+  const support = await signedInAdmin("support", "gate-create");
+  const merchantId = await createMerchant("gate-create");
+
+  // Under the threshold, so without the gate this would post straight to the ledger.
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/credits`,
+    headers: { cookie: support.cookie },
+    payload: { reasonCode: "goodwill", effectiveDate: todayIso(), baseAmountFils: 1_000 },
+  });
+  assert.equal(res.statusCode, 403, res.body);
+  assert.equal(res.json().error, "forbidden");
+
+  const requests = await pool.query(`SELECT 1 FROM credit_requests WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(requests.rowCount, 0);
+  const ledger = await pool.query(`SELECT 1 FROM ledger_entries WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(ledger.rowCount, 0);
 });
 
 test("a support admin CAN read the credits queue — it is a read, like the merchant list", async () => {
@@ -231,7 +251,7 @@ test("create validates its body and 404s an unknown or malformed merchant", asyn
     const res = await app.inject({
       method: "POST",
       url: `/v1/admin/merchants/${merchantId}/credits`,
-      headers: { cookie: finance.cookie },
+      headers: { cookie: finance.cookie, "idempotency-key": randomUUID() },
       payload,
     });
     assert.equal(res.statusCode, 400, `${JSON.stringify(payload)} -> ${res.body}`);
@@ -241,7 +261,7 @@ test("create validates its body and 404s an unknown or malformed merchant", asyn
     const res = await app.inject({
       method: "POST",
       url: `/v1/admin/merchants/${id}/credits`,
-      headers: { cookie: finance.cookie },
+      headers: { cookie: finance.cookie, "idempotency-key": randomUUID() },
       payload: { baseAmountFils: 1_000, reasonCode: "goodwill", effectiveDate: todayIso() },
     });
     assert.equal(res.statusCode, 404, `${id} -> ${res.body}`);
@@ -402,4 +422,28 @@ test("GET /v1/admin/credits filters by status", async () => {
       `status=${status}`,
     );
   }
+});
+
+test("a resent credit with the same Idempotency-Key posts once", async () => {
+  const finance = await signedInAdmin("finance", "resend");
+  const merchantId = await createMerchant("resend");
+  const send = () =>
+    app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/credits`,
+      headers: { cookie: finance.cookie, "idempotency-key": "resend-after-timeout" },
+      payload: { reasonCode: "goodwill", effectiveDate: todayIso(), baseAmountFils: 5_000 },
+    });
+
+  const first = await send();
+  const second = await send();
+  assert.equal(first.statusCode, 201, first.body);
+  assert.equal(second.statusCode, 201, second.body);
+  assert.equal(second.json().id, first.json().id);
+
+  const requests = await pool.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM credit_requests WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(requests.rows[0]?.n, 1);
 });

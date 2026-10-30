@@ -3,13 +3,16 @@ import type { Pool, PoolClient } from "pg";
 import { addFils, toFils, ZERO_FILS, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { ConflictError, NotFoundError } from "../lib/errors.js";
+import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
+import { ConflictError, NotFoundError, UnprocessableEntityError } from "../lib/errors.js";
+import { claimIdempotencyKey, completeIdempotencyKey, hashRequest } from "../payments/idempotency.js";
 import { assertDistinctApprover } from "./creditApproval.js";
 import { calculateCreditFeeReversal, creditRequiresSecondApprover } from "./creditThreshold.js";
 import { parseCreditRequestInput, type CreditReasonCode } from "./creditRequestValidation.js";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
+const CREATE_CREDIT_ENDPOINT = "admin.credits.create";
 
 export type CreditRequestStatus = "pending_approval" | "posted" | "rejected";
 
@@ -144,7 +147,6 @@ interface PostableCredit {
  */
 async function postCreditToLedger(client: PoolClient, credit: PostableCredit): Promise<string> {
   const entryGroupId = randomUUID();
-  const postedAmountFils = addFils(credit.baseAmountFils, credit.feeReversalFils);
 
   // Both legs post at Asia/Bahrain midnight of the credit's effective date —
   // the same business-day anchor settlement uses — so a credit shows up in
@@ -173,20 +175,10 @@ async function postCreditToLedger(client: PoolClient, credit: PostableCredit): P
     );
   }
 
-  // Keep the cache in step with what we just journaled, in the same
-  // transaction. ledger_entries is authoritative and rebuild-balances
-  // recomputes from it; without this the cache would silently disagree with
-  // the ledger by the credited amount until the next rebuild. This is an
-  // INSERT-first journal with the cache updated as a consequence — never the
-  // other way round.
-  await client.query(
-    `INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
-     VALUES ($1, $2, now())
-     ON CONFLICT (merchant_id) DO UPDATE
-       SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils,
-           updated_at = now()`,
-    [credit.merchantId, postedAmountFils],
-  );
+  // merchant_balances is left alone. It holds closed, unpaid batch nets
+  // (ADR-0007), and the next CloseBatch claims these merchant_payable legs
+  // into its net and adds that net to the cache; adding the credit here as
+  // well counted it twice after a rebuild (BHA-189).
 
   await client.query(
     `UPDATE credit_requests
@@ -204,13 +196,13 @@ async function postCreditToLedger(client: PoolClient, credit: PostableCredit): P
  */
 export async function createCreditRequest(
   pool: Pool,
-  input: { merchantId: string; adminUserId: string; body: unknown },
+  input: { merchantId: string; adminUserId: string; body: unknown; idempotencyKey?: string },
 ): Promise<CreditRequestRecord> {
   const draft = parseCreditRequestInput(input.body);
 
   return withTransaction(pool, async (client) => {
-    const merchantResult = await client.query<{ mdr_bps: number }>(
-      `SELECT mdr_bps FROM merchants WHERE id = $1`,
+    const merchantResult = await client.query<{ mdr_bps: number; negotiated_discount_bps: number }>(
+      `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     );
     const merchant = merchantResult.rows[0];
@@ -218,10 +210,46 @@ export async function createCreditRequest(
       throw new NotFoundError("merchant_not_found");
     }
 
-    // Never operator-supplied: the reversal is the merchant's own contracted
-    // rate applied to the amount they asked to credit.
+    // Under the threshold this posts to the ledger, so a resent request must
+    // replay the first credit instead of posting a second one. Claimed after
+    // the merchant lookup because idempotency_keys references merchants.
+    const claim = input.idempotencyKey
+      ? await claimIdempotencyKey(client, {
+          merchantId: input.merchantId,
+          endpoint: CREATE_CREDIT_ENDPOINT,
+          key: input.idempotencyKey,
+          requestHash: hashRequest({ adminUserId: input.adminUserId, body: input.body }),
+        })
+      : null;
+    if (claim?.outcome === "conflict_hash_mismatch") {
+      throw new UnprocessableEntityError("idempotency_key_reused");
+    }
+    if (claim?.outcome === "conflict_in_progress") {
+      throw new ConflictError("request_in_progress");
+    }
+    if (claim?.outcome === "replay") {
+      if (!claim.row.resourceId) {
+        throw new Error("createCreditRequest: completed idempotency key has no credit request id");
+      }
+      return readRecord(client, claim.row.resourceId);
+    }
+
+    // Never operator-supplied: the reversal is the net fee capture charges,
+    // the negotiated rate from the same fee-schedule lookup capture.ts uses
+    // less the merchant's discount, as of the Asia/Bahrain midnight the
+    // ledger legs are anchored to. A credit names no capture, so its
+    // effective date is the only instant it has.
     const feeReversalFils = draft.reverseFee
-      ? calculateCreditFeeReversal(draft.baseAmountFils, merchant.mdr_bps)
+      ? calculateCreditFeeReversal(
+          draft.baseAmountFils,
+          await getEffectiveMdrBps(
+            client,
+            input.merchantId,
+            new Date(`${draft.effectiveDate}T00:00:00+03:00`),
+            merchant.mdr_bps,
+          ),
+          merchant.negotiated_discount_bps,
+        )
       : ZERO_FILS;
     // FH: threshold compares base + reversal, so a 50.000 BD credit with a fee reversal needs a second approver
     // MK: no — base only. fee reversal is mechanical. intended.
@@ -277,7 +305,11 @@ export async function createCreditRequest(
       },
     });
 
-    return readRecord(client, creditRequestId);
+    const record = await readRecord(client, creditRequestId);
+    if (claim) {
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 201, body: record, resourceId: creditRequestId });
+    }
+    return record;
   });
 }
 

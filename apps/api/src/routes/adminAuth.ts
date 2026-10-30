@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Pool, PoolClient } from "pg";
+import { revokeAdminImpersonationGrants } from "../admin/impersonation.js";
 import { verifyPassword } from "../adminAuth/passwords.js";
 import { issueAdminChallenge, verifyOtpCode } from "../adminAuth/otp.js";
 import { sendAdminOtpCode } from "../adminAuth/notifier.js";
+import { exposesOtpCode } from "../auth/notifier.js";
+import { clearLoginFailures, reserveLoginAttempt } from "../auth/loginLimit.js";
 import { requireAdminSession } from "../adminAuth/middleware.js";
 import {
   createPendingAdminSession,
@@ -21,6 +25,25 @@ import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } f
  */
 const DUMMY_PASSWORD_HASH =
   "$argon2id$v=19$m=19456,p=1,t=2$/yKuaUqm4SW+pPt2oGNj4A$j5oxu/MdJJP86dClo0LJ0wsekKwkSbr1yA0uZSZgQcc";
+
+/**
+ * `max_attempts` caps the guesses on one challenge, but every password login
+ * issues a fresh challenge. Counting wrong codes across the admin's recent
+ * challenges stops re-logging in from resetting the guess budget: at most 10
+ * wrong codes per 15 minutes, so about 960 a day against a million 6-digit codes.
+ */
+const OTP_FAILURE_LIMIT = 10;
+const OTP_FAILURE_WINDOW_MINUTES = 15;
+
+async function hasTooManyRecentOtpFailures(db: Pool | PoolClient, adminUserId: string): Promise<boolean> {
+  const result = await db.query<{ failures: number }>(
+    `SELECT COALESCE(SUM(attempt_count), 0)::int AS failures
+       FROM admin_otp_challenges
+      WHERE admin_user_id = $1 AND created_at > now() - ($2 || ' minutes')::interval`,
+    [adminUserId, OTP_FAILURE_WINDOW_MINUTES],
+  );
+  return (result.rows[0]?.failures ?? 0) >= OTP_FAILURE_LIMIT;
+}
 
 interface LoginBody {
   email?: string;
@@ -53,9 +76,13 @@ interface AdminUserRow {
 export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const { email, password } = request.body ?? {};
-    if (!email || !password) {
+    // A non-string email (an array, say) otherwise throws in the login
+    // limiter's hash and surfaces as a 500.
+    if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
       throw new BadRequestError("invalid_request", "email and password are required");
     }
+
+    await reserveLoginAttempt(app.db, reply, "admin", email);
 
     const userResult = await app.db.query<AdminUserRow>(
       `SELECT id, email, role, password_hash FROM admin_users WHERE email = $1 AND status = 'active'`,
@@ -69,6 +96,10 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
     // account, or wrong password) — the response never discloses which.
     if (!user || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
+    }
+    await clearLoginFailures(app.db, "admin", email);
+    if (await hasTooManyRecentOtpFailures(app.db, user.id)) {
+      throw new TooManyRequestsError("too_many_attempts");
     }
 
     const { code, expiresAt, rawToken } = await withTransaction(app.db, async (client) => {
@@ -102,7 +133,7 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       otpRequired: true,
       otpExpiresAt: expiresAt.toISOString(),
     };
-    if (app.config.otpDevExpose) {
+    if (exposesOtpCode(app.config, user.email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);
@@ -110,7 +141,8 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: OtpVerifyBody }>("/otp/verify", async (request, reply) => {
     const code = request.body?.code;
-    if (!code) {
+    // An object code throws when hashOtpCode concatenates it with the salt.
+    if (typeof code !== "string" || !code) {
       throw new BadRequestError("invalid_request", "code is required");
     }
 
@@ -123,43 +155,44 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new UnauthorizedError("no_pending_session");
     }
 
-    const challengeResult = await app.db.query<{
-      id: string;
-      code_salt: string;
-      code_hash: string;
-      attempt_count: number;
-      max_attempts: number;
-      expires_at: Date;
-      consumed_at: Date | null;
-    }>(
-      `SELECT id, code_salt, code_hash, attempt_count, max_attempts, expires_at, consumed_at
-         FROM admin_otp_challenges WHERE id = $1`,
-      [pending.otpChallengeId],
-    );
-    const challenge = challengeResult.rows[0];
-    if (!challenge || challenge.consumed_at !== null) {
-      throw new GoneError("otp_expired");
-    }
-    if (challenge.expires_at.getTime() <= Date.now()) {
-      throw new GoneError("otp_expired");
-    }
-
-    // admin path doesn't have the merchant race, the challenge row is read FOR UPDATE — MK
-    if (challenge.attempt_count >= challenge.max_attempts) {
-      await revokeAdminSession(app.db, pending.adminSessionId);
-      throw new TooManyRequestsError("too_many_attempts");
-    }
-
-    const matches = verifyOtpCode(code, challenge.code_salt, challenge.code_hash);
-    if (!matches) {
-      await app.db.query(
-        `UPDATE admin_otp_challenges SET attempt_count = attempt_count + 1 WHERE id = $1`,
-        [challenge.id],
+    // Count, compare and record the guess in one transaction behind a lock on
+    // the admin row, so parallel verifies queue up instead of all reading a
+    // failure count that is still under the limit.
+    const outcome = await withTransaction(app.db, async (client) => {
+      await client.query(`SELECT id FROM admin_users WHERE id = $1 FOR UPDATE`, [pending.adminUserId]);
+      const challengeResult = await client.query<{
+        id: string;
+        code_salt: string;
+        code_hash: string;
+        attempt_count: number;
+        max_attempts: number;
+        expires_at: Date;
+        consumed_at: Date | null;
+      }>(
+        `SELECT id, code_salt, code_hash, attempt_count, max_attempts, expires_at, consumed_at
+           FROM admin_otp_challenges WHERE id = $1`,
+        [pending.otpChallengeId],
       );
-      throw new UnauthorizedError("invalid_code");
-    }
+      const challenge = challengeResult.rows[0];
+      if (!challenge || challenge.consumed_at !== null || challenge.expires_at.getTime() <= Date.now()) {
+        return { kind: "expired" } as const;
+      }
+      if (
+        challenge.attempt_count >= challenge.max_attempts ||
+        (await hasTooManyRecentOtpFailures(client, pending.adminUserId))
+      ) {
+        return { kind: "locked" } as const;
+      }
 
-    const adminUser = await withTransaction(app.db, async (client) => {
+      if (!verifyOtpCode(code, challenge.code_salt, challenge.code_hash)) {
+        const counted = await client.query(
+          `UPDATE admin_otp_challenges SET attempt_count = attempt_count + 1
+            WHERE id = $1 AND attempt_count < max_attempts RETURNING id`,
+          [challenge.id],
+        );
+        return { kind: counted.rowCount === 1 ? "wrong" : "locked" } as const;
+      }
+
       await client.query(`UPDATE admin_otp_challenges SET consumed_at = now() WHERE id = $1`, [
         challenge.id,
       ]);
@@ -168,8 +201,19 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
         `SELECT role FROM admin_users WHERE id = $1`,
         [pending.adminUserId],
       );
-      return result.rows[0];
+      return { kind: "verified", user: result.rows[0] } as const;
     });
+    if (outcome.kind === "expired") {
+      throw new GoneError("otp_expired");
+    }
+    if (outcome.kind === "locked") {
+      await revokeAdminSession(app.db, pending.adminSessionId);
+      throw new TooManyRequestsError("too_many_attempts");
+    }
+    if (outcome.kind === "wrong") {
+      throw new UnauthorizedError("invalid_code");
+    }
+    const adminUser = outcome.user;
     if (!adminUser) {
       throw new Error("admin otp/verify: admin_users row disappeared mid-transaction");
     }
@@ -209,7 +253,12 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       if (!auth) {
         throw new UnauthorizedError("unauthenticated");
       }
-      await revokeAdminSession(app.db, auth.adminSessionId);
+      // Grants ride their own cookie, so revoking the session alone would
+      // leave "view as merchant" open until the grant's TTL runs out.
+      await withTransaction(app.db, async (client) => {
+        await revokeAdminSession(client, auth.adminSessionId);
+        await revokeAdminImpersonationGrants(client, auth.adminUserId);
+      });
       reply.setCookie(app.config.adminCookieName, "", {
         httpOnly: true,
         path: "/",

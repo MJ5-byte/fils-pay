@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { after, test } from "node:test";
 import { Pool } from "pg";
 import { toFils } from "@filspay/money";
+import { CREDIT_APPROVAL_THRESHOLD_FILS } from "./creditThreshold.js";
 import {
   applyBalanceCorrection,
   adjustMerchantBalanceJournaled,
@@ -67,7 +68,7 @@ async function ledgerRowCount(merchantId: string): Promise<number> {
 
 // ------------------------------------------------ applyBalanceCorrection
 
-test("applyBalanceCorrection moves the cache by exactly the delta", async () => {
+test("applyBalanceCorrection posts a positive delta and leaves the cache unchanged", async () => {
   const adminUserId = await createAdminUser();
   const merchantId = await createMerchantWithBalance(100_000);
 
@@ -79,8 +80,19 @@ test("applyBalanceCorrection moves the cache by exactly the delta", async () => 
   });
 
   assert.equal(result.cachedPayableFilsBefore, 100_000);
-  assert.equal(result.cachedPayableFilsAfter, 150_000);
-  assert.equal(await cachedBalance(merchantId), 150_000);
+  assert.equal(result.cachedPayableFilsAfter, 100_000);
+  assert.equal(await cachedBalance(merchantId), 100_000);
+
+  const groups = await pool.query<{ entry_group_id: string; net: string; payable: string }>(
+    `SELECT entry_group_id,
+            SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE -amount_fils END)::text AS net,
+            SUM(amount_fils) FILTER (WHERE account_id = 'merchant_payable' AND direction = 'credit')::text AS payable
+       FROM ledger_entries WHERE merchant_id = $1 GROUP BY entry_group_id`,
+    [merchantId],
+  );
+  assert.equal(groups.rows.length, 1);
+  assert.equal(Number(groups.rows[0]!.net), 0);
+  assert.equal(Number(groups.rows[0]!.payable), 50_000);
 });
 
 test("applyBalanceCorrection applies a negative delta", async () => {
@@ -94,8 +106,37 @@ test("applyBalanceCorrection applies a negative delta", async () => {
     reason: "duplicate credit backed out",
   });
 
-  assert.equal(result.cachedPayableFilsAfter, 50_000);
-  assert.equal(await cachedBalance(merchantId), 50_000);
+  assert.equal(result.cachedPayableFilsBefore, 80_000);
+  assert.equal(result.cachedPayableFilsAfter, 80_000);
+  assert.equal(await cachedBalance(merchantId), 80_000);
+
+  const groups = await pool.query<{ entry_group_id: string; net: string; payable: string }>(
+    `SELECT entry_group_id,
+            SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE -amount_fils END)::text AS net,
+            SUM(amount_fils) FILTER (WHERE account_id = 'merchant_payable' AND direction = 'debit')::text AS payable
+       FROM ledger_entries WHERE merchant_id = $1 GROUP BY entry_group_id`,
+    [merchantId],
+  );
+  assert.equal(groups.rows.length, 1);
+  assert.equal(Number(groups.rows[0]!.net), 0);
+  assert.equal(Number(groups.rows[0]!.payable), 30_000);
+});
+
+test("applyBalanceCorrection rejects a credit above the second-approver threshold", async () => {
+  const adminUserId = await createAdminUser();
+  const merchantId = await createMerchantWithBalance(0);
+
+  await assert.rejects(
+    applyBalanceCorrection(pool, {
+      merchantId,
+      adminUserId,
+      deltaFils: toFils(CREDIT_APPROVAL_THRESHOLD_FILS + 1),
+      reason: "credit requiring a second approver",
+    }),
+    { code: "adjustment_needs_second_approver" },
+  );
+
+  assert.equal(await ledgerRowCount(merchantId), 0);
 });
 
 test("applyBalanceCorrection writes an audit row", async () => {
@@ -117,9 +158,21 @@ test("applyBalanceCorrection writes an audit row", async () => {
   assert.equal(audit.rows[0]!.action, "balance_adjustment");
   assert.equal(audit.rows[0]!.metadata.deltaFils, 750);
   assert.equal(audit.rows[0]!.metadata.reason, "phone confirmation");
+  assert.equal(audit.rows[0]!.metadata.before, 10_000);
+  assert.equal(audit.rows[0]!.metadata.after, 10_000);
+  const entryGroupId = audit.rows[0]!.metadata.entryGroupId;
+  assert.equal(typeof entryGroupId, "string");
+  const legs = await pool.query<{ n: string; net: string }>(
+    `SELECT COUNT(*)::text AS n,
+            SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE -amount_fils END)::text AS net
+       FROM ledger_entries WHERE entry_group_id = $1 AND merchant_id = $2`,
+    [entryGroupId, merchantId],
+  );
+  assert.equal(legs.rows[0]!.n, "2");
+  assert.equal(legs.rows[0]!.net, "0");
 });
 
-test("applyBalanceCorrection 404s for a merchant with no balance row", async () => {
+test("applyBalanceCorrection posts for a merchant with no balance row", async () => {
   const adminUserId = await createAdminUser();
   const merchant = await pool.query<{ id: string }>(
     `INSERT INTO merchants (display_name, mdr_bps, status, test_mode)
@@ -127,15 +180,20 @@ test("applyBalanceCorrection 404s for a merchant with no balance row", async () 
     [`balance-adj-no-balance-${randomUUID()}`],
   );
 
-  await assert.rejects(
-    applyBalanceCorrection(pool, {
-      merchantId: merchant.rows[0]!.id,
-      adminUserId,
-      deltaFils: toFils(1_000, { allowNegative: true }),
-      reason: "nothing to adjust",
-    }),
-    /merchant_balance_not_found/,
+  const merchantId = merchant.rows[0]!.id;
+  const result = await applyBalanceCorrection(pool, {
+    merchantId,
+    adminUserId,
+    deltaFils: toFils(1_000, { allowNegative: true }),
+    reason: "nothing to adjust",
+  });
+  assert.equal(result.cachedPayableFilsBefore, 0);
+  assert.equal(result.cachedPayableFilsAfter, 0);
+  const payable = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'`,
+    [merchantId],
   );
+  assert.equal(payable.rows[0]!.n, "1");
 });
 
 // -------------------------------------------- adjustMerchantBalanceJournaled

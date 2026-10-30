@@ -54,12 +54,12 @@ export async function sendTestWebhookEvent(
 
   const key = decodeEncryptionKey(config.webhookSecretEncryptionKey);
   const secret = decryptSecret(row.secret_ciphertext, key);
-  const { signature } = signPayload(testPayload, secret);
+  const { signature, body } = signPayload(testPayload, secret);
 
   const response = await transport({
     url: row.url,
     headers: { [WEBHOOK_SIGNATURE_HEADER]: signature, "Content-Type": "application/json" },
-    body: JSON.stringify(testPayload),
+    body,
     timeoutMs: config.webhookRequestTimeoutMs,
   });
 

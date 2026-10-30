@@ -58,10 +58,13 @@ async function insertDelivery(
   endpointId: string,
   opts: { eventType: string; createdAt: string },
 ): Promise<string> {
+  // The outbox row only anchors the delivery FK. A rollup-eligible type
+  // would feed an empty synthetic event to apps/reporting's consumer
+  // the next time it runs against this database.
   const outbox = await pool.query<{ id: string }>(
-    `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-     VALUES ($1, 'transaction', $2, '{}'::jsonb) RETURNING id`,
-    [opts.eventType, randomUUID()],
+    `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+     VALUES ('webhooks.test.archive_fixture', 'transaction', $1, '{}'::jsonb, now()) RETURNING id`,
+    [randomUUID()],
   );
   const outboxEventId = outbox.rows[0]!.id;
 
@@ -228,5 +231,112 @@ test("replay 404s on an archive/merchant mismatch and conflicts on a disabled ta
       adminUserId,
     }),
     (err: unknown) => err instanceof ConflictError && err.code === "endpoint_disabled",
+  );
+});
+
+// The bulk tests leave 500+ pending rows that the dispatcher tests, sharing this
+// database, would pick up; remove them when the test is done.
+async function dropDeliveries(endpointId: string): Promise<void> {
+  await pool.query(`DELETE FROM webhook_deliveries WHERE endpoint_id = $1`, [endpointId]);
+}
+
+test("capture is capped at 500 per call and hands back a cursor to continue", async () => {
+  const cleanup: string[] = [];
+  try {
+    const merchantId = await createMerchant();
+    const adminUserId = await createAdminUser();
+    const endpointId = await createEndpoint(merchantId);
+    cleanup.push(endpointId);
+    const outbox = await pool.query<{ id: string }>(
+      `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+       SELECT 'webhooks.test.archive_fixture', 'transaction', gen_random_uuid(), '{}'::jsonb, now() FROM generate_series(1, 502)
+       RETURNING id`,
+    );
+    const outboxIds = outbox.rows.map((r) => r.id);
+    await pool.query(
+      `INSERT INTO webhook_deliveries (endpoint_id, outbox_event_id, event_type, delivery_event_id, payload, created_at)
+       SELECT $1, o.id, 'transaction.captured', gen_random_uuid(), '{}'::jsonb,
+              '2026-05-02T00:00:00Z'::timestamptz + o.n * interval '1 second'
+         FROM unnest($2::bigint[]) WITH ORDINALITY AS o(id, n)`,
+      [endpointId, outboxIds],
+    );
+
+    const first = await createWebhookDeliveryArchive(pool, { merchantId, endpointId, adminUserId, ...WINDOW });
+    assert.equal(first.deliveryCount, 500);
+    assert.ok(first.nextCursor);
+
+    const second = await createWebhookDeliveryArchive(pool, {
+      merchantId,
+      endpointId,
+      adminUserId,
+      ...WINDOW,
+      after: first.nextCursor,
+    });
+    assert.equal(second.deliveryCount, 2);
+    assert.equal(second.nextCursor, null);
+  } finally {
+    for (const id of cleanup) await dropDeliveries(id);
+  }
+});
+
+test("replay is capped at 500 per call and hands back an offset to continue", async () => {
+  const cleanup: string[] = [];
+  try {
+    const merchantId = await createMerchant();
+    const adminUserId = await createAdminUser();
+    const endpointId = await createEndpoint(merchantId);
+    cleanup.push(endpointId);
+    const outbox = await pool.query<{ id: string }>(
+      `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+       SELECT 'webhooks.test.archive_fixture', 'transaction', gen_random_uuid(), '{}'::jsonb, now() FROM generate_series(1, 502)
+       RETURNING id`,
+    );
+    const outboxIds = outbox.rows.map((r) => r.id);
+    const originals = await pool.query<{ id: string; outbox_event_id: string }>(
+      `INSERT INTO webhook_deliveries (endpoint_id, outbox_event_id, event_type, delivery_event_id, payload)
+       SELECT $1, o, 'transaction.captured', gen_random_uuid(), '{}'::jsonb FROM unnest($2::bigint[]) AS o
+       RETURNING id, outbox_event_id`,
+      [endpointId, outboxIds],
+    );
+    const entries: ArchivedDeliveryEntry[] = originals.rows.map((r) => ({
+      deliveryId: r.id,
+      outboxEventId: r.outbox_event_id,
+      eventType: "transaction.captured",
+      payload: {},
+      createdAt: "2026-05-02T00:00:00.000Z",
+    }));
+    const archive = await pool.query<{ id: string }>(
+      `INSERT INTO webhook_delivery_archives
+          (endpoint_id, merchant_id, created_by_admin_user_id, from_created_at, to_created_at, delivery_count, archive_payload)
+       VALUES ($1, $2, $3, $4, $5, 502, $6) RETURNING id`,
+      [endpointId, merchantId, adminUserId, WINDOW.from, WINDOW.to, JSON.stringify(entries)],
+    );
+    const input = { merchantId, archiveId: archive.rows[0]!.id, targetEndpointId: endpointId, adminUserId };
+
+    const first = await replayWebhookDeliveryArchive(pool, input);
+    assert.equal(first.replayedCount, 500);
+    assert.equal(first.nextOffset, 500);
+
+    const second = await replayWebhookDeliveryArchive(pool, { ...input, offset: first.nextOffset! });
+    assert.equal(second.replayedCount, 2);
+    assert.equal(second.nextOffset, null);
+  } finally {
+    for (const id of cleanup) await dropDeliveries(id);
+  }
+});
+
+test("capture rejects a cursor that is not a delivery of this endpoint", async () => {
+  const merchantId = await createMerchant();
+  const adminUserId = await createAdminUser();
+  const endpointId = await createEndpoint(merchantId);
+  const otherEndpointId = await createEndpoint(merchantId);
+  const foreign = await insertDelivery(otherEndpointId, {
+    eventType: "transaction.captured",
+    createdAt: "2026-05-02T00:00:00Z",
+  });
+
+  await assert.rejects(
+    createWebhookDeliveryArchive(pool, { merchantId, endpointId, adminUserId, ...WINDOW, after: foreign }),
+    (err: unknown) => err instanceof NotFoundError && err.code === "webhook_delivery_not_found",
   );
 });

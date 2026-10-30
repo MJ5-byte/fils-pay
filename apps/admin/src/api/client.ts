@@ -60,16 +60,61 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
   await request<unknown>(path, init);
 }
 
-/** Human-readable text for anything thrown by `request` — used by every
+/** Plain-language copy for the error codes the API answers with. */
+const ERROR_COPY: Record<string, string> = {
+  invalid_credentials: "Those details do not match an account.",
+  invalid_code: "That code is wrong or has expired. Check it and try again.",
+  too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
+  too_many_login_attempts: "Too many failed sign-in attempts. Wait 15 minutes and try again.",
+  resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
+  adjustment_needs_second_approver: "Adjustments above 50.000 BHD need a second approver. Post this one as a manual credit instead.",
+  invalid_amount: "Enter a positive amount in BHD with up to 3 decimals.",
+  invalid_csv_header: "The first line of the CSV must be merchantId,amount,reason.",
+  invalid_memo: "Shorten the memo and try again.",
+  invalid_url: "Enter a full https URL for the endpoint.",
+  self_approval_forbidden: "You raised this credit, so another finance operator has to approve it.",
+  credit_request_not_pending: "This credit was already approved or rejected. Reload to see its status.",
+  unauthenticated: "Your session has ended. Sign in again.",
+};
+
+/** A message the API wrote for developers, not for operators: a bare code
+ *  (`invalid_url`), or text naming a field or function (`amountFils ...`,
+ *  `parseBhdToFils: ...`). */
+function looksInternal(message: string): boolean {
+  return /\b[a-z]+_[a-z0-9_]+\b|\b[a-z]+[A-Z]\w*\b|^\w+:/.test(message);
+}
+
+/** The import parser names the bad line ("row 3 is missing ..."), and that
+ *  number is what an admin needs to find it, so it is kept. A message
+ *  without one is the route's own check that each merchantId is a merchant. */
+function csvRowCopy(message: string | undefined): string {
+  const row = message?.match(/^row (\d+)\b/)?.[1];
+  if (row) {
+    return `Row ${row} below the header could not be read. Check its merchantId and amount, and quote any value that contains a comma.`;
+  }
+  return "A row in the CSV has a merchantId that is not a merchant. Check that column and upload again.";
+}
+
+function fallbackFor(statusCode: number): string {
+  if (statusCode === 403) return "Your admin role does not allow this action.";
+  if (statusCode === 404) return "That could not be found. It may have been removed.";
+  if (statusCode >= 500) return "Something went wrong on our side. Try again in a moment.";
+  return "That did not go through. Check the details and try again.";
+}
+
+/** Human-readable text for anything thrown by `request`, used by every
  *  page's error banner so a failure (including a server-side `403` from a
- *  role gate) is always *shown*, never silently swallowed. */
+ *  role gate) is always *shown*, never silently swallowed, and never as a
+ *  raw code. */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.statusCode === 403) {
-      return `Not permitted (${err.code}) — your admin role does not allow this action.`;
-    }
-    return err.body.message ?? err.code;
+    if (err.code === "invalid_csv_row") return csvRowCopy(err.body.message);
+    const known = ERROR_COPY[err.code];
+    if (known) return known;
+    const message = err.body.message;
+    if (err.statusCode !== 403 && message && !looksInternal(message)) return message;
+    return fallbackFor(err.statusCode);
   }
-  if (err instanceof Error) return err.message;
-  return "Something went wrong.";
+  if (err instanceof Error && !looksInternal(err.message)) return err.message;
+  return "Something went wrong. Try again.";
 }

@@ -10,6 +10,7 @@ import { serializeTransaction, type TransactionRow } from "../transactions/seria
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
 import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
+import { postCaptureDiscountAdjustment } from "./discountAdjustment.js";
 
 async function recordCaptureMetric(
   client: import("pg").PoolClient,
@@ -89,7 +90,10 @@ export async function captureTransaction(
   acquirer: AcquirerSimulator,
   input: CaptureInput,
 ): Promise<CaptureResult> {
-  const requestHash = hashRequest({ amountFils: input.amountFils ?? null });
+  const requestHash = hashRequest({
+    transactionId: input.transactionId,
+    amountFils: input.amountFils ?? null,
+  });
 
   return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {
@@ -138,6 +142,17 @@ export async function captureTransaction(
       return { statusCode: 409, body };
     }
 
+    // Enforce the scheme hold window using the DB clock under the row lock so capture cannot race expiry.
+    const expiredHold = await client.query(
+      `SELECT 1 FROM holds WHERE transaction_id = $1 AND expires_at <= now() LIMIT 1`,
+      [txn.id],
+    );
+    if (expiredHold.rows[0]) {
+      const body = { error: "authorization_expired" };
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 409, body });
+      return { statusCode: 409, body };
+    }
+
     // — YA: authorised vs captured. finance says "amount" and means both.
     const amountAuthorized = toFils(Number(txn.amount_fils));
     const capturedSoFar = toFils(Number(txn.captured_fils));
@@ -174,7 +189,10 @@ export async function captureTransaction(
     const acquirerResult = await acquirer.capture({
       acquirerReference: txn.acquirer_reference,
       amountFils: requestedAmount,
-      idempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+      // Keyed on the claim's scope and request hash, not its row id: a rollback after
+      // the acquirer approved discards the row, and the retry must replay that approval,
+      // but a different body under the same key must not.
+      idempotencyKey: `${claim.row.merchantId}:${claim.row.endpoint}:${claim.row.key}:${claim.row.requestHash}:${claim.row.attemptCount}`,
     });
 
     if (acquirerResult.outcome === "declined") {
@@ -229,6 +247,10 @@ export async function captureTransaction(
         [entryGroupId, input.merchantId, txn.id, feeFils],
       );
     }
+    // The negotiated-discount rebate on that fee commits with it: posted in its
+    // own transaction afterwards, a failure left the fee charged in full with
+    // nothing to retry it (BHA-235).
+    await postCaptureDiscountAdjustment(client, { merchantId: input.merchantId, transactionId: txn.id });
 
     // Hold lifecycle: released exactly when nothing remains outstanding.
     if (newStatus === "captured") {

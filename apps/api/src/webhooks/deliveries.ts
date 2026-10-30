@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { BadRequestError } from "../lib/errors.js";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -91,6 +92,15 @@ function encodeCursor(createdAtText: string, id: string): string {
   return Buffer.from(`${createdAtText}|${id}`, "utf8").toString("base64url");
 }
 
+/**
+ * The merchant-facing filter offers `failed`, but a delivery that uses up
+ * every attempt is recorded as `exhausted` (see dispatcher.ts); `failed` is a
+ * status CHECK value (migration 0022) that nothing ever writes. Map the filter
+ * value onto the stored status so filtering by `failed` returns the real
+ * permanently-failed deliveries instead of always matching zero rows.
+ */
+const FILTER_STATUS_TO_STORED: Record<string, string> = { failed: "exhausted" };
+
 export interface ListWebhookDeliveriesFilters {
   merchantId: string;
   endpointId: string;
@@ -120,26 +130,37 @@ export async function listWebhookDeliveries(
   filters: ListWebhookDeliveriesFilters,
 ): Promise<ListWebhookDeliveriesResult> {
   const limit = Math.min(MAX_LIMIT, Math.max(1, filters.limit ?? DEFAULT_LIMIT));
-  const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
+  const statusArray =
+    filters.status && filters.status.length > 0
+      ? [...new Set(filters.status.map((status) => FILTER_STATUS_TO_STORED[status] ?? status))]
+      : null;
   const decodedCursor = decodeCursor(filters.cursor);
 
-  const result = await pool.query<DeliveryRow & { created_at_text: string }>(
-    `SELECT wd.*, wd.created_at::text AS created_at_text FROM webhook_deliveries wd
+  const result = await pool
+    .query<DeliveryRow & { created_at_text: string }>(
+      `SELECT wd.*, wd.created_at::text AS created_at_text FROM webhook_deliveries wd
        JOIN webhook_endpoints we ON we.id = wd.endpoint_id
       WHERE wd.endpoint_id = $1 AND we.merchant_id = $2
         AND ($3::text[] IS NULL OR wd.status = ANY($3))
         AND ($4::timestamptz IS NULL OR (wd.created_at, wd.id) < ($4, $5))
       ORDER BY wd.created_at DESC, wd.id DESC
       LIMIT $6`,
-    [
-      filters.endpointId,
-      filters.merchantId,
-      statusArray,
-      decodedCursor?.createdAt ?? null,
-      decodedCursor?.id ?? null,
-      limit,
-    ],
-  );
+      [
+        filters.endpointId,
+        filters.merchantId,
+        statusArray,
+        decodedCursor?.createdAt ?? null,
+        decodedCursor?.id ?? null,
+        limit,
+      ],
+    )
+    .catch((err: unknown) => {
+      // SQLSTATE class 22 with a cursor present: the decoded cursor isn't a valid timestamp/uuid.
+      if (decodedCursor && (err as { code?: string }).code?.startsWith("22")) {
+        throw new BadRequestError("invalid_cursor", "cursor is not valid");
+      }
+      throw err;
+    });
 
   const deliveries = result.rows.map(toSummary);
   const lastRow = result.rows[result.rows.length - 1];

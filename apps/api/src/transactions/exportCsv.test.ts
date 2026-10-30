@@ -4,9 +4,10 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { after, test } from "node:test";
 import { Pool } from "pg";
-import { buildTransactionsExportCsv } from "./exportCsv.js";
+import { buildTransactionsExportCsv, streamTransactionsExportCsv } from "./exportCsv.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -192,4 +193,35 @@ test("a reference containing a comma or a quote is CSV-escaped", async () => {
   const dataLine = csv.split("\n")[1]!;
 
   assert.ok(dataLine.includes('"inv-1,""urgent"""'));
+});
+
+// BHA-234: a slow client must pull pages, not let the loop buffer the whole history.
+test("streamTransactionsExportCsv stays within one page of a stalled reader and stops on destroy", async () => {
+  const merchantId = await createMerchant();
+  await pool.query(
+    `INSERT INTO transactions
+       (merchant_id, status, amount_fils, captured_fils, reference, acquirer_reference, occurred_at)
+     SELECT $1, 'captured', 1000, 1000, 'ref-' || g, 'acq-' || g || '-' || gen_random_uuid(), now() - (g || ' seconds')::interval
+       FROM generate_series(1, $2) AS g`,
+    [merchantId, 5000],
+  );
+
+  let pageQueries = 0;
+  const countingPool = {
+    query: (...args: Parameters<Pool["query"]>) => {
+      pageQueries++;
+      return (pool.query as (...a: unknown[]) => unknown)(...args);
+    },
+  } as unknown as Pool;
+
+  const stream = streamTransactionsExportCsv(countingPool, { merchantId });
+  await once(stream, "readable");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  assert.ok(pageQueries <= 2, `expected at most 2 page queries ahead of a stalled reader, got ${pageQueries}`);
+
+  const atDestroy = pageQueries;
+  stream.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(pageQueries, atDestroy, "no page query may run after the stream is destroyed");
 });

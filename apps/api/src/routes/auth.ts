@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { Pool, PoolClient } from "pg";
 import { verifyPassword } from "../auth/passwords.js";
+import { clearLoginFailures, reserveLoginAttempt } from "../auth/loginLimit.js";
 import { issueChallenge, verifyOtpCode } from "../auth/otp.js";
 import { requireSession } from "../auth/middleware.js";
-import { sendOtpCode } from "../auth/notifier.js";
+import { exposesOtpCode, sendOtpCode } from "../auth/notifier.js";
 import {
   createPendingSession,
   lookupPendingSession,
@@ -10,6 +12,7 @@ import {
   revokeSession,
 } from "../auth/sessions.js";
 import { findOtpRecipient } from "../auth/users.js";
+import { UUID_RE } from "../admin/merchants.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
@@ -23,6 +26,25 @@ import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } f
  */
 const DUMMY_PASSWORD_HASH =
   "$argon2id$v=19$m=19456,p=1,t=2$/yKuaUqm4SW+pPt2oGNj4A$j5oxu/MdJJP86dClo0LJ0wsekKwkSbr1yA0uZSZgQcc";
+
+/**
+ * `max_attempts` caps the guesses on one challenge, but every password login
+ * issues a fresh challenge. Counting wrong codes across the user's recent
+ * challenges stops re-logging in from resetting the guess budget: at most 10
+ * wrong codes per 15 minutes, so about 960 a day against a million 6-digit codes.
+ */
+const OTP_FAILURE_LIMIT = 10;
+const OTP_FAILURE_WINDOW_MINUTES = 15;
+
+async function hasTooManyRecentOtpFailures(db: Pool | PoolClient, merchantUserId: string): Promise<boolean> {
+  const result = await db.query<{ failures: number }>(
+    `SELECT COALESCE(SUM(attempt_count), 0)::int AS failures
+       FROM otp_challenges
+      WHERE merchant_user_id = $1 AND created_at > now() - ($2 || ' minutes')::interval`,
+    [merchantUserId, OTP_FAILURE_WINDOW_MINUTES],
+  );
+  return (result.rows[0]?.failures ?? 0) >= OTP_FAILURE_LIMIT;
+}
 
 interface LoginBody {
   merchantId?: string;
@@ -53,9 +75,20 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   /** POST /v1/auth/login — step 1. */
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const { merchantId, email, password } = request.body ?? {};
-    if (!merchantId || !email || !password) {
+    // A one-element array merchantId passes UUID_RE (it is coerced to a
+    // string) and then throws on toLowerCase, which surfaced as a 500.
+    if (typeof merchantId !== "string" || typeof email !== "string" || typeof password !== "string"
+      || !merchantId || !email || !password) {
       throw new BadRequestError("invalid_request", "merchantId, email and password are required");
     }
+    // merchant_id is a uuid column; a non-uuid value reaches Postgres as a
+    // 22P02 cast error and surfaces as a 500 on this unauthenticated route.
+    // Reject it at the boundary, the same shape as the other id checks.
+    if (!UUID_RE.test(merchantId)) {
+      throw new BadRequestError("invalid_request", "merchantId must be a valid id");
+    }
+
+    await reserveLoginAttempt(app.db, reply, "merchant", `${merchantId.toLowerCase()}:${email}`);
 
     const userResult = await app.db.query<MerchantUserRow>(
       `SELECT mu.id, mu.merchant_id, mu.email, mu.role, mu.password_hash
@@ -74,8 +107,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
     }
+    await clearLoginFailures(app.db, "merchant", `${merchantId.toLowerCase()}:${email}`);
 
-    const recipient = await findOtpRecipient(app.db, email) ?? user;
+    const recipient = await findOtpRecipient(app.db, user.merchant_id, email) ?? user;
+    if (await hasTooManyRecentOtpFailures(app.db, recipient.id)) {
+      throw new TooManyRequestsError("too_many_attempts");
+    }
 
     const { code, expiresAt, rawToken } = await withTransaction(app.db, async (client) => {
       const challenge = await issueChallenge(client, {
@@ -108,8 +145,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       otpRequired: true,
       otpExpiresAt: expiresAt.toISOString(),
     };
-    // dev only — stripped in production builds
-    if (app.config.otpDevExpose) {
+    if (exposesOtpCode(app.config, recipient.email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);
@@ -119,7 +155,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     "/otp/verify",
     async (request, reply) => {
       const code = request.body?.code;
-      if (!code) {
+      // An object code throws when hashOtpCode concatenates it with the salt.
+      if (typeof code !== "string" || !code) {
         throw new BadRequestError("invalid_request", "code is required");
       }
 
@@ -132,56 +169,77 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         throw new UnauthorizedError("no_pending_session");
       }
 
-      const challengeResult = await app.db.query<{
-        id: string;
-        code_salt: string;
-        code_hash: string;
-        attempt_count: number;
-        max_attempts: number;
-        expires_at: Date;
-        consumed_at: Date | null;
-      }>(
-        `SELECT id, code_salt, code_hash, attempt_count, max_attempts, expires_at, consumed_at
-           FROM otp_challenges WHERE id = $1`,
-        [pending.otpChallengeId],
-      );
-      const challenge = challengeResult.rows[0];
-      if (!challenge || challenge.consumed_at !== null) {
-        throw new GoneError("otp_expired");
-      }
-      if (challenge.expires_at.getTime() <= Date.now()) {
-        throw new GoneError("otp_expired");
-      }
+      // Count, compare and record the guess in one transaction behind a lock on
+      // the user row, so parallel verifies queue up instead of all reading a
+      // failure count that is still under the limit.
+      const outcome = await withTransaction(app.db, async (client) => {
+        await client.query(`SELECT id FROM merchant_users WHERE id = $1 FOR UPDATE`, [pending.merchantUserId]);
+        const challengeResult = await client.query<{
+          id: string;
+          code_salt: string;
+          code_hash: string;
+          attempt_count: number;
+          max_attempts: number;
+          expires_at: Date;
+          consumed_at: Date | null;
+        }>(
+          `SELECT id, code_salt, code_hash, attempt_count, max_attempts, expires_at, consumed_at
+             FROM otp_challenges WHERE id = $1`,
+          [pending.otpChallengeId],
+        );
+        const challenge = challengeResult.rows[0];
+        if (!challenge || challenge.consumed_at !== null || challenge.expires_at.getTime() <= Date.now()) {
+          return { kind: "expired" } as const;
+        }
+        if (
+          challenge.attempt_count >= challenge.max_attempts ||
+          (await hasTooManyRecentOtpFailures(client, pending.merchantUserId))
+        ) {
+          return { kind: "locked" } as const;
+        }
 
-      // am: check-then-increment is fine, max_attempts=5 so worst case is 5 guesses
-      // MK: 5 guesses per parallel batch? if i fire 50 at once they all read attempt_count=0
-      if (challenge.attempt_count >= challenge.max_attempts) {
-        await revokeSession(app.db, pending.sessionId);
-        throw new TooManyRequestsError("too_many_attempts");
-      }
+        if (!verifyOtpCode(code, challenge.code_salt, challenge.code_hash)) {
+          const counted = await client.query(
+            `UPDATE otp_challenges SET attempt_count = attempt_count + 1
+              WHERE id = $1 AND attempt_count < max_attempts RETURNING id`,
+            [challenge.id],
+          );
+          return { kind: counted.rowCount === 1 ? "wrong" : "locked" } as const;
+        }
 
-      const matches = verifyOtpCode(code, challenge.code_salt, challenge.code_hash);
-      if (!matches) {
-        await app.db.query(`UPDATE otp_challenges SET attempt_count = attempt_count + 1 WHERE id = $1`, [
-          challenge.id,
-        ]);
-        throw new UnauthorizedError("invalid_code");
-      }
-
-      const merchantUserResult = await withTransaction(app.db, async (client) => {
         await client.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [challenge.id]);
-        // promoteSession bumps expires_at to 12h server-side; the cookie maxAge doesn't matter because
-        // MK: admin verify re-sets the cookie after this, merchant verify doesnt. related to the 10 min logouts?
+        // promoteSession bumps expires_at server-side; the cookie is re-issued below to match.
         await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
         const result = await client.query<{ merchant_id: string; role: "owner" | "finance" | "support" }>(
           `SELECT merchant_id, role FROM merchant_users WHERE id = $1`,
           [pending.merchantUserId],
         );
-        return result.rows[0];
+        return { kind: "verified", user: result.rows[0] } as const;
       });
+      if (outcome.kind === "expired") {
+        throw new GoneError("otp_expired");
+      }
+      if (outcome.kind === "locked") {
+        await revokeSession(app.db, pending.sessionId);
+        throw new TooManyRequestsError("too_many_attempts");
+      }
+      if (outcome.kind === "wrong") {
+        throw new UnauthorizedError("invalid_code");
+      }
+      const merchantUserResult = outcome.user;
       if (!merchantUserResult) {
         throw new Error("otp/verify: merchant_users row disappeared mid-transaction");
       }
+
+      // The browser still holds the pending cookie's short maxAge, so without this the
+      // promoted session is dropped client-side after the pending window.
+      reply.setCookie(app.config.cookieName, rawToken, {
+        httpOnly: true,
+        path: "/",
+        sameSite: "lax",
+        secure: app.config.cookieSecure,
+        maxAge: app.config.sessionTtlHours * 3_600,
+      });
 
       reply.code(200).send({
         authenticated: true,
@@ -216,6 +274,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { code, expiresAt } = await withTransaction(app.db, async (client) => {
+      // Lock the user row first, in the same order as /otp/verify: the new
+      // challenge's foreign key needs a share lock on this row, and taking it
+      // after touching the old challenge would deadlock against a verify.
+      await client.query(`SELECT id FROM merchant_users WHERE id = $1 FOR UPDATE`, [pending.merchantUserId]);
       if (existingChallenge) {
         await client.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [
           existingChallenge.id,
@@ -238,15 +300,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       `SELECT email FROM merchant_users WHERE id = $1`,
       [pending.merchantUserId],
     );
-    sendOtpCode(
-      request.log,
-      app.config,
-      { merchantUserId: pending.merchantUserId, email: userResult.rows[0]?.email ?? "" },
-      code,
-    );
+    const email = userResult.rows[0]?.email ?? "";
+    sendOtpCode(request.log, app.config, { merchantUserId: pending.merchantUserId, email }, code);
 
     const responseBody: Record<string, unknown> = { otpRequired: true, otpExpiresAt: expiresAt.toISOString() };
-    if (app.config.otpDevExpose) {
+    if (exposesOtpCode(app.config, email)) {
       responseBody.devOtpCode = code;
     }
     reply.code(200).send(responseBody);

@@ -12,22 +12,27 @@ export interface ArchivedDeliveryEntry {
   createdAt: string;
 }
 
+/** Same per-call cap as replayBatch.ts and the dispatcher: one request never
+ *  holds a transaction open for an unbounded number of rows. */
+const MAX_BATCH_SIZE = 500;
+
 export interface CreateArchiveResult {
   archiveId: string;
   deliveryCount: number;
+  /** Delivery id to pass as `after` for the next archive; null when the range is fully covered. */
+  nextCursor: string | null;
 }
 
 /**
  * Snapshots every delivery for one endpoint in [from, to) into a single
- * retained row, ahead of a URL rotation or the endpoint being disabled. No
- * row cap: an audit archive that silently dropped deliveries past some
- * threshold would defeat the reason it exists (a receiver's own support
- * team, or a future auditor, needs the *complete* record for the range they
- * were told the archive covers).
+ * retained row, ahead of a URL rotation or the endpoint being disabled. At
+ * most MAX_BATCH_SIZE deliveries per archive; a non-null `nextCursor` says the
+ * range is not yet fully covered, and the caller creates the next archive with
+ * `after` set to it. Nothing is dropped silently.
  */
 export async function createWebhookDeliveryArchive(
   pool: Pool,
-  input: { merchantId: string; endpointId: string; adminUserId: string; from: Date; to: Date },
+  input: { merchantId: string; endpointId: string; adminUserId: string; from: Date; to: Date; after?: string },
 ): Promise<CreateArchiveResult> {
   return withTransaction(pool, async (client) => {
     const endpoint = await client.query<{ id: string }>(
@@ -36,6 +41,16 @@ export async function createWebhookDeliveryArchive(
     );
     if (!endpoint.rows[0]) {
       throw new NotFoundError("webhook_endpoint_not_found");
+    }
+
+    if (input.after) {
+      const cursor = await client.query(
+        `SELECT 1 FROM webhook_deliveries WHERE id = $1 AND endpoint_id = $2`,
+        [input.after, input.endpointId],
+      );
+      if (!cursor.rows[0]) {
+        throw new NotFoundError("webhook_delivery_not_found");
+      }
     }
 
     const rows = await client.query<{
@@ -48,11 +63,16 @@ export async function createWebhookDeliveryArchive(
       `SELECT id, outbox_event_id, event_type, payload, created_at
          FROM webhook_deliveries
         WHERE endpoint_id = $1 AND created_at >= $2 AND created_at < $3
-        ORDER BY created_at ASC`,
-      [input.endpointId, input.from, input.to],
+          AND ($4::uuid IS NULL OR (created_at, id) > (
+                SELECT created_at, id FROM webhook_deliveries WHERE id = $4 AND endpoint_id = $1))
+        ORDER BY created_at ASC, id ASC
+        LIMIT $5`,
+      [input.endpointId, input.from, input.to, input.after ?? null, MAX_BATCH_SIZE + 1],
     );
+    const hasMore = rows.rows.length > MAX_BATCH_SIZE;
+    const page = rows.rows.slice(0, MAX_BATCH_SIZE);
 
-    const entries: ArchivedDeliveryEntry[] = rows.rows.map((r) => ({
+    const entries: ArchivedDeliveryEntry[] = page.map((r) => ({
       deliveryId: r.id,
       outboxEventId: r.outbox_event_id,
       eventType: r.event_type,
@@ -84,18 +104,19 @@ export async function createWebhookDeliveryArchive(
       metadata: { merchantId: input.merchantId, deliveryCount: entries.length },
     });
 
-    return { archiveId: inserted.rows[0]!.id, deliveryCount: entries.length };
+    return {
+      archiveId: inserted.rows[0]!.id,
+      deliveryCount: entries.length,
+      nextCursor: hasMore ? (page[page.length - 1]?.id ?? null) : null,
+    };
   });
 }
 
 /**
- * Bulk-replays every delivery captured in a previously created archive â€”
- * used to backfill a newly registered replacement endpoint with a
- * merchant's delivery history after a URL rotation, without asking the
- * merchant to re-trigger months of real events. The archive is the
- * complete unit of work by construction (it was written as one row, one
- * JSON document, at creation time), so reading it back the same way mirrors
- * how it was captured.
+ * Bulk-replays deliveries captured in a previously created archive — used to
+ * backfill a newly registered replacement endpoint with a merchant's delivery
+ * history after a URL rotation. Replays one page of up to MAX_BATCH_SIZE
+ * entries from `offset`; a non-null `nextOffset` is where the caller continues.
  */
 export async function pruneExpiredArchives(
   pool: Pool,
@@ -114,8 +135,8 @@ export async function pruneExpiredArchives(
 
 export async function replayWebhookDeliveryArchive(
   pool: Pool,
-  input: { merchantId: string; archiveId: string; targetEndpointId: string; adminUserId: string },
-): Promise<{ replayedCount: number }> {
+  input: { merchantId: string; archiveId: string; targetEndpointId: string; adminUserId: string; offset?: number },
+): Promise<{ replayedCount: number; nextOffset: number | null }> {
   return withTransaction(pool, async (client) => {
     const archiveResult = await client.query<{ archive_payload: string }>(
       `SELECT archive_payload FROM webhook_delivery_archives WHERE id = $1 AND merchant_id = $2`,
@@ -140,8 +161,12 @@ export async function replayWebhookDeliveryArchive(
 
     const entries = JSON.parse(archiveRow.archive_payload) as ArchivedDeliveryEntry[];
 
+    const offset = input.offset ?? 0;
+    const slice = entries.slice(offset, offset + MAX_BATCH_SIZE);
+    const nextOffset = offset + slice.length < entries.length ? offset + slice.length : null;
+
     let replayedCount = 0;
-    for (const entry of entries) {
+    for (const entry of slice) {
       await insertReplayDeliveryRow(client, {
         id: entry.deliveryId,
         endpointId: input.targetEndpointId,
@@ -157,9 +182,9 @@ export async function replayWebhookDeliveryArchive(
       action: "webhook_delivery_archive_replay",
       targetType: "webhook_endpoint",
       targetId: input.targetEndpointId,
-      metadata: { merchantId: input.merchantId, archiveId: input.archiveId, replayedCount },
+      metadata: { merchantId: input.merchantId, archiveId: input.archiveId, offset, replayedCount },
     });
 
-    return { replayedCount };
+    return { replayedCount, nextOffset };
   });
 }

@@ -123,11 +123,22 @@ export interface TransactionEventDto {
  *  (`reply.send(result.body)`) — so there is nothing for this page to read
  *  it from, and a repeat void is indistinguishable from a first one on the
  *  wire. That is fine: both mean "now voided". */
+export interface RefundResponse {
+  id: string;
+  transactionId: string;
+  amountFils: number;
+  feeReversedFils: number;
+  status: string;
+  transactionStatus: string;
+  refundedTotalFils: number;
+  occurredAt: string;
+}
+
 export type CaptureResponse = TransactionDto;
 export type VoidResponse = TransactionDto;
 
 // --- payment links ---
-export type PaymentLinkStatus = "active" | "reserved" | "paid" | "canceled";
+export type PaymentLinkStatus = "active" | "reserved" | "paid" | "canceled" | "expired";
 
 export interface PaymentLinkDto {
   id: string;
@@ -250,9 +261,10 @@ export interface SettlementBatchTransactionDto {
 }
 
 /** The batch-transactions route wraps its rows in an object rather than
- *  returning a bare array. */
+ *  returning a bare array, and pages them by line with `nextCursor`. */
 export interface SettlementBatchTransactionListResponse {
   transactions: SettlementBatchTransactionDto[];
+  nextCursor: string | null;
 }
 
 // YA: gapFils is a string here (pre-Jan contract)
@@ -272,6 +284,8 @@ export interface VolumePointDto {
   capturedCount: number;
   capturedGrossFils: number;
   voidedCount: number;
+  refundCount: number;
+  refundGrossFils: number;
 }
 
 /** `readModelAsOf` is nullable on the two lagged widgets: it reads

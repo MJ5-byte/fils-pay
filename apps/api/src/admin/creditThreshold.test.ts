@@ -68,7 +68,7 @@ test("the fee reversal is exactly applyRateFils — the platform's one rate prim
     [123_456, 325],
   ] as Array<[number, number]>) {
     assert.equal(
-      calculateCreditFeeReversal(toFils(amount), bps),
+      calculateCreditFeeReversal(toFils(amount), bps, 0),
       applyRateFils(toFils(amount), bps),
       `${amount} fils @ ${bps} bps`,
     );
@@ -76,14 +76,14 @@ test("the fee reversal is exactly applyRateFils — the platform's one rate prim
 });
 
 test("a zero-rate merchant gets a zero fee reversal, not a rounding artefact", () => {
-  assert.equal(calculateCreditFeeReversal(toFils(99_999), 0), 0);
+  assert.equal(calculateCreditFeeReversal(toFils(99_999), 0, 0), 0);
 });
 
 test("the fee reversal rounds half-to-even, like every other fee in the platform", () => {
   // 10 fils @ 250 bps = 0.25 -> 0; 30 @ 250 = 0.75 -> 1; the tie at .5
   // breaks to the even neighbour, never away from zero.
-  assert.equal(calculateCreditFeeReversal(toFils(10), 250), 0);
-  assert.equal(calculateCreditFeeReversal(toFils(30), 250), 1);
-  assert.equal(calculateCreditFeeReversal(toFils(20), 250), 0, "0.5 -> 0, the even neighbour");
-  assert.equal(calculateCreditFeeReversal(toFils(60), 250), 2, "1.5 -> 2, the even neighbour");
+  assert.equal(calculateCreditFeeReversal(toFils(10), 250, 0), 0);
+  assert.equal(calculateCreditFeeReversal(toFils(30), 250, 0), 1);
+  assert.equal(calculateCreditFeeReversal(toFils(20), 250, 0), 0, "0.5 -> 0, the even neighbour");
+  assert.equal(calculateCreditFeeReversal(toFils(60), 250, 0), 2, "1.5 -> 2, the even neighbour");
 });

@@ -1,5 +1,5 @@
 import { toFils, type Fils } from "@filspay/money";
-import { BadRequestError } from "../lib/errors.js";
+import { BadRequestError, UnprocessableEntityError } from "../lib/errors.js";
 
 export type CreditReasonCode = "goodwill" | "dispute_resolution" | "correction";
 
@@ -78,6 +78,16 @@ export function parseCreditRequestInput(body: unknown): CreditRequestDraft {
     throw new BadRequestError(
       "invalid_effective_date",
       "effectiveDate must be a real calendar date formatted YYYY-MM-DD",
+    );
+  }
+  // The date picks the fee-reversal rate, so a future one could select a
+  // schedule no capture has been charged at yet. Asia/Bahrain is a fixed
+  // UTC+3, the same offset credits.ts anchors the ledger legs to.
+  const todayInBahrain = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  if (rawDate > todayInBahrain) {
+    throw new UnprocessableEntityError(
+      "effective_date_in_future",
+      "effectiveDate cannot be later than today in Bahrain",
     );
   }
 

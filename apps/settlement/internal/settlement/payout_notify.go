@@ -20,12 +20,14 @@ import (
 // individually, is the one place this logic needs to exist regardless of
 // which of the two paid the batch.
 //
-// Idempotent by construction: the NOT EXISTS guard means re-running this
-// scan — on every daemon tick, or a second time after a crash before this
-// function's own commit landed — never enqueues a second outbox event for
-// the same batch.
-// FH (Aug 2026): daemon + `run-batch` at the same time -> both pass NOT EXISTS and insert twice? claude: "No, outbox_events has a unique index on (event_type, aggregate_id)."
-// MK: fine for now. daemon and CLI never overlap.
+// Each newly enqueued event is written together with the batch's payout
+// disbursement record (see enqueuePaidEvent).
+//
+// Idempotent: re-running this scan — on every daemon tick, a second time
+// after a crash, or from `run-batch` while the daemon ticks — never enqueues
+// a second outbox event for the same batch. outbox_events has no unique index
+// on (event_type, aggregate_id), so the scan's NOT EXISTS alone does not hold
+// under overlap; enqueuePaidEvent re-checks it under the batch row lock.
 func EnqueuePayoutNotifications(ctx context.Context, db *pgxpool.Pool) (int, error) {
 	// Ordered by paid_at so notifications go out in payout order. LIMIT 500
 	// bounds one scan; the next tick picks up whatever is left.
@@ -83,14 +85,60 @@ func EnqueuePayoutNotifications(ctx context.Context, db *pgxpool.Pool) (int, err
 		if err != nil {
 			return count, fmt.Errorf("settlement: EnqueuePayoutNotifications: marshal payload: %w", err)
 		}
-		_, err = db.Exec(ctx, `
-			INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-			VALUES ('settlement.paid', 'settlement_batch', $1, $2)
-		`, b.id, payload)
+		inserted, err := enqueuePaidEvent(ctx, db, b.id, payload)
 		if err != nil {
 			return count, fmt.Errorf("settlement: EnqueuePayoutNotifications: insert batch %s: %w", b.id, err)
 		}
-		count++
+		if inserted {
+			count++
+		}
 	}
 	return count, nil
+}
+
+// enqueuePaidEvent inserts the batch's settlement.paid event unless one
+// exists. The batch row lock serialises two passes that both picked the batch
+// up in their scan; the NOT EXISTS runs as a new statement after the lock is
+// granted, so under READ COMMITTED it sees the event the first pass committed.
+func enqueuePaidEvent(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID, payload []byte) (bool, error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM settlement_batches WHERE id = $1 FOR UPDATE`, batchID); err != nil {
+		return false, fmt.Errorf("lock batch: %w", err)
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
+		SELECT 'settlement.paid', 'settlement_batch', $1::uuid, $2::jsonb
+		 WHERE NOT EXISTS (
+		   SELECT 1 FROM outbox_events
+		    WHERE event_type = 'settlement.paid' AND aggregate_id = $1::uuid
+		 )
+	`, batchID, payload)
+	if err != nil {
+		return false, fmt.Errorf("insert: %w", err)
+	}
+	// The disbursement is recorded with the batch's one settlement.paid event,
+	// not by webhook delivery: a merchant with no endpoint still gets one, and
+	// several endpoints or replays never add another.
+	if tag.RowsAffected() == 1 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO settlement_payout_disbursements (settlement_batch_id, amount_fils, disbursement_reference)
+			SELECT id, net_payout_fils, 'disb_' || gen_random_uuid()
+			  FROM settlement_batches
+			 WHERE id = $1 AND net_payout_fils > 0
+			   AND NOT EXISTS (
+			     SELECT 1 FROM settlement_payout_disbursements WHERE settlement_batch_id = $1
+			   )
+		`, batchID); err != nil {
+			return false, fmt.Errorf("record disbursement: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
 }

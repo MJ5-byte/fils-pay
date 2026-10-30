@@ -210,6 +210,8 @@ export interface SettlementMerchantOutcome {
 export interface RunBatchSummary {
   businessDate: string;
   merchantResults: SettlementMerchantOutcome[];
+  /** Merchants whose close or payout failed. */
+  failedMerchants?: { merchantId: string; error: string }[];
 }
 
 /** `POST /v1/admin/balances/rebuild` → `200 { rebuiltCount, changed }`,
@@ -228,20 +230,18 @@ export interface BalanceRebuildSummary {
 }
 
 /** `POST /v1/admin/merchants/:id/transactions/recompute-statuses` →
- *  `200 { merchantId, scanned, updated, openAuthorizations, flagsUpdated }`. */
+ *  `200 { merchantId, scanned, updated, openAuthorizations }`. */
 export interface RecomputeStatusesResult {
   merchantId: string;
   scanned: number;
   updated: number;
   openAuthorizations: number;
-  flagsUpdated: string[];
 }
 
-/** `POST /v1/admin/reporting/rebuild` → `200 { volumeRows, trendRows }` —
- *  how many rows each of the two analytics rollup tables ended up with. */
+/** `POST /v1/admin/reporting/rebuild` → `202 { status: "replaying" }` — the
+ *  rollups are emptied and apps/reporting's worker is replaying the outbox. */
 export interface AnalyticsRebuildSummary {
-  volumeRows: number;
-  trendRows: number;
+  status: "replaying";
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +355,7 @@ export interface AdjustmentImportResult {
   importId: string;
   rowCount: number;
   totalPostedFils: number;
+  alreadyApplied: boolean;
 }
 
 /** One row of `GET /v1/admin/adjustment-imports`. */

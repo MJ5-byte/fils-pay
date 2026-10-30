@@ -1,6 +1,6 @@
 # 0006. Adjustments are display corrections, not postings
 
-- **Status:** Accepted
+- **Status:** Superseded by 0008
 - **Date:** 2026-05-04
 - **Deciders:** Mahmood Khalil, support lead
 - **Related:** FP-203, `apps/api/src/admin/balanceAdjustments.ts`

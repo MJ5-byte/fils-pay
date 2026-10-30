@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { toFils, type Fils } from "@filspay/money";
+import { compareFils, toFils, type Fils } from "@filspay/money";
+import { UnprocessableEntityError } from "../lib/errors.js";
+import { CREDIT_APPROVAL_THRESHOLD_FILS } from "./creditThreshold.js";
 
 /** Posts a balanced ledger_entries group for a manual adjustment delta. */
 export async function postLedgerAdjustment(
@@ -9,6 +11,13 @@ export async function postLedgerAdjustment(
   amountFils: Fils,
   description = "manual balance adjustment",
 ): Promise<string | null> {
+  // Positive adjustments are paid at the next close (ADR-0008), so above the credit threshold they need the credit flow's second approver.
+  if (compareFils(amountFils, CREDIT_APPROVAL_THRESHOLD_FILS) > 0) {
+    throw new UnprocessableEntityError(
+      "adjustment_needs_second_approver",
+      "a positive adjustment above 50.000 BD needs a second approver: post it as a manual credit instead",
+    );
+  }
   if (amountFils === 0) return null;
 
   const entryGroupId = randomUUID();

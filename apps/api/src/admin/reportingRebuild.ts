@@ -1,39 +1,48 @@
 import type { PoolClient } from "pg";
+import { ConflictError } from "../lib/errors.js";
 
-/** Counts of outbox_events replayed into each rollup table. */
-export interface RebuildAnalyticsSummary {
-  volumeRows: number;
-  trendRows: number;
-}
+/** apps/reporting's CONSUMER_NAME, the row its worker keeps its watermark in. */
+const REPORTING_CONSUMER_NAME = "reporting";
 
-/** Truncates and repopulates the two rollup tables
- *  (merchant_daily_volume, merchant_payout_trends) from source. */
-export async function refreshAnalyticsRollups(client: PoolClient): Promise<RebuildAnalyticsSummary> {
-  // YA: ACCESS EXCLUSIVE lock is fine while analytics is internal only (Jan 2026)
-  await client.query(`TRUNCATE merchant_daily_volume`);
-  await client.query(`TRUNCATE merchant_payout_trends`);
+/** Must match the channel the outbox trigger notifies on (apps/reporting's listener.ts). */
+const OUTBOX_NOTIFY_CHANNEL = "outbox_events_channel";
 
-  const trendResult = await client.query(
-    `INSERT INTO merchant_payout_trends
-        (merchant_id, settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at, last_updated_at)
-     SELECT merchant_id, id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at, now()
-       FROM settlement_batches`,
-  );
-
-  const volumeResult = await client.query(
-    `INSERT INTO merchant_daily_volume
-        (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count, last_updated_at)
-     SELECT t.merchant_id,
-            (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date,
-            COUNT(*) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')),
-            COALESCE(SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')), 0),
-            COUNT(*) FILTER (WHERE te.event_type = 'voided'),
-            now()
-       FROM transaction_events te
-       JOIN transactions t ON t.id = te.transaction_id
-      WHERE te.event_type IN ('captured', 'partially_captured', 'voided')
-      GROUP BY t.merchant_id, (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date`,
-  );
-
-  return { volumeRows: volumeResult.rowCount ?? 0, trendRows: trendResult.rowCount ?? 0 };
+/**
+ * Empties the two rollup tables (merchant_daily_volume, merchant_payout_trends)
+ * and rewinds the reporting consumer's cursor to 0 in the caller's transaction,
+ * the same step `reporting rebuild` takes. The reporting worker then replays
+ * the whole outbox through its own consumer pass, so the rollups are only ever
+ * filled one way and every event is applied exactly once.
+ *
+ * Filling the rollups here from source tables instead, as this used to, counts
+ * every event the worker had not reached yet, and the worker then applied
+ * those events again on top.
+ */
+export async function resetAnalyticsRollups(client: PoolClient): Promise<void> {
+  // A queued TRUNCATE blocks every dashboard read that arrives after it, so
+  // give up on a long consumer pass or a slow read rather than wait it out.
+  await client.query(`SET LOCAL lock_timeout = '5s'`);
+  try {
+    // Cursor row first: a consumer pass locks it before it writes the
+    // rollups, so taking the locks in the same order waits for that pass to
+    // commit instead of deadlocking with it. Same upsert as apps/reporting's
+    // resetCursor (consumer/cursor.ts).
+    await client.query(
+      `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id, updated_at)
+       VALUES ($1, 0, now())
+       ON CONFLICT (consumer_name) DO UPDATE SET last_processed_id = 0, updated_at = now()`,
+      [REPORTING_CONSUMER_NAME],
+    );
+    await client.query(`TRUNCATE merchant_daily_volume, merchant_payout_trends`);
+  } catch (err) {
+    if ((err as { code?: unknown }).code === "55P03") {
+      throw new ConflictError(
+        "reporting_rebuild_busy",
+        "Analytics are being updated right now; try the rebuild again in a moment.",
+      );
+    }
+    throw err;
+  }
+  // Delivered on commit; wakes the worker now rather than at its next poll.
+  await client.query(`NOTIFY ${OUTBOX_NOTIFY_CHANNEL}`);
 }

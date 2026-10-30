@@ -3,9 +3,10 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "paths": {
-      "@filspay/money": ["../../packages/money/src/index.ts"]
+      "@filspay/money": ["../../packages/money/src/index.ts"],
+      "@filspay/ui": ["../../packages/ui/src/index.ts"]
     }
   },
   "include": ["src"]

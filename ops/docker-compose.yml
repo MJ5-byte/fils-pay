@@ -1,28 +1,132 @@
 # Local development stack for FilsPay. Brings up Postgres plus the three
 # services that talk to it directly (apps/api, apps/settlement,
 # apps/reporting) and runs the migration/seed jobs once against a fresh
-# database. apps/web and apps/admin are not included here — neither one
-# opens its own database connection; they call apps/api over HTTP.
+# database. apps/web and apps/admin open no database connection of their
+# own; the `web` service at the bottom serves their built files and they
+# call apps/api over HTTP through it.
 #
 #
 # The hosted demo box runs this same file. Service settings that aren't
-# listed under each service's `environment:` come from ops/.env.docker,
-# which compose picks up automatically. — AM, July
+# listed under each service's `environment:` are loaded from ops/.env.docker
+# by the explicit `env_file:` on each build-based service below. Compose does
+# not inject a per-service env file on its own (that is the `.env`
+# substitution file, a different mechanism), so env_file is required for
+# NODE_ENV and the secrets.
 #
-# — M?: Dockerfile.node / Dockerfile.go live next to this file. if they're
-# missing for you, pull main again.
+# Before the first run on a host, copy ops/.env.docker.example to
+# ops/.env.docker and fill in every value. api and settlement crash-loop at
+# boot without SETTLEMENT_INTERNAL_TOKEN and WEBHOOK_SECRET_ENCRYPTION_KEY.
 #
-# Run from the repo root: `docker compose -f ops/docker-compose.yml up`.
+# Dockerfile.node / Dockerfile.go live next to this file.
+#
+# Bring the stack up from the repo root; migrate runs first as a dependency:
+#   docker compose -f ops/docker-compose.yml up api settlement reporting
+# The seed job sits behind the `seed` profile so a bare `up` never wipes
+# data. Run it deliberately:
+#   docker compose -f ops/docker-compose.yml --profile seed run --rm seed
+#
+# Hosted box budget: the whole stack fits in 1 vCPU and 2 GB, with the api
+# held to 0.5 vCPU and 512 MB total: api and api-2 each get 0.25 vCPU
+# and 256 MB. Each service carries its own `cpus` and
+# `mem_limit` (plain `docker compose up` applies both, no swarm needed);
+# the long-running ones add up to 1.1 vCPU and 1536 MB (redis's 0.1 vCPU
+# and 64 MB included), which leaves the rest of the 2 GB to the host and the
+# one-off jobs. `web` is the public
+# front door on port 80: it serves apps/web and apps/admin and proxies the
+# api, and it answers 503 at once when the api is at capacity. See
+# ops/README.md, "Hosted box".
+
+# Cap every long-running container's log at 3 x 10 MB, so a load test or a
+# crash loop can't fill the disk with json-file logs.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-api: &api
+  build:
+    context: ..
+    dockerfile: ops/Dockerfile.node
+  restart: unless-stopped
+  logging: *logging
+  cpus: "0.25"
+  mem_limit: 256m
+  # WEBHOOK_SECRET_ENCRYPTION_KEY is required in every environment; the api
+  # throws at boot without a valid 32-byte base64 key. Set it, plus
+  # SETTLEMENT_INTERNAL_TOKEN, ACQUIRER_CALLBACK_SIGNING_SECRET and
+  # CARD_FINGERPRINT_KEY, in ops/.env.docker.
+  env_file:
+    - .env.docker
+  # Node is PID 1 so SIGTERM reaches the app directly, without npm or tsx wrappers holding memory.
+  command: ["node", "--import", "tsx", "apps/api/src/index.ts"]
+  # /readyz answers 200 once the process has reached the database at boot.
+  # The slim image has no curl, so node's own fetch makes the probe.
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/readyz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 60s
+  environment: &api-env
+    # Heap cap under the 256 MB limit, so V8 collects garbage before the
+    # kernel OOM-kills the container. The rest covers the tsx loader
+    # and native buffers (argon2, sharp).
+    NODE_OPTIONS: --max-old-space-size=192
+    # A checkout holds its pool connection while the acquirer answers
+    # (100 to 400 ms), so the default 5 caps checkouts near 10 a second
+    # with the CPU almost idle. Two pools of 10 keep 20 connections total
+    # and stay well inside Postgres's max_connections.
+    PG_POOL_MAX: "10"
+    # Two proxies sit in front of the api on the hosted box: the host nginx
+    # (TLS) and the web container. Trusting exactly those two hops gives
+    # the real client IP for sessions and audit rows, and a client-sent
+    # X-Forwarded-For can't push a forged address past them.
+    TRUST_PROXY_HOPS: "2"
+    # One application role (filspay) owns the whole database in this
+    # environment. Every service here, and the one-off migrate/seed jobs
+    # above, authenticate as that same role, which keeps local
+    # onboarding to a single password instead of provisioning per-service
+    # grants by hand.
+    DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
+    # TODO(YA, Jan): give the api its own role before anything is hosted.
+    SETTLEMENT_INTERNAL_URL: http://settlement:8091
+    # The dashboard read cache. No secret: redis is reachable only on the
+    # compose network. The api serves from the database while it is down.
+    REDIS_URL: redis://redis:6379
 
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.3"
+    mem_limit: 512m
+    # Sized for 2 GB host RAM, with shared_buffers inside the 512m container limit.
+    # max_connections covers 2 x 10 api pool
+    # connections + 1 LISTEN (api only) + settlement 5 + reporting 5 + 1
+    # LISTEN + migrate 1 + psql 1 = 34, below the limit of 40.
+    command:
+      - postgres
+      - -c
+      - max_connections=40
+      - -c
+      - shared_buffers=192MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=64MB
     environment:
       POSTGRES_USER: filspay
       POSTGRES_PASSWORD: filspay_dev_password
       POSTGRES_DB: filspay
     ports:
-      - "5432:5432"
+      # Bind to loopback only: the app services reach Postgres over the
+      # compose network, so the published port is for local access and must
+      # not be exposed on a public host.
+      - "127.0.0.1:5432:5432"
     volumes:
       - filspay_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -30,6 +134,26 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+
+  # Read cache for the api, nothing else. No persistence: losing it costs
+  # only cache misses. allkeys-lru evicts the coldest key at the 48 MB cap
+  # instead of refusing writes. No published port: only the compose network
+  # reaches it. The api does not depend_on it, so the api starts and serves
+  # without it.
+  redis:
+    image: redis:7.4.6-alpine
+    restart: unless-stopped
+    logging: *logging
+    # A cap, not a reservation. At 0.05 a throttled redis would push cache
+    # reads to their 50 ms timeout under load.
+    cpus: "0.1"
+    mem_limit: 64m
+    command: ["redis-server", "--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # One-off: applies db/migrations/*.sql, then exits. Re-run any time; the
   # runner tracks what's already applied (db/migrate.ts's own bootstrap
@@ -40,6 +164,11 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    logging: *logging
+    cpus: "0.25"
+    mem_limit: 256m
+    env_file:
+      - .env.docker
     command: ["npm", "run", "migrate"]
     environment:
       # Postgres and every app service here share the same Docker Compose
@@ -56,9 +185,18 @@ services:
   # AM: the seed only truncates its own fixture tables, so pointing this at a
   # shared database is fine. MK: correct. (see RUNBOOK)
   seed:
+    # Behind a profile so `up` never starts it: the seed truncates and
+    # regenerates its fixture tables on every run. Start it on purpose with
+    # `--profile seed run --rm seed`.
+    profiles: ["seed"]
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    logging: *logging
+    cpus: "0.5"
+    mem_limit: 512m
+    env_file:
+      - .env.docker
     command: ["npm", "run", "seed"]
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
@@ -67,34 +205,40 @@ services:
         condition: service_healthy
 
   api:
-    build:
-      context: ..
-      dockerfile: ops/Dockerfile.node
-    # WEBHOOK_SECRET_ENCRYPTION_KEY isn't needed in dev; the api uses a built-in
-    # dev key unless NODE_ENV=production. (copilot, pasted by FH — unverified)
-    command: ["npx", "tsx", "apps/api/src/index.ts"]
+    <<: *api
     ports:
-      - "3000:3000"
-    environment:
-      # One application role (filspay) owns the whole database in this
-      # environment. Every service here, and the one-off migrate/seed jobs
-      # above, authenticate as that same role, which keeps local
-      # onboarding to a single password instead of provisioning per-service
-      # grants by hand.
-      DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
-      # TODO(YA, Jan): give the api its own role before anything is hosted.
-      SETTLEMENT_INTERNAL_URL: http://settlement:8091
+      # Loopback only: public traffic goes through `web`, which sheds excess
+      # load before it reaches the api.
+      - "127.0.0.1:3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  api-2:
+    <<: *api
+    environment:
+      <<: *api-env
+      WEBHOOK_DISPATCHER_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   settlement:
     build:
       context: ..
       dockerfile: ops/Dockerfile.go
-    # The daemon falls back to SETTLEMENT_INTERNAL_TOKEN=dev-token when it isn't
-    # set, so nothing extra is needed here for local runs.
-    # FH: it exits at boot without the token for me. set it.
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.05"
+    mem_limit: 128m
+    # The daemon exits at boot without SETTLEMENT_INTERNAL_TOKEN; there is no
+    # default. Set it in ops/.env.docker, the same value the api uses.
+    env_file:
+      - .env.docker
     command: ["./settlement", "daemon"]
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
@@ -106,17 +250,53 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   reporting:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
+    restart: unless-stopped
+    logging: *logging
+    cpus: "0.05"
+    mem_limit: 256m
     # No subcommand = `worker`. (MK)
-    command: ["npx", "tsx", "apps/reporting/src/index.ts"]
+    env_file:
+      - .env.docker
+    command: ["node", "--import", "tsx", "apps/reporting/src/index.ts"]
     environment:
+      NODE_OPTIONS: --max-old-space-size=192
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     depends_on:
       postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Public front door: serves the built apps/web and apps/admin and proxies
+  # the api, all on one origin so the session cookies need no CORS. Config
+  # in ops/nginx.conf, image in ops/Dockerfile.web. FILSPAY_HTTP_PUBLISH
+  # picks the host side of the port: 80 by default, or 127.0.0.1:8080 when
+  # the host's own nginx owns port 80 and terminates TLS in front of this.
+  web:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+    restart: unless-stopped
+    logging: *logging
+    # The 400-user read-only ramp showed the static login page slowing from
+    # 126 to 514 ms in step with load, so 0.1 CPU here was the front door's
+    # ceiling. These are caps, not reservations, and the api replicas keep
+    # their 0.5 CPU between them.
+    cpus: "0.25"
+    mem_limit: 64m
+    ports:
+      - "${FILSPAY_HTTP_PUBLISH:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+      api-2:
         condition: service_healthy
 
 volumes:

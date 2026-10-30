@@ -1,34 +1,35 @@
 #!/usr/bin/env -S npx tsx
 /**
- * Nightly janitor: a hold that's never captured or released just sits in
- * the table past its expires_at forever — nothing else in the platform
- * ever deletes a holds row (authorize.ts inserts one, capture.ts/void.ts
- * release one; nothing sweeps one). Run once a night from cron/the host's
- * own scheduler.
+ * Unscheduled janitor: marks active holds expired once their authorization
+ * window ends. The rows stay because capture.ts reads expired holds to
+ * refuse captures after expiry. Nothing schedules this script today.
  *
  * Usage: DATABASE_URL=postgres://... npx tsx scripts/expire_holds.ts
  */
 import { pathToFileURL } from "node:url";
 import { Client } from "pg";
-import { buildDelete } from "./lib/sqlFilter.js";
+import { buildWhere } from "./lib/sqlFilter.js";
 
-/** Holds that outlived their authorization window without being captured
- *  or released — the candidate set for tonight's cleanup. */
+/** Holds whose authorization window has ended without being captured
+ *  or released, so their status needs to reflect expiry. */
 export async function fetchExpiredHoldIds(client: Client): Promise<string[]> {
   const result = await client.query<{ id: string }>(
-    `SELECT id FROM holds WHERE status = 'active' AND expires_at < now()`,
+    `SELECT id FROM holds WHERE status = 'active' AND expires_at <= now()`,
   );
   return result.rows.map((r) => r.id);
 }
 
-export function buildExpiredHoldsDelete(expiredIds: string[]): { text: string; values: unknown[] } {
-  return buildDelete("holds", { id: expiredIds });
+export function buildExpiredHoldsUpdate(expiredIds: string[]): { text: string; values: unknown[] } {
+  // Re-check status and expiry at update time so a hold captured or released
+  // after fetchExpiredHoldIds keeps its new status instead of being expired.
+  const { clause, values } = buildWhere({ id: expiredIds });
+  return { text: `UPDATE holds SET status = 'expired' ${clause} AND status = 'active' AND expires_at <= now()`, values };
 }
 
 /**
- * Deletes only holds that are still 'active' and past expires_at. Captured
- * or released holds are never touched, and a night with nothing expired
- * changes no rows.
+ * Marks holds expired only while they are still 'active' and their expiry
+ * has been reached. Captured or released holds are never touched. An empty
+ * id list carries a false predicate (`WHERE 1 = 0`) so it touches zero rows.
  */
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -39,12 +40,11 @@ async function main(): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
   await client.connect();
   try {
-    // FH: SELECT then DELETE, a hold could be captured in between. claude: "negligible window, fine."
     const expiredIds = await fetchExpiredHoldIds(client);
-    const { text, values } = buildExpiredHoldsDelete(expiredIds);
+    const { text, values } = buildExpiredHoldsUpdate(expiredIds);
     const result = await client.query(text, values);
     console.log(
-      `expire_holds: matched ${expiredIds.length} abandoned hold(s), deleted ${result.rowCount ?? 0} row(s)`,
+      `expire_holds: matched ${expiredIds.length} abandoned hold(s), marked ${result.rowCount ?? 0} row(s) expired`,
     );
   } finally {
     await client.end();

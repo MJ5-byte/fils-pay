@@ -19,8 +19,20 @@ function acquirerHeader(payload: unknown, secret: string, timestamp = 1_757_930_
 
 test("a correctly-signed callback verifies", () => {
   const payload = { callbackId: "acqcb_1", outcome: "cleared" };
-  const result = verifyAcquirerCallbackSignature(payload, acquirerHeader(payload, SECRET), SECRET);
+  const result = verifyAcquirerCallbackSignature(payload, acquirerHeader(payload, SECRET), SECRET, true, { now: 1_757_930_000 });
   assert.deepEqual(result, { valid: true });
+});
+
+test("a stale signed callback is rejected (stale_timestamp) and a fresh one verifies", () => {
+  const payload = { callbackId: "acqcb_1", outcome: "cleared" };
+  const timestamp = 1_757_930_000;
+  const header = acquirerHeader(payload, SECRET, timestamp);
+
+  const stale = verifyAcquirerCallbackSignature(payload, header, SECRET, true, { now: timestamp + 400 });
+  assert.deepEqual(stale, { valid: false, reason: "stale_timestamp" });
+
+  const fresh = verifyAcquirerCallbackSignature(payload, header, SECRET, true, { now: timestamp });
+  assert.deepEqual(fresh, { valid: true });
 });
 
 test("a tampered payload is rejected (signature_mismatch)", () => {
@@ -46,8 +58,14 @@ test("a malformed header is rejected (malformed_header)", () => {
   assert.equal(verifyAcquirerCallbackSignature(payload, "v1=deadbeef", SECRET).reason, "malformed_header");
 });
 
-test("an unsigned callback is accepted while signature checking is optional", () => {
+test("an unsigned callback is rejected by default (malformed_header)", () => {
   const payload = { callbackId: "acqcb_1", outcome: "cleared" };
   const result = verifyAcquirerCallbackSignature(payload, undefined, SECRET);
+  assert.deepEqual(result, { valid: false, reason: "malformed_header" });
+});
+
+test("an unsigned callback is accepted only when signature checking is explicitly turned off", () => {
+  const payload = { callbackId: "acqcb_1", outcome: "cleared" };
+  const result = verifyAcquirerCallbackSignature(payload, undefined, SECRET, false);
   assert.deepEqual(result, { valid: true });
 });

@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -63,10 +64,17 @@ type merchantBatchOutcomeResponse struct {
 	NetPayoutFils int64  `json:"netPayoutFils"`
 }
 
+// merchantBatchFailureResponse is the safe JSON projection of a merchant failure.
+type merchantBatchFailureResponse struct {
+	MerchantID string `json:"merchantId"`
+	Error      string `json:"error"`
+}
+
 // runBatchResponse is the JSON projection of settlement.DailyBatchReport.
 type runBatchResponse struct {
 	BusinessDate    string                         `json:"businessDate"`
 	MerchantResults []merchantBatchOutcomeResponse `json:"merchantResults"`
+	FailedMerchants []merchantBatchFailureResponse `json:"failedMerchants"`
 }
 
 // rebuildDiffResponse is the JSON projection of ledger.RebuildDiff.
@@ -104,6 +112,7 @@ type batchAdjustmentResponse struct {
 type recalculateMDRResponse struct {
 	BatchesConsidered int                       `json:"batchesConsidered"`
 	Adjusted          []batchAdjustmentResponse `json:"adjusted"`
+	SkippedBatchIDs   []string                  `json:"skippedBatchIds"`
 }
 
 type errorResponse struct {
@@ -206,6 +215,8 @@ func requirePost(next http.Handler) http.Handler {
 // handleRunBatch parses the request and calls the existing, unmodified
 // settlement.RunDailyBatch — the same function the `run-batch` CLI
 // subcommand calls, with the same arguments.
+// Partial failures return 200 with settled and failed merchants; errors without
+// per-merchant failures return 500 run_batch_failed.
 func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body runBatchRequest
@@ -237,6 +248,8 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 		report, err := settlement.RunDailyBatch(r.Context(), pool, businessDate, onlyMerchant)
 		if err != nil {
 			log.Printf("settlement internal api: run-batch(%s) failed: %v", body.Date, err)
+		}
+		if err != nil && len(report.Failures) == 0 {
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "run_batch_failed"})
 			return
 		}
@@ -254,18 +267,40 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 			})
 		}
 
+		failures := make([]merchantBatchFailureResponse, 0, len(report.Failures))
+		for _, failure := range report.Failures {
+			failures = append(failures, merchantBatchFailureResponse{
+				MerchantID: failure.MerchantID.String(),
+				Error:      "merchant_settle_failed",
+			})
+		}
+
 		writeJSON(w, http.StatusOK, runBatchResponse{
 			BusinessDate:    report.BusinessDate.Format(businessDateLayout),
 			MerchantResults: results,
+			FailedMerchants: failures,
 		})
 	})
 }
 
 // handleRebuildBalances backs the admin console's "Rebuild cached balances"
-// action. Takes no body; any body sent is ignored.
+// action. Any body sent is read and ignored; one over 1 KiB gets a 400.
+//
+// It rebuilds from the ledger, the same walk as the rebuild-balances CLI, so
+// the button and the CLI always write the same figure. The scheme export
+// holds gross only, with no fees or payouts, so it cannot be a balance.
 func handleRebuildBalances(pool *pgxpool.Pool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		diffs, err := ledger.RefreshBalanceCache(r.Context(), pool)
+		// Drain the (ignored) body: net/http only watches for a closed
+		// connection, and so only cancels r.Context(), once the body has been
+		// read to the end. Without this a caller that gives up leaves the
+		// rebuild running and committing. A body over 1 KiB or cut short never
+		// reaches the end, so it is refused rather than run uncancellable.
+		if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, 1<<10)); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_body"})
+			return
+		}
+		diffs, err := ledger.RebuildAllBalances(r.Context(), pool)
 		if err != nil {
 			log.Printf("settlement internal api: rebuild-balances failed: %v", err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "rebuild_balances_failed"})
@@ -336,9 +371,15 @@ func handleRecalculateMDR(pool *pgxpool.Pool) http.Handler {
 			})
 		}
 
+		skipped := make([]string, 0, len(result.Skipped))
+		for _, id := range result.Skipped {
+			skipped = append(skipped, id.String())
+		}
+
 		writeJSON(w, http.StatusOK, recalculateMDRResponse{
 			BatchesConsidered: result.BatchesConsidered,
 			Adjusted:          adjusted,
+			SkippedBatchIDs:   skipped,
 		})
 	})
 }

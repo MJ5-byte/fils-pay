@@ -6,13 +6,15 @@ import type { BalanceAdjustmentResult } from "../types.js";
  * signed integer number of fils — the same unit every other money field on
  * the admin plane's wire format uses.
  */
-// FH: posts to ledger + cache (journaled)
+// Posts ledger legs only; the payable cache picks the adjustment up at the next settlement close (ADR-0008).
 export function adjustBalance(
   merchantId: string,
   input: { deltaFils: number; reason: string },
+  idempotencyKey: string,
 ): Promise<BalanceAdjustmentResult> {
   return request(`/v1/admin/merchants/${merchantId}/balance-adjustments`, {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
   });
 }

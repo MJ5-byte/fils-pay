@@ -1,0 +1,11 @@
+-- Widen the platform-wide lifetime processed-volume counter to 64 bits.
+-- platform_stats.total_processed_fils was INTEGER (0049), whose max is
+-- 2,147,483,647 fils (about 2,147,483 BD). The counter only ever grows, so
+-- once lifetime volume passes that it wraps to a negative value and the
+-- volume-tier fee bonus reads a wrong total. apps/api already treats the
+-- column as a 64-bit value (apps/api/src/fees/platformVolumeTier.ts) and
+-- apps/settlement now reads and writes it as int64.
+--
+-- Additive and data-preserving: a type widen keeps every existing value and
+-- the DEFAULT; no row is rewritten in a way that changes its meaning.
+ALTER TABLE platform_stats ALTER COLUMN total_processed_fils TYPE BIGINT;

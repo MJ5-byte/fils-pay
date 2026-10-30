@@ -1,10 +1,15 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireRole, requireSession } from "../auth/middleware.js";
 import { issueApiKey, listApiKeys, revokeApiKey } from "../apiKeys/issue.js";
-import { ForbiddenError, NotFoundError } from "../lib/errors.js";
+import { UUID_RE } from "../admin/merchants.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 
 interface MerchantIdParams {
   merchantId: string;
+}
+
+interface ListApiKeysQuery {
+  limit?: string;
 }
 
 interface ApiKeyIdParams extends MerchantIdParams {
@@ -51,12 +56,17 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get<{ Params: MerchantIdParams }>(
+  app.get<{ Params: MerchantIdParams; Querystring: ListApiKeysQuery }>(
     "/:merchantId/api-keys",
     { preHandler: [requireSession, requireRole("owner")] },
     async (request) => {
       assertOwnMerchant(request);
-      return listApiKeys(app.db, request.params.merchantId);
+      const q = request.query;
+      if (q.limit !== undefined && !/^\d+$/.test(q.limit)) {
+        throw new BadRequestError("invalid_request", "limit must be a positive integer");
+      }
+      const limit = q.limit !== undefined ? Number.parseInt(q.limit, 10) : undefined;
+      return listApiKeys(app.db, request.params.merchantId, limit);
     },
   );
 
@@ -65,6 +75,9 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireSession, requireRole("owner")] },
     async (request, reply) => {
       assertOwnMerchant(request);
+      if (!UUID_RE.test(request.params.id)) {
+        throw new NotFoundError("api_key_not_found");
+      }
       const revoked = await revokeApiKey(app.db, request.params.merchantId, request.params.id);
       if (!revoked) {
         throw new NotFoundError("api_key_not_found");

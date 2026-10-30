@@ -31,6 +31,13 @@ function assertOwnMerchant(request: FastifyRequest<{ Params: MerchantIdParams }>
   }
 }
 
+/** Stored names are client-supplied: a bare name in the header throws on non-Latin-1 and allows CRLF injection. */
+function contentDisposition(fileName: string): string {
+  const fallback = fileName.replace(/[^ -~]|["\\]/g, "_");
+  const encoded = encodeURIComponent(fileName).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Registered with prefix '/v1/merchants'. */
 export async function kycRoutes(app: FastifyInstance): Promise<void> {
   // PDF-only rule is enforced on the magic bytes, not the filename — MK
@@ -97,7 +104,7 @@ export async function kycRoutes(app: FastifyInstance): Promise<void> {
         request.params.documentId,
       );
       reply.header("Content-Type", file.mimeType);
-      reply.header("Content-Disposition", `inline; filename="${file.fileName}"`);
+      reply.header("Content-Disposition", contentDisposition(file.fileName));
       return reply.send(file.buffer);
     },
   );
@@ -114,7 +121,7 @@ export async function kycRoutes(app: FastifyInstance): Promise<void> {
         request.params.documentId,
       );
       reply.header("Content-Type", file.mimeType);
-      reply.header("Content-Disposition", `inline; filename="${file.fileName}"`);
+      reply.header("Content-Disposition", contentDisposition(file.fileName));
       return reply.send(file.buffer);
     },
   );

@@ -16,9 +16,15 @@ export interface MerchantBatchOutcome {
   netPayoutFils: number;
 }
 
+export interface MerchantBatchFailure {
+  merchantId: string;
+  error: string;
+}
+
 export interface RunBatchSummary {
   businessDate: string;
   merchantResults: MerchantBatchOutcome[];
+  failedMerchants: MerchantBatchFailure[];
 }
 
 export interface RebuildDiff {
@@ -50,6 +56,8 @@ export interface MdrRecalcSummary {
   batchesConsidered: number;
   /** Only the batches whose fee actually changed. */
   adjusted: MdrBatchAdjustment[];
+  /** Batches left unchanged because the new fee would make their net payout negative. */
+  skippedBatchIds?: string[];
 }
 
 /**
@@ -121,10 +129,11 @@ async function callSettlementInternal(
       signal: controller.signal,
     });
   } catch (err) {
+    console.error(`settlement internal call to ${path} failed: ${(err as Error).message}`);
     throw new AppError(
       502,
       "settlement_unreachable",
-      `settlement internal call to ${path} failed: ${(err as Error).message}`,
+      "settlement service unreachable",
     );
   } finally {
     clearTimeout(timer);
@@ -137,20 +146,26 @@ async function callSettlementInternal(
     } catch {
       excerpt = "";
     }
+    // The body can carry SQL or driver text; it goes to the server log only.
+    console.error(`settlement internal call to ${path} returned ${response.status}: ${excerpt}`);
+    // Go's own 4xx validation replies are `{"error":"<snake_case_code>"}`; the admin UI shows
+    // that code to the operator, so keep it when the body is exactly that shape.
+    const code = /^\{"error":"([a-z_]{1,64})"\}\s*$/.exec(excerpt)?.[1];
     throw new AppError(
       500,
       "settlement_run_failed",
-      `settlement internal call to ${path} returned ${response.status}: ${excerpt}`,
+      `settlement run failed${code ? `: ${code}` : ""}`,
     );
   }
 
   try {
     return await response.json();
   } catch (err) {
+    console.error(`settlement internal call to ${path} returned unreadable JSON: ${(err as Error).message}`);
     throw new AppError(
       500,
       "settlement_run_failed",
-      `settlement internal call to ${path} returned unreadable JSON: ${(err as Error).message}`,
+      "settlement run failed",
     );
   }
 }
@@ -179,6 +194,8 @@ export async function triggerSettlementRunBatch(
 
   const rawResults = pick(decoded, "MerchantResults", "merchantResults");
   const merchantResults = Array.isArray(rawResults) ? rawResults : [];
+  const rawFailures = pick(decoded, "FailedMerchants", "failedMerchants");
+  const failedMerchants = Array.isArray(rawFailures) ? rawFailures : [];
 
   return {
     businessDate: asString(pick(decoded, "BusinessDate", "businessDate")),
@@ -190,6 +207,10 @@ export async function triggerSettlementRunBatch(
       grossFils: asNumber(pick(row, "GrossFils", "grossFils")),
       feeFils: asNumber(pick(row, "FeeFils", "feeFils")),
       netPayoutFils: asNumber(pick(row, "NetPayoutFils", "netPayoutFils")),
+    })),
+    failedMerchants: failedMerchants.filter(isRecord).map((row) => ({
+      merchantId: asString(pick(row, "MerchantID", "merchantId", "MerchantId")),
+      error: asString(pick(row, "Error", "error")),
     })),
   };
 }
@@ -269,6 +290,10 @@ export async function triggerMdrRecalculation(
       newFeeFils: asNumber(pick(row, "NewFeeFils", "newFeeFils")),
       diffFils: asNumber(pick(row, "DiffFils", "diffFils")),
     })),
+    skippedBatchIds: ((): string[] => {
+      const raw = pick(decoded, "Skipped", "skippedBatchIds");
+      return Array.isArray(raw) ? raw.map(asString) : [];
+    })(),
   };
 }
 

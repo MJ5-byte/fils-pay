@@ -1,20 +1,24 @@
+import { CoinLogin, CoinLoginMessage, formatTime } from "@filspay/ui";
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { login, verifyOtp } from "../../api/auth.js";
 import { describeError } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
-import type { AdminLoginResponse } from "../../types.js";
 
-type Step =
-  | { kind: "credentials" }
-  | { kind: "otp"; challenge: AdminLoginResponse };
+import type { AdminLoginResponse } from "../../types.js";
+import "../../admin.css";
+
+type Step = { kind: "credentials" } | { kind: "otp"; challenge: AdminLoginResponse };
 
 /**
  * Two-step admin login: email + password creates a *pending* session
  * and issues an OTP challenge; the OTP step is what actually authenticates
- * it. Neither step is told which half of a bad credential pair was wrong —
- * the API answers a single generic `invalid_credentials`, and this screen
- * repeats it verbatim rather than guessing at something more specific.
+ * it. Neither step is told which half of a bad credential pair was wrong.
+ * The API answers a single generic `invalid_credentials`, and this screen
+ * shows one generic sentence for it rather than guessing at something more specific.
+ *
+ * It wears the merchant dashboard's coin login (one design used twice),
+ * titled for the console so the two are never mistaken for one another.
  */
 export function LoginPage() {
   const { status, refresh } = useAdminAuth();
@@ -28,8 +32,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const redirectTo =
-    (location.state as { from?: string } | null)?.from ?? "/merchants";
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/overview";
 
   if (status === "authenticated") {
     return <Navigate to={redirectTo} replace />;
@@ -70,14 +73,9 @@ export function LoginPage() {
   }
 
   return (
-    <main className="admin-centered">
-      <h1>FilsPay Admin</h1>
-      <p className="admin-muted">Internal operations console.</p>
-
-      {error ? <p className="admin-error">{error}</p> : null}
-
+    <CoinLogin eyebrow="FilsPay" heading={step.kind === "credentials" ? "Admin console" : "Verify it's you"}>
       {step.kind === "credentials" ? (
-        <form onSubmit={(e) => void handleCredentials(e)} className="admin-form">
+        <form onSubmit={(e) => void handleCredentials(e)} className="dash-form">
           <label>
             Email
             <input
@@ -88,57 +86,65 @@ export function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
             />
           </label>
-          <label>
-            Password
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Signing in..." : "Continue"}
+          <div className="fp-coin-last">
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <CoinLoginMessage error={error} />
+          </div>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+            {submitting ? "Signing in" : "Continue"}
           </button>
         </form>
       ) : (
-        <form onSubmit={(e) => void handleOtp(e)} className="admin-form">
+        <form onSubmit={(e) => void handleOtp(e)} className="dash-form">
           <p>
-            A one-time code was issued for <strong>{email}</strong>. It expires at{" "}
-            {new Date(step.challenge.otpExpiresAt).toLocaleTimeString()}.
+            Code sent to <strong>{email}</strong>, valid until {formatTime(step.challenge.otpExpiresAt)}.
           </p>
           {step.challenge.devOtpCode ? (
-            <p className="admin-muted">
+            <p className="dash-muted">
               Development code: <code>{step.challenge.devOtpCode}</code>
             </p>
           ) : null}
-          <label>
-            One-time code
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              required
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Verifying..." : "Verify"}
+          <div className="fp-coin-last">
+            <label>
+              One-time code
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+            </label>
+            <CoinLoginMessage error={error} />
+          </div>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+            {submitting ? "Verifying" : "Verify"}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStep({ kind: "credentials" });
-              setCode("");
-              setError(null);
-            }}
-          >
-            Start over
-          </button>
+          <div className="dash-actions" style={{ margin: 0 }}>
+            <button
+              type="button"
+              className="dash-button-ghost"
+              onClick={() => {
+                setStep({ kind: "credentials" });
+                setCode("");
+                setError(null);
+              }}
+            >
+              Start over
+            </button>
+          </div>
         </form>
       )}
-    </main>
+    </CoinLogin>
   );
 }

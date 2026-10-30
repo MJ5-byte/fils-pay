@@ -13,6 +13,8 @@ export interface Config {
   databaseUrl: string;
 
   pgPoolMax: number;
+  /** Proxy hops in front of the api whose X-Forwarded-For entries are trusted; 0 trusts none. */
+  trustProxyHops: number;
   pgPoolMin: number;
   pgPoolIdleTimeoutMs: number;
   pgPoolConnectionTimeoutMs: number;
@@ -23,6 +25,10 @@ export interface Config {
   otpCodeLength: number;
   otpMaxAttempts: number;
   otpDevExpose: boolean;
+  /** Lowercased email domains whose login code is returned in the response
+   *  even when `otpDevExpose` is off: the seeded demo accounts on the hosted
+   *  box, which has no email or SMS provider to deliver a code. */
+  otpExposeEmailDomains: string[];
 
   argon2MemoryKib: number;
   argon2TimeCost: number;
@@ -73,11 +79,19 @@ export interface Config {
    *  API-latency budget. */
   settlementInternalRequestTimeoutMs: number;
 
+  /** Redis for the dashboard read cache. Unset means no cache: every read
+   *  goes to the database, which is also what happens while Redis is down. */
+  redisUrl: string | undefined;
+
   /** Base URL of apps/web's hosted checkout, used only to build the
    *  convenience `url` field on a created payment link — the API itself
    *  has no other reason to know where apps/web is hosted, and no route
    *  redirects there. Default matches Vite's own default dev port. */
   checkoutBaseUrl: string;
+  /** Browser origins allowed to call the API cross-origin with credentials,
+   *  from comma-separated CORS_ALLOWED_ORIGINS. Empty in production unless
+   *  set, so no production URL is baked into the code. */
+  corsAllowedOrigins: string[];
   /** How long a payment link stays 'reserved' (claimed by an in-flight pay
    *  attempt) before it self-expires back to claimable, closing the gap
    *  between claim and finalize without a sweep job. */
@@ -95,6 +109,11 @@ export interface Config {
    *  `Buffer.from(config.webhookSecretEncryptionKey, "base64")` to
    *  `encryptSecret`/`decryptSecret`, which take a `Buffer` key. */
   webhookSecretEncryptionKey: string;
+  /** Base64 of 32 bytes, the HMAC key for request hashes that carry card
+   *  data (payments/authorize.ts). Keyed so a stored hash cannot be
+   *  brute-forced back to a card number. Required in production; dev and
+   *  test fall back to a fixed key, as webhookSecretEncryptionKey does. */
+  cardFingerprintKey: string;
   /** Terminal-failure threshold for a single webhook_deliveries row — the
    *  attempt at which status flips from 'pending' to 'exhausted' instead of
    *  scheduling another retry. */
@@ -108,8 +127,12 @@ export interface Config {
    *  independent of LISTEN/NOTIFY — the safety net that guarantees no event
    *  is stuck forever even if a NOTIFY is missed. */
   webhookPollIntervalMs: number;
+  /** Off on the second api replica, so one process holds the webhook LISTEN session and poll timer. */
+  webhookDispatcherEnabled: boolean;
   /** Per-delivery-attempt HTTP timeout passed to the transport, milliseconds. */
   webhookRequestTimeoutMs: number;
+  /** Allow webhook URLs and deliveries to loopback/private/link-local addresses. Local dev and tests only; default false. */
+  webhookAllowPrivateTargets: boolean;
 
   /** Shared secret the acquirer signs its async callbacks with
    *  (routes/acquirerCallbacks.ts). Platform-level, not per-merchant —
@@ -150,28 +173,38 @@ function parseBoolEnv(value: string | undefined, fallback: boolean): boolean {
   return value === "true" || value === "1";
 }
 
-const DEV_FALLBACK_WEBHOOK_KEY_B64 = "dGVzdC1rZXktZm9yLWRldi1vbmx5LW5vdC1mb3ItcHJvZA==";
+function parseCsvEnv(value: string | undefined, fallback: string[]): string[] {
+  if (value === undefined || value.trim() === "") return fallback;
+  return value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+// Guards a security check, so only an explicit "false" or "0" turns it off; a typo keeps it on.
+function parseFailClosedBoolEnv(value: string | undefined): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized !== "false" && normalized !== "0";
+}
+
+const DEV_FALLBACK_WEBHOOK_KEY_B64 = "ZGV2LW9ubHktd2ViaG9vay1lbmNyeXB0aW9uLWtleSE=";
+const DEV_FALLBACK_CARD_FINGERPRINT_KEY_B64 = "ZGV2LW9ubHktY2FyZC1maW5nZXJwcmludC1rZXktMzI=";
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
-/** Validates WEBHOOK_SECRET_ENCRYPTION_KEY decodes to exactly 32 raw bytes,
- *  failing fast at boot (same posture as DATABASE_URL) rather than
+/** Validates a key env var (WEBHOOK_SECRET_ENCRYPTION_KEY, CARD_FINGERPRINT_KEY)
+ *  decodes to exactly 32 raw bytes, failing fast at boot (same posture as DATABASE_URL) rather than
  *  accepting a missing/malformed key and only discovering the problem at
  *  first-delivery time. Returns the original base64 string unchanged — the
  *  Config field stays base64-encoded; callers decode to a Buffer at the
  *  point of use. */
-function parseWebhookSecretEncryptionKey(value: string | undefined): string {
+function parseBase64Key32(name: string, value: string | undefined): string {
   if (!value) {
-    throw new Error("loadConfig: WEBHOOK_SECRET_ENCRYPTION_KEY environment variable is not set");
+    throw new Error(`loadConfig: ${name} environment variable is not set`);
   }
   if (!BASE64_RE.test(value)) {
-    throw new Error("loadConfig: WEBHOOK_SECRET_ENCRYPTION_KEY is not valid base64");
+    throw new Error(`loadConfig: ${name} is not valid base64`);
   }
   const decoded = Buffer.from(value, "base64");
   if (decoded.length !== 32) {
-    throw new Error(
-      `loadConfig: WEBHOOK_SECRET_ENCRYPTION_KEY must base64-decode to exactly 32 bytes, got ${decoded.length}`,
-    );
+    throw new Error(`loadConfig: ${name} must base64-decode to exactly 32 bytes, got ${decoded.length}`);
   }
   return value;
 }
@@ -200,6 +233,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl,
 
     pgPoolMax: parseIntEnv(env.PG_POOL_MAX, 5),
+    trustProxyHops: parseIntEnv(env.TRUST_PROXY_HOPS, 0),
     pgPoolMin: parseIntEnv(env.PG_POOL_MIN, 0),
     pgPoolIdleTimeoutMs: parseIntEnv(env.PG_POOL_IDLE_TIMEOUT_MS, 30_000),
     pgPoolConnectionTimeoutMs: parseIntEnv(env.PG_POOL_CONNECTION_TIMEOUT_MS, 5_000),
@@ -210,6 +244,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     otpCodeLength: parseIntEnv(env.OTP_CODE_LENGTH, 6),
     otpMaxAttempts: parseIntEnv(env.OTP_MAX_ATTEMPTS, 5),
     otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, nodeEnv !== "production"),
+    otpExposeEmailDomains: parseCsvEnv(env.OTP_EXPOSE_EMAIL_DOMAINS, []).map((d) => d.toLowerCase()),
 
     argon2MemoryKib: parseIntEnv(env.ARGON2_MEMORY_KIB, 19_456),
     argon2TimeCost: parseIntEnv(env.ARGON2_TIME_COST, 2),
@@ -243,19 +278,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     settlementInternalToken,
     settlementInternalRequestTimeoutMs: parseIntEnv(env.SETTLEMENT_INTERNAL_REQUEST_TIMEOUT_MS, 30_000),
 
+    redisUrl: env.REDIS_URL || undefined,
+
     checkoutBaseUrl: env.CHECKOUT_BASE_URL ?? "http://localhost:5173",
+    corsAllowedOrigins: parseCsvEnv(env.CORS_ALLOWED_ORIGINS, nodeEnv === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"]),
     paymentLinkReservationTimeoutSeconds: parseIntEnv(env.PAYMENT_LINK_RESERVATION_TIMEOUT_SECONDS, 60),
 
-    webhookSecretEncryptionKey: parseWebhookSecretEncryptionKey(
+    webhookSecretEncryptionKey: parseBase64Key32(
+      "WEBHOOK_SECRET_ENCRYPTION_KEY",
       env.WEBHOOK_SECRET_ENCRYPTION_KEY || (nodeEnv !== "production" ? DEV_FALLBACK_WEBHOOK_KEY_B64 : undefined),
+    ),
+    cardFingerprintKey: parseBase64Key32(
+      "CARD_FINGERPRINT_KEY",
+      env.CARD_FINGERPRINT_KEY || (nodeEnv !== "production" ? DEV_FALLBACK_CARD_FINGERPRINT_KEY_B64 : undefined),
     ),
     webhookMaxAttempts: parseIntEnv(env.WEBHOOK_MAX_ATTEMPTS, 8),
     webhookBackoffBaseMs: parseIntEnv(env.WEBHOOK_BACKOFF_BASE_MS, 30_000),
     webhookBackoffCapMs: parseIntEnv(env.WEBHOOK_BACKOFF_CAP_MS, 21_600_000),
     webhookPollIntervalMs: parseIntEnv(env.WEBHOOK_POLL_INTERVAL_MS, 5_000),
+    webhookDispatcherEnabled: parseBoolEnv(env.WEBHOOK_DISPATCHER_ENABLED, true),
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
+    webhookAllowPrivateTargets: parseBoolEnv(env.WEBHOOK_ALLOW_PRIVATE_TARGETS, false),
 
     acquirerCallbackSigningSecret,
-    acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),
+    acquirerCallbackRequireSignature: parseFailClosedBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE),
   };
 }

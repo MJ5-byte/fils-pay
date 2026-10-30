@@ -50,6 +50,12 @@ export function listPaymentLinks(
   );
 }
 
+export function getMerchantPaymentLink(merchantId: string, id: string): Promise<PaymentLinkDto> {
+  return request(
+    `/v1/merchants/${encodeURIComponent(merchantId)}/payment-links/${encodeURIComponent(id)}`,
+  );
+}
+
 /** `201` with the full merchant-facing DTO, including the shareable `url`. */
 export function createPaymentLink(
   merchantId: string,

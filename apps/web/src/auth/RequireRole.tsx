@@ -6,14 +6,9 @@ import type { MerchantRole } from "../types.js";
  * A UI-only convenience gate. It is **explicitly not** the security boundary
  * for anything it wraps.
  *
- * Most of what this hides is also gated server-side by the route's own
+ * What this hides is also gated server-side by the route's own
  * `requireMerchantRole(...)` — payment-link create/cancel, every webhook
- * route, the reconciliation report. Capture and void are the deliberate
- * exception: the API gates them at "any authenticated merchant actor" with no
- * narrower role check, so hiding them from `support` here is a UX choice
- * (a support agent's job is to look things up, not move money) and nothing
- * more. That divergence is called out at the call site too, so nobody
- * mistakes the hidden button for a boundary it isn't.
+ * route, the reconciliation report, transaction capture and void.
  *
  * Hence the deliberate default: when the current role is unknown (the `me`
  * call hasn't resolved), `children` are shown, not hidden. Hiding on

@@ -5,7 +5,6 @@ import { withTransaction } from "../db/withTransaction.js";
 import { decodeEncryptionKey, decryptSecret } from "./secretCrypto.js";
 import { signPayload } from "./sign.js";
 import { buildEnvelope } from "./envelope.js";
-import { recordPayoutDisbursementEffect } from "./payoutDisbursement.js";
 import { WEBHOOK_DELIVERY_ID_HEADER, WEBHOOK_SIGNATURE_HEADER } from "./headers.js";
 import type { WebhookTransport } from "./transport.js";
 
@@ -22,24 +21,20 @@ import type { WebhookTransport } from "./transport.js";
 
 const STEP_A_BATCH_LIMIT = 500;
 const STEP_B_BATCH_LIMIT = 100;
-// add refund.succeeded here when refunds ship, thats all it needs — am
+// How far past the send window a claimed delivery's next_attempt_at is pushed,
+// on top of the request timeout, so a second replica never treats a delivery
+// still in flight on another replica as due. Only governs crash recovery: a
+// normal attempt overwrites next_attempt_at (backoff) or status (terminal).
+const CLAIM_LEASE_MARGIN_MS = 60_000;
 // YA: adding a type here without a buildEnvelope case throws in Step A and stalls the whole queue. envelope.ts first.
 // MK: settlement.batch_closed taken out of this list in Feb (too noisy). docs still mention it
 const WEBHOOK_ELIGIBLE_EVENT_TYPES: readonly string[] = [
   "transaction.captured",
   "transaction.voided",
+  "refund.succeeded",
   "settlement.paid",
 ];
 const NOTIFY_CHANNEL = "outbox_events_channel";
-
-type PreDeliveryEffect = (pool: Pool, payload: Record<string, unknown>) => Promise<void>;
-
-const PRE_DELIVERY_EFFECTS: Record<string, PreDeliveryEffect> = {
-  "settlement.paid": async (pool, payload) => {
-    const data = payload.data as { settlementBatchId: string; netPayoutFils: number };
-    await recordPayoutDisbursementEffect(pool, data.settlementBatchId, Number(data.netPayoutFils));
-  },
-};
 
 export type DispatcherConfig = Pick<
   Config,
@@ -155,12 +150,7 @@ async function attemptOneDelivery(
 ): Promise<void> {
   const key = decodeEncryptionKey(config.webhookSecretEncryptionKey);
   const secret = decryptSecret(row.secret_ciphertext, key);
-  const { signature } = signPayload(row.payload, secret);
-
-  if (row.attempt_count === 0) {
-    const effect = PRE_DELIVERY_EFFECTS[row.event_type];
-    if (effect) await effect(pool, row.payload);
-  }
+  const { signature, body } = signPayload(row.payload, secret);
 
   const result = await transport({
     url: row.url,
@@ -169,7 +159,7 @@ async function attemptOneDelivery(
       [WEBHOOK_DELIVERY_ID_HEADER]: row.delivery_event_id,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(row.payload),
+    body,
     timeoutMs: config.webhookRequestTimeoutMs,
   });
 
@@ -177,7 +167,9 @@ async function attemptOneDelivery(
   const responseStatusCode = isTransportFailure ? null : result.statusCode;
   // NULL for a transport-level failure that never got a response, matching
   // response_status_code — left() truncation happens in SQL below either way.
-  const responseBodyParam = isTransportFailure ? null : result.body;
+  // Postgres TEXT rejects NUL, and a throw here would leave the row's attempt
+  // unrecorded, so the receiver controls whether its delivery ever progresses.
+  const responseBodyParam = isTransportFailure ? null : result.body.replaceAll("\u0000", "");
 
   if (!isTransportFailure && result.statusCode! >= 200 && result.statusCode! < 300) {
     await pool.query(
@@ -213,22 +205,52 @@ async function attemptOneDelivery(
   );
 }
 
-/** Step B: attempt every currently-due 'pending' delivery, sequentially. */
-// MK: no SKIP LOCKED — only ever run ONE api replica until this changes
-// FH: staging ran 2 replicas since June, never saw a dup delivery, so it's fine
+/**
+ * Atomically claim one due delivery for this pass, so that when more than one
+ * dispatcher replica runs, exactly one of them sends each delivery. The
+ * conditional UPDATE leases the row by pushing next_attempt_at past the send
+ * window: two replicas that both selected the row serialize on its row lock,
+ * and the loser re-evaluates the WHERE against the committed row and no longer
+ * matches 'pending' + due, so it never sends. Returns true only for the
+ * replica that won the row.
+ *
+ * No schema change: the status CHECK constraint (0022) has no 'sending' value,
+ * and next_attempt_at already means "not eligible until now". A normal attempt
+ * overwrites next_attempt_at with the real backoff (failure) or sets a terminal
+ * status (success/exhaustion), so the lease only governs the window where a
+ * replica crashes mid-send; the poll safety net then retries after it expires.
+ */
+async function claimDelivery(pool: Pool, deliveryId: string, leaseMs: number): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE webhook_deliveries
+        SET next_attempt_at = now() + ($2::text || ' milliseconds')::interval
+      WHERE id = $1 AND status = 'pending' AND next_attempt_at <= now()`,
+    [deliveryId, leaseMs],
+  );
+  return (result.rowCount ?? 0) === 1;
+}
+
+/** Step B: claim-then-attempt every currently-due 'pending' delivery,
+ *  sequentially. The claim makes running more than one replica safe: each due
+ *  delivery is sent by exactly one replica. */
 async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, config: DispatcherConfig): Promise<number> {
   const dueResult = await pool.query<DueDeliveryRow>(
     `SELECT wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count, we.url, we.secret_ciphertext
        FROM webhook_deliveries wd
        JOIN webhook_endpoints we ON we.id = wd.endpoint_id
-      WHERE wd.status = 'pending' AND wd.next_attempt_at <= now()
+      WHERE wd.status = 'pending' AND wd.next_attempt_at <= now() AND we.status = 'active'
       ORDER BY wd.next_attempt_at ASC
       LIMIT $1`,
     [STEP_B_BATCH_LIMIT],
   );
 
+  const leaseMs = config.webhookRequestTimeoutMs + CLAIM_LEASE_MARGIN_MS;
+  let attemptedCount = 0;
   for (const row of dueResult.rows) {
     try {
+      const claimed = await claimDelivery(pool, row.id, leaseMs);
+      if (!claimed) continue;
+      attemptedCount += 1;
       await attemptOneDelivery(pool, transport, config, row);
     } catch (err: unknown) {
       // A single row throwing before/around the transport call (e.g. a
@@ -236,18 +258,18 @@ async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, con
       // webhookSecretEncryptionKey) must never abort the whole pass — that
       // would couple every OTHER merchant's delivery to this one poisoned
       // row. Endpoints are never coupled to each other.
-      // Deliberately leave this row's status/attempt_count/next_attempt_at
-      // untouched: it is simply retried next pass, which self-heals if the
-      // failure was transient and otherwise degrades to "this one row never
-      // progresses" rather than "webhook delivery silently stops platform-
-      // wide."
+      // Deliberately leave this row's status and attempt_count untouched: it
+      // is simply retried once its claim lease expires, which self-heals if
+      // the failure was transient and otherwise degrades to "this one row
+      // never progresses" rather than "webhook delivery silently stops
+      // platform-wide."
       console.error(
         "[webhooks/dispatcher] delivery attempt threw before/around transport call, skipping row for this pass",
         { deliveryId: row.id, endpointId: row.endpoint_id, err },
       );
     }
   }
-  return dueResult.rows.length;
+  return attemptedCount;
 }
 
 /**

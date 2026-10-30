@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ZERO_FILS, addFils, applyRateFils, subtractFils, toFils, type Fils } from "@filspay/money";
 import { enqueueEvent } from "@filspay/events";
-import type { Pool, PoolClient } from "pg";
+import { Client, type ClientConfig, type Pool, type PoolClient } from "pg";
 import { MERCHANT_FIXTURES } from "./fixtures/merchants.js";
 import { generateMarchReconciliationFixtures } from "./fixtures/marchReconciliation.js";
 import {
@@ -164,6 +164,26 @@ interface InsertedMerchant {
   displayName: string;
 }
 
+// `postgres` is the Compose service name in ops/docker-compose.yml.
+const LOCAL_SEED_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "postgres"]);
+
+/**
+ * The seed TRUNCATEs merchants, transactions, the ledger and more, so it
+ * refuses any database that is not on the allowlist above unless
+ * SEED_ALLOW_TRUNCATE=1 says the wipe is meant. The host is the one `pg`
+ * resolves from the pool options (connection string, `?host=`, PGHOST), not
+ * a second parse of the URL, so the check and the connection cannot differ.
+ */
+export function assertSeedTargetAllowed(options: ClientConfig, env: NodeJS.ProcessEnv): void {
+  if (env.SEED_ALLOW_TRUNCATE === "1") return;
+  const host = new Client(options).host;
+  if (host !== undefined && LOCAL_SEED_HOSTS.has(host.toLowerCase())) return;
+  throw new Error(
+    `seed: refusing to TRUNCATE the database at host '${host ?? "unknown"}' because it is not local. ` +
+      "Point DATABASE_URL at localhost or the Docker postgres service, or set SEED_ALLOW_TRUNCATE=1 if wiping it is intended.",
+  );
+}
+
 /**
  * Truncates every seed table (FK-safe: one multi-table TRUNCATE ... CASCADE,
  * so table order doesn't matter, and RESTART IDENTITY resets the BIGSERIAL
@@ -181,6 +201,7 @@ interface InsertedMerchant {
  * connection.
  */
 export async function generate(pool: Pool): Promise<SeedSummary> {
+  assertSeedTargetAllowed(pool.options, process.env);
   const rng = createRng(SEED);
   const config = loadConfig(process.env);
   const passwordHash = await hashPassword(SEED_USER_PASSWORD, config);
@@ -608,6 +629,18 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         );
         settlementBatchCount += 1;
 
+        // Each line's capture event, stamped with this batch the way
+        // CloseBatch stamps the events it settles: the batch detail sums
+        // stamped events, so without these a line shows Captured 0.
+        for (const txn of settledTxns) {
+          await client.query(
+            `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, occurred_at, settlement_batch_id)
+             VALUES ($1, 'captured', $2, 'system', $3, $4)`,
+            [txn.id, txn.capturedFils, txn.occurredAt, closedBatchId],
+          );
+          transactionEventCount += 1;
+        }
+
         for (const line of schemeLineParams) {
           await client.query(
             `INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
@@ -629,53 +662,15 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         // apps/settlement would have left it: PayoutBatch adds each batch's
         // net payout to the running total as that batch is paid, so the
         // seed replays the same additions in the same chronological order.
-        // Math.fround matches the column's `real` precision, so the seeded
-        // figure is what a live run of apps/settlement would have left.
-        let lifetimeEstimate = Math.fround(0);
+        // The column is BIGINT fils (0078), so the sum is exact.
+        let lifetimeEstimate = 0;
         for (const batchNet of [...highVolumeDayNets, netFils]) {
-          lifetimeEstimate = Math.fround(lifetimeEstimate + Math.fround(Number(batchNet)));
+          lifetimeEstimate += Number(batchNet);
         }
         await client.query(`UPDATE merchants SET lifetime_net_payout_monitoring_estimate = $2 WHERE id = $1`, [
           merchantId,
           lifetimeEstimate,
         ]);
-
-        // A few outbox events, enqueued inside this same transaction as the
-        // writes that produced them. Payload shapes here must match the
-        // EXACT shapes the real application code enqueues
-        // (apps/api/src/payments/capture.ts, apps/api/src/payments/void.ts,
-        // and apps/settlement's CloseBatch) — apps/reporting's consumer
-        // applies these payload fields directly, with no join back to
-        // transactions/settlement_batches to "fix up" a differently-shaped
-        // seed-only payload.
-        const firstCaptured = transactions.find((t) => t.status === "captured");
-        if (firstCaptured) {
-          const firstCapturedFeeFils = applyRateFils(firstCaptured.capturedFils, fixture.mdrBps);
-          await enqueueEvent(client, {
-            eventType: "transaction.captured",
-            aggregateType: "transaction",
-            aggregateId: firstCaptured.id,
-            payload: {
-              merchantId,
-              amountCapturedFils: firstCaptured.capturedFils,
-              feeFils: firstCapturedFeeFils,
-              newStatus: firstCaptured.status,
-              capturedTotalFils: firstCaptured.capturedFils,
-            },
-          });
-          outboxEventCount += 1;
-        }
-
-        const firstVoided = transactions.find((t) => t.status === "voided");
-        if (firstVoided) {
-          await enqueueEvent(client, {
-            eventType: "transaction.voided",
-            aggregateType: "transaction",
-            aggregateId: firstVoided.id,
-            payload: { merchantId },
-          });
-          outboxEventCount += 1;
-        }
 
         await enqueueEvent(client, {
           eventType: "settlement.batch_closed",
@@ -748,6 +743,20 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           ledgerEntryCount += 1;
         }
         ledgerGroupCount += 1;
+
+        // The capture event CloseBatch reads; without it the March batch
+        // closes at zero gross. The fee is the group's fee leg, as in
+        // capture.ts.
+        const gross = group.legs.find((l) => l.accountId === "card_scheme_clearing");
+        const fee = group.legs.find((l) => l.accountId === "platform_fee_revenue");
+        if (gross) {
+          await client.query(
+            `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at)
+             VALUES ($1, 'captured', $2, 'system', $3, $4)`,
+            [group.transactionId, gross.amountFils, JSON.stringify({ feeFils: fee?.amountFils ?? 0 }), group.occurredAt],
+          );
+          transactionEventCount += 1;
+        }
       }
 
       // Sub-merchant split configuration, inserted after every merchant
@@ -875,6 +884,58 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         );
       }
 
+      // Reporting rollups are built only by replaying outbox_events and date
+      // each event by created_at. Write the history the API would have written:
+      // one event per capture or void, at the time it happened.
+      const historicalEvents = await client.query<{
+        kind: "captured" | "voided";
+        transaction_id: string;
+        merchant_id: string;
+        amount_fils: string | null;
+        fee_fils: string | null;
+        new_status: string | null;
+        captured_total_fils: string | null;
+        at: Date;
+      }>(
+        `SELECT kind, transaction_id, merchant_id, amount_fils, fee_fils, new_status, captured_total_fils, at FROM (
+           SELECT 'captured' AS kind, te.transaction_id, t.merchant_id, te.amount_fils::text AS amount_fils,
+                  COALESCE((te.metadata->>'feeFils')::bigint,
+                           (SELECT sum(l.amount_fils) FROM ledger_entries l
+                             WHERE l.transaction_id = t.id AND l.account_id = 'platform_fee_revenue'), 0)::text AS fee_fils,
+                  te.event_type AS new_status,
+                  (sum(te.amount_fils) OVER (PARTITION BY te.transaction_id ORDER BY te.occurred_at, te.id))::text AS captured_total_fils,
+                  te.occurred_at AS at, te.id AS tiebreak
+             FROM transaction_events te JOIN transactions t ON t.id = te.transaction_id
+            WHERE te.event_type IN ('captured', 'partially_captured')
+           UNION ALL
+           SELECT 'voided', t.id, t.merchant_id, NULL, NULL, NULL, NULL, t.occurred_at, 0
+             FROM transactions t WHERE t.status = 'voided'
+         ) e ORDER BY at, transaction_id, tiebreak`,
+      );
+      for (const row of historicalEvents.rows) {
+        const event = row.kind === "captured"
+          ? await enqueueEvent(client, {
+              eventType: "transaction.captured",
+              aggregateType: "transaction",
+              aggregateId: row.transaction_id,
+              payload: {
+                merchantId: row.merchant_id,
+                amountCapturedFils: Number(row.amount_fils),
+                feeFils: Number(row.fee_fils),
+                newStatus: row.new_status,
+                capturedTotalFils: Number(row.captured_total_fils),
+              },
+            })
+          : await enqueueEvent(client, {
+              eventType: "transaction.voided",
+              aggregateType: "transaction",
+              aggregateId: row.transaction_id,
+              payload: { merchantId: row.merchant_id },
+            });
+        await client.query("UPDATE outbox_events SET created_at = $2 WHERE id = $1", [String(event.id), row.at]);
+        outboxEventCount += 1;
+      }
+
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");
@@ -908,9 +969,9 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       label: "seed default key",
     });
     apiKeyCount += 1;
-    // Dev/test convenience only: the raw key is never stored, so this is
-    // the only place it's ever visible. Fine to print for seed data.
-    console.log(`seed: issued API key for ${merchant.displayName}: ${issued.rawKey}`);
+    // Seed stdout can be captured by CI or deploy logs, so secrets must never be logged.
+    // The prefix is the display-safe value already stored in api_keys.key_prefix.
+    console.log(`seed: issued API key for ${merchant.displayName}: ${issued.prefix}`);
   }
 
   return {

@@ -8,7 +8,7 @@
  * customer-facing checkout page never needs to distinguish a live 'active'
  * link from one whose reservation has already self-expired back to
  * claimable — both are simply 'active' from the outside. A merchant-facing
- * list (query.ts) uses the raw stored status instead, since a dashboard
+ * list (query.ts, serialize.ts) uses the stored status instead (except a stored 'active' past expires_at, which reads 'expired'), since a dashboard
  * operator does benefit from seeing "a payment is currently in flight" as
  * its own filterable state.
  */
@@ -37,5 +37,5 @@ export function derivePublicStatus(
   // row.status === 'reserved'
   const reservedAtMs = row.reservedAt?.getTime() ?? 0;
   const stillReserved = reservedAtMs > Date.now() - reservationTimeoutSeconds * 1000;
-  return stillReserved ? "processing" : "active";
+  return stillReserved ? "processing" : row.expiresAt.getTime() <= Date.now() ? "expired" : "active";
 }

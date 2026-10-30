@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireRole, requireSession } from "../auth/middleware.js";
 import { createMerchantWithOwner, type SignupInput } from "../onboarding/signup.js";
-import { getBusinessProfile, updateBusinessProfile, type BusinessProfilePatch } from "../onboarding/businessProfile.js";
+import { assertValidBusinessProfile, getBusinessProfile, isCleanText, updateBusinessProfile, type BusinessProfilePatch } from "../onboarding/businessProfile.js";
 import { BadRequestError, ForbiddenError } from "../lib/errors.js";
 
 interface MerchantIdParams {
@@ -38,6 +38,11 @@ export async function businessProfileRoutes(app: FastifyInstance): Promise<void>
       throw new BadRequestError("invalid_request", "missing required business profile or owner fields");
     }
 
+    assertValidBusinessProfile(bp, false);
+    if (!isCleanText(owner.email) || typeof owner.password !== "string") {
+      throw new BadRequestError("invalid_request", "owner email and password must be text");
+    }
+
     const result = await createMerchantWithOwner(app.db, app.config, body as SignupInput);
     reply.code(201).send({
       merchantId: result.merchantId,
@@ -61,7 +66,9 @@ export async function businessProfileRoutes(app: FastifyInstance): Promise<void>
     { preHandler: [requireSession, requireRole("owner", "finance")] },
     async (request) => {
       assertOwnMerchant(request);
-      const profile = await updateBusinessProfile(app.db, request.params.merchantId, request.body ?? {});
+      const patch = request.body ?? {};
+      assertValidBusinessProfile(patch, true);
+      const profile = await updateBusinessProfile(app.db, request.params.merchantId, patch);
       return profile;
     },
   );

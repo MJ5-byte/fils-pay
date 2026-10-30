@@ -29,14 +29,14 @@ interface WebhookEndpointRow {
  */
 export async function updateWebhookEndpoint(
   pool: Pool,
-  config: Pick<Config, "nodeEnv">,
+  config: Pick<Config, "nodeEnv" | "webhookAllowPrivateTargets">,
   input: UpdateWebhookEndpointInput,
 ): Promise<WebhookEndpointSummary | null> {
   if (input.url === undefined && input.status === undefined) {
     throw new BadRequestError("invalid_request", "at least one of url or status is required");
   }
   if (input.url !== undefined) {
-    validateWebhookUrl(input.url, config);
+    await validateWebhookUrl(input.url, config);
   }
 
   const result = await pool.query<WebhookEndpointRow>(

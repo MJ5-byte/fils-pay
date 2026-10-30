@@ -81,8 +81,10 @@ as often as you like; it asks for confirmation because it covers every
 merchant at once. The nightly recompute does the same thing at 02:00.
 
 **Rebuild analytics** — dashboards lag a little behind live activity by
-design. If they look stale, rebuild them from scratch here instead of
-waiting for the worker. Quick, safe, and repeatable.
+design. If their numbers look wrong, this empties both rollups and the
+reporting worker replays the whole outbox into them again, so dashboards
+show partial numbers until the replay catches up. Safe to repeat; it needs the
+reporting worker running.
 
 ## Webhooks
 

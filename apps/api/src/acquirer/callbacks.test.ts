@@ -85,6 +85,20 @@ test("applyAcquirerCallback records the acquirer's verdict against the transacti
   assert.equal(row.note, "Manual review cleared; no further action needed.");
 });
 
+test("applyAcquirerCallback dedupes a redelivered callback: the same callback_id twice gives one note", async () => {
+  const { transactionId } = await createTransaction();
+  const callbackId = `acqcb_${randomUUID()}`;
+  const cb = callbackFor(transactionId, callbackId);
+
+  await Promise.all([applyAcquirerCallback(pool, cb), applyAcquirerCallback(pool, cb)]);
+
+  const rows = await pool.query(
+    `SELECT id FROM acquirer_callback_notes WHERE callback_id = $1`,
+    [callbackId],
+  );
+  assert.equal(rows.rowCount, 1);
+});
+
 test("withCallbackRetry retries a failing call up to maxAttempts, then rethrows the last error", async () => {
   let attempts = 0;
   await assert.rejects(

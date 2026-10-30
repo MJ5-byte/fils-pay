@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/config"
+	"github.com/filspay/settlement/internal/ledger"
 	"github.com/filspay/settlement/internal/settlement"
 )
 
@@ -124,6 +126,103 @@ func decodeJSON(t *testing.T, resp *http.Response, into any) {
 	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
 		t.Fatalf("decode response body: %v", err)
 	}
+}
+
+func TestRunBatch_PartialFailureReportsSettledAndFailed(t *testing.T) {
+	pool := mustPool(t)
+	server := newTestServer(t, pool)
+	failing := insertActiveMerchant(t, pool)
+	healthy := insertActiveMerchant(t, pool)
+	// Keep the unsettled capture out of later all-merchant runs.
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `UPDATE merchants SET status = 'suspended' WHERE id = $1`, failing); err != nil {
+			t.Errorf("suspend failing merchant: %v", err)
+		}
+	})
+
+	businessDate := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	start, _ := settlement.BusinessDayWindow(businessDate)
+	refuseBatchInsert(t, pool, failing, businessDate)
+	insertCaptureEvent(t, pool, failing, 1000, start.Add(time.Hour))
+	insertCaptureEvent(t, pool, healthy, 4750, start.Add(time.Hour))
+
+	for _, rerun := range []bool{false, true} {
+		resp := post(t, server, "/internal/run-batch", "Bearer "+testToken, `{"date":"2026-04-12"}`)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("rerun %t: status = %d, want 200", rerun, resp.StatusCode)
+		}
+		var report runBatchResponse
+		decodeJSON(t, resp, &report)
+
+		var foundHealthy bool
+		for _, result := range report.MerchantResults {
+			if result.MerchantID == failing.String() {
+				t.Errorf("rerun %t: failing merchant appears in merchantResults", rerun)
+			}
+			if result.MerchantID == healthy.String() {
+				foundHealthy = true
+				if result.AlreadyClosed != rerun {
+					t.Errorf("rerun %t: healthy alreadyClosed = %t, want %t", rerun, result.AlreadyClosed, rerun)
+				}
+				if result.AlreadyPaid != rerun {
+					t.Errorf("rerun %t: healthy alreadyPaid = %t, want %t", rerun, result.AlreadyPaid, rerun)
+				}
+			}
+		}
+		if !foundHealthy {
+			t.Errorf("rerun %t: healthy merchant missing from merchantResults", rerun)
+		}
+
+		var foundFailure bool
+		for _, failure := range report.FailedMerchants {
+			if failure.MerchantID == failing.String() {
+				foundFailure = true
+				if failure.Error != "merchant_settle_failed" {
+					t.Errorf("rerun %t: failure error = %q, want merchant_settle_failed", rerun, failure.Error)
+				}
+			}
+		}
+		if !foundFailure {
+			t.Errorf("rerun %t: failing merchant missing from failedMerchants", rerun)
+		}
+	}
+
+	var paidCount int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM settlement_batches WHERE merchant_id = $1 AND status = 'paid'`, healthy).Scan(&paidCount); err != nil {
+		t.Fatalf("query healthy merchant's paid batches: %v", err)
+	}
+	if paidCount != 1 {
+		t.Errorf("healthy merchant has %d paid batches, want 1", paidCount)
+	}
+}
+
+// refuseBatchInsert makes CloseBatch fail for one merchant and business date
+// only: a test-only trigger rejects that merchant's settlement_batches insert
+// for that date, so its close rolls back. Dropped when the test ends.
+func refuseBatchInsert(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	// DDL takes no bind parameters; the id and date come from the test itself.
+	name := "test_refuse_batch_" + strings.ReplaceAll(merchantID.String(), "-", "")
+	_, err := pool.Exec(ctx, `CREATE FUNCTION `+name+`() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN RAISE EXCEPTION 'test: batch insert refused'; END $$`)
+	if err != nil {
+		t.Fatalf("refuseBatchInsert: create function: %v", err)
+	}
+	_, err = pool.Exec(ctx, `CREATE TRIGGER `+name+` BEFORE INSERT ON settlement_batches FOR EACH ROW
+		WHEN (NEW.merchant_id = '`+merchantID.String()+`' AND NEW.batch_date = '`+businessDate.Format("2006-01-02")+`')
+		EXECUTE FUNCTION `+name+`()`)
+	if err != nil {
+		t.Fatalf("refuseBatchInsert: create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS `+name+` ON settlement_batches`); err != nil {
+			t.Errorf("drop trigger: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DROP FUNCTION IF EXISTS `+name+`()`); err != nil {
+			t.Errorf("drop function: %v", err)
+		}
+	})
 }
 
 func TestRunBatch_ValidTokenAndDate(t *testing.T) {
@@ -254,8 +353,8 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 		t.Fatalf("seed drifted cache: %v", err)
 	}
 
-	// The rebuild endpoint's source of record is a closed batch's own
-	// scheme-export line, independent of the ledger legs inserted above.
+	// A closed batch with its scheme-export line. The balance is the batch's
+	// net (ADR-0007, BHA-189), not the capture's ledger legs or the export.
 	var batchID uuid.UUID
 	err = pool.QueryRow(context.Background(), `
 		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
@@ -291,8 +390,8 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 	if diff.Before != 999999 {
 		t.Errorf("before = %d, want 999999 (the drifted cached value)", diff.Before)
 	}
-	if diff.After != 12000 {
-		t.Errorf("after = %d, want 12000 (the scheme-export-derived total)", diff.After)
+	if diff.After != 11700 {
+		t.Errorf("after = %d, want 11700 (the closed batch's net)", diff.After)
 	}
 	if !diff.Changed {
 		t.Error("changed = false, want true")
@@ -303,8 +402,164 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query persisted balance: %v", err)
 	}
-	if persisted != 12000 {
-		t.Errorf("persisted cached_payable_fils = %d, want 12000", persisted)
+	if persisted != 11700 {
+		t.Errorf("persisted cached_payable_fils = %d, want 11700", persisted)
+	}
+}
+
+// TestRebuildBalances_MatchesClosedBatchesAndCLI pins the admin button to the
+// same figure the rebuild-balances CLI writes: the net of the merchant's
+// closed, unpaid batches, so a paid batch is left out. ADR-0004 promises the
+// two paths agree; a rebuild from the scheme export alone would put the gross
+// back in the cache.
+func TestRebuildBalances_MatchesClosedBatchesAndCLI(t *testing.T) {
+	pool := mustPool(t)
+	server := newTestServer(t, pool)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool)
+	txnID := insertCaptureEvent(t, pool, merchantID, 12000, time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC))
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+		VALUES ($1, '2026-04-12', 'paid', 5000, 0, 5000, now(), now())
+	`, merchantID)
+	if err != nil {
+		t.Fatalf("seed paid batch: %v", err)
+	}
+
+	var batchID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+		VALUES ($1, '2026-04-13', 'closed', 12000, 300, 11700, now())
+		RETURNING id
+	`, merchantID).Scan(&batchID)
+	if err != nil {
+		t.Fatalf("seed settlement batch: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, line_sequence)
+		VALUES ($1, $2, 12000, 1)
+	`, batchID, txnID)
+	if err != nil {
+		t.Fatalf("seed scheme export line: %v", err)
+	}
+
+	resp := post(t, server, "/internal/rebuild-balances", "Bearer "+testToken, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var diffs map[string]rebuildDiffResponse
+	decodeJSON(t, resp, &diffs)
+	diff, ok := diffs[merchantID.String()]
+	if !ok {
+		t.Fatalf("response has no diff entry for merchant %s", merchantID)
+	}
+	if diff.After != 11700 {
+		t.Errorf("button after = %d, want 11700 (the closed batch; the paid one is out)", diff.After)
+	}
+
+	cliBalance, err := ledger.RebuildMerchantBalance(ctx, pool, merchantID)
+	if err != nil {
+		t.Fatalf("RebuildMerchantBalance: %v", err)
+	}
+	if diff.After != int64(cliBalance) {
+		t.Errorf("button after = %d, CLI rebuild = %d, want them equal", diff.After, cliBalance)
+	}
+}
+
+// TestRebuildBalances_OversizedBodyRejected checks that a body the handler
+// cannot read to the end is refused before any rebuild starts: without
+// reaching the end, net/http would never cancel the rebuild if the caller
+// left. pool is nil, so a rebuild that did start would panic.
+func TestRebuildBalances_OversizedBodyRejected(t *testing.T) {
+	server := newTestServer(t, nil)
+	resp := post(t, server, "/internal/rebuild-balances", "Bearer "+testToken, `{"pad":"`+strings.Repeat("x", 2048)+`"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestRebuildBalances_ClientDisconnectCancelsRebuild checks that the rebuild
+// stops when the caller goes away. The API posts a small JSON body and gives
+// up after 30 s; net/http only notices a closed connection once the body has
+// been read, so a handler that never reads it keeps rebuilding and commits
+// after the API has already reported a failure.
+func TestRebuildBalances_ClientDisconnectCancelsRebuild(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	handlerDone := make(chan struct{})
+	handler := Handler(pool, config.Config{InternalToken: testToken})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	// An open cache write, like a payout in flight, keeps the rebuild
+	// waiting on its table lock until the client gives up.
+	merchantID := insertActiveMerchant(t, pool)
+	_, err := pool.Exec(ctx, `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at) VALUES ($1, 0, now())
+	`, merchantID)
+	if err != nil {
+		t.Fatalf("seed cache row: %v", err)
+	}
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer blocker.Rollback(ctx) //nolint:errcheck
+	var blockerPID int
+	if err := blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID); err != nil {
+		t.Fatalf("blocker pid: %v", err)
+	}
+	if _, err := blocker.Exec(ctx, `UPDATE merchant_balances SET updated_at = now() WHERE merchant_id = $1`, merchantID); err != nil {
+		t.Fatalf("blocker update: %v", err)
+	}
+
+	clientCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req, err := http.NewRequestWithContext(clientCtx, http.MethodPost, server.URL+"/internal/rebuild-balances", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Content-Type", "application/json")
+	go func() {
+		resp, err := server.Client().Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		err := pool.QueryRow(ctx, `
+			SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+		`, blockerPID).Scan(&waiting)
+		if err != nil {
+			t.Fatalf("check rebuild is waiting: %v", err)
+		}
+		if waiting > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the rebuild never waited on the open cache write")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+
+	// This wait must stay below the rebuild's 5 s lock_timeout: a handler
+	// that is never cancelled still ends once the lock times out, and a
+	// longer wait would let that pass for a cancellation.
+	select {
+	case <-handlerDone:
+	case <-time.After(1 * time.Second):
+		t.Fatal("the handler kept rebuilding after the client disconnected")
 	}
 }
 
