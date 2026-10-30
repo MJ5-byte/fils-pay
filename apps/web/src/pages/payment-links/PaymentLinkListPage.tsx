@@ -8,11 +8,11 @@ import { Pagination } from "../../components/Pagination.js";
 import { bhd, dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 
-/** The four *stored* statuses, including `reserved` — the merchant-facing
+/** The stored statuses plus `expired` (a stored `active` past expires_at), including `reserved` — the merchant-facing
  *  list deliberately exposes it distinctly rather than collapsing it into the
  *  public enum's `processing`, because a merchant needs to see that a link is
  *  mid-payment-attempt. */
-const STATUSES: PaymentLinkStatus[] = ["active", "reserved", "paid", "canceled"];
+const STATUSES: PaymentLinkStatus[] = ["active", "reserved", "paid", "canceled", "expired"];
 
 const PAGE_SIZE = 25;
 

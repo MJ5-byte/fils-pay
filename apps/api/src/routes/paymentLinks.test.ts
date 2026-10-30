@@ -871,3 +871,34 @@ test("a merchant can read and page past 100 links, including the oldest one by i
   });
   assert.equal(foreign.statusCode, 404, foreign.body);
 });
+
+test("merchant list and detail show a link past expires_at as expired, and the status filter agrees (BHA-197)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired-status");
+  const live = await createLink(rawKey, merchantId, { reference: "live" });
+  const lapsed = await createLink(rawKey, merchantId, { reference: "lapsed" });
+  await pool.query(`UPDATE payment_links SET expires_at = now() - interval '1 minute' WHERE id = $1`, [lapsed.id]);
+
+  const list = async (qs: string) => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/payment-links${qs}`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    return (res.json() as { paymentLinks: Array<{ id: string; status: string }> }).paymentLinks;
+  };
+
+  const all = await list("");
+  assert.equal(all.find((l) => l.id === lapsed.id)?.status, "expired");
+  assert.equal(all.find((l) => l.id === live.id)?.status, "active");
+  assert.deepEqual((await list("?status=expired")).map((l) => l.id), [lapsed.id]);
+  assert.deepEqual((await list("?status=active")).map((l) => l.id), [live.id]);
+
+  const detail = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/payment-links/${lapsed.id}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(detail.json().status, "expired");
+  assert.equal((await getPublicLink(lapsed.token)).json().status, "expired");
+});

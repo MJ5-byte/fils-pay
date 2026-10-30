@@ -950,6 +950,13 @@
 - **Cause:** The API had no merchant-scoped single-link read, so `PaymentLinkDetailPage` fetched the newest 100 links (the list's maximum page) and searched them for the id.
 - **Breaks:** An old active link stayed payable and the merchant had no way to cancel it from the dashboard. It was first filed as an improvement because the page admitted its limit; a listed link that cannot be opened is a wrong outcome a user hits, so it is a bug.
 - **Fix:** New `GET /v1/merchants/:merchantId/payment-links/:id` (own merchant only, 404 for anyone else's link) and the detail page calls it. Test added: 105 links, two pages with no duplicates or gaps, the oldest opens by id, another merchant gets 404. Red (404) before, green after. The list pager itself needed no change.
+### Bug: Merchant dashboard shows an expired payment link as active
+- **Status:** Fixed
+- **Type:** UX, medium
+- **Problem:** A payment link past its expiry showed "active" in the merchant dashboard (list, detail and the status filter) while the public checkout page said "expired".
+- **Cause:** `serializePaymentLink` (`apps/api/src/paymentLinks/serialize.ts:56`) returned the stored `status`, and nothing ever writes `expired` to the row; only the public read derives it from `expires_at`. The list filter (`query.ts`) matched the stored column too.
+- **Breaks:** Merchants saw a dead link as live and could not filter expired links; the dashboard and checkout disagreed about the same link.
+- **Fix:** The serializer returns `expired` for a stored `active` link past `expires_at`, and the list filter matches the same meaning in SQL (`active` means not yet expired, `expired` means stored active and past expiry); `reserved`, `paid` and `canceled` are unchanged, pagination is unchanged, no schema change. The dashboard gets an `expired` filter and colour. Test added in `routes/paymentLinks.test.ts` (red before: list showed `active`). PR: https://github.com/SilentYsf/fils-pay/pull/132
 
 ### Bug: The acquirer callback signing secret is committed in git
 - **Status:** Fixed

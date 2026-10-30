@@ -20,8 +20,9 @@ export interface PaymentLinkRow {
 }
 
 /** Merchant-facing DTO (create response, list response) — the full,
- *  internal shape, including `id` (to call DELETE) and the raw (not
- *  derived-public) status. Never returned by the public read/pay
+ *  internal shape, including `id` (to call DELETE) and the stored
+ *  status, except that a stored 'active' past expires_at reads 'expired' as it
+ *  does on the public checkout (nothing writes 'expired' to the row). Never returned by the public read/pay
  *  endpoints. */
 export interface PaymentLinkDto {
   id: string;
@@ -53,7 +54,7 @@ export function serializePaymentLink(row: PaymentLinkRow, checkoutBaseUrl: strin
     currency: row.currency,
     reference: row.reference,
     description: row.description,
-    status: row.status,
+    status: row.status === "active" && row.expires_at.getTime() <= Date.now() ? "expired" : row.status,
     expiresAt: row.expires_at.toISOString(),
     transactionId: row.transaction_id,
     createdAt: row.created_at.toISOString(),
