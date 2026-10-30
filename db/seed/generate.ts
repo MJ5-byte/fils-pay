@@ -641,11 +641,10 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         // apps/settlement would have left it: PayoutBatch adds each batch's
         // net payout to the running total as that batch is paid, so the
         // seed replays the same additions in the same chronological order.
-        // Math.fround matches the column's `real` precision, so the seeded
-        // figure is what a live run of apps/settlement would have left.
-        let lifetimeEstimate = Math.fround(0);
+        // The column is BIGINT fils (0078), so the sum is exact.
+        let lifetimeEstimate = 0;
         for (const batchNet of [...highVolumeDayNets, netFils]) {
-          lifetimeEstimate = Math.fround(lifetimeEstimate + Math.fround(Number(batchNet)));
+          lifetimeEstimate += Number(batchNet);
         }
         await client.query(`UPDATE merchants SET lifetime_net_payout_monitoring_estimate = $2 WHERE id = $1`, [
           merchantId,

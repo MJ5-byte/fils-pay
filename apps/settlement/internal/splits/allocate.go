@@ -149,6 +149,21 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 		return SplitPayoutResult{}, err
 	}
 
+	// Same running total PayoutBatch bumps for a non-split payout
+	// (settlement.UpdateLifetimePayoutMonitoringEstimate, inlined because
+	// that package imports this one). A negative net is money owed, not paid
+	// out, so it never lowers the total.
+	if netPayout >= 0 {
+		_, err = tx.Exec(ctx, `
+			UPDATE merchants
+			   SET lifetime_net_payout_monitoring_estimate = lifetime_net_payout_monitoring_estimate + $2
+			 WHERE id = $1
+		`, parentMerchantID, netPayout)
+		if err != nil {
+			return SplitPayoutResult{}, err
+		}
+	}
+
 	_, err = tx.Exec(ctx, `UPDATE settlement_batches SET status = 'paid', paid_at = now() WHERE id = $1`, batchID)
 	if err != nil {
 		return SplitPayoutResult{}, err

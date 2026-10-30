@@ -796,6 +796,13 @@
 - **Cause:** `createFetchTransport` in `apps/api/src/webhooks/transport.ts` appended every chunk to a string with no limit, although the dispatcher and test-send only keep the first 2000 characters of it.
 - **Breaks:** A fast receiver could push hundreds of MB into one delivery's memory on the 2 GB host, and a string past V8's limit throws a RangeError inside the data listener, which can take the API process down.
 - **Fix:** The transport stops reading at 64 KiB (`MAX_RESPONSE_BODY_BYTES`), destroys the response and resolves with the status code and the truncated body, once. The whole-exchange timeout is unchanged. Test added: a local receiver streams without end and the transport resolves in milliseconds, not at the timeout.
+### Bug: Lifetime payout estimate drifts for high-volume merchants (BHA-26, BHA-128, BHA-129)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** The running lifetime payout total on a merchant (`merchants.lifetime_net_payout_monitoring_estimate`) stopped matching the sum of that merchant's payouts once it passed about 16,777 BD, and drifted further with every batch. Split parents' total (BHA-129) never moved at all.
+- **Cause:** `UpdateLifetimePayoutMonitoringEstimate` (`apps/settlement/internal/settlement/payout_estimate.go:19`) passed `float32(netPayoutFils)` into a `REAL` column (0040), and a 32-bit float holds every integer only up to 2^24 fils, so each addition past that rounded. `EstimateMonthlyPayout` summed fils in a `float32` the same way.
+- **Breaks:** ADR-0001 (money is integer fils). Nothing in Go, the TS API or the web apps reads the figure back, so no payout or balance was wrong; the ops figure was.
+- **Fix:** Migration 0078 changes the column to `BIGINT` (type change only, nothing dropped), the payout code adds `int64` fils, `EstimateMonthlyPayout` sums `int64`, and the seed sums exactly instead of rounding through `Math.fround`. Test added: three payouts totalling 5,016,777,221 fils land on the exact sum (it read 5,016,777,216 before). The old small-value test now scans an `int64`. `splits.PayoutSplitBatch` never bumped the estimate, so it now runs the same UPDATE in its transaction with the batch's net payout (inlined, because `settlement` imports `splits`). Test added: a split parent's estimate equals its batch net after payout. A negative net is skipped, as `PayoutBatch` refuses one. Split-parent payouts made before this change are not backfilled into the estimate. PR: https://github.com/SilentYsf/fils-pay/pull/106
 ### Bug: The webhook backoff test failed on every run (BHA-182)
 - **Status:** Fixed
 - **Type:** Time, low

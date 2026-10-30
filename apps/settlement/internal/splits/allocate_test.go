@@ -169,3 +169,104 @@ func TestPayoutSplitBatch_MissingBalanceRowExcludesPaidBatch(t *testing.T) {
 		t.Errorf("parent cached_payable_fils after payout = %d, want 500 (only the unpaid batch)", cached)
 	}
 }
+
+// TestPayoutSplitBatch_BumpsLifetimePayoutEstimate pays a split parent's
+// closed batch and checks the parent's lifetime payout estimate moves by the
+// batch's net payout, as it does for a non-split merchant's payout.
+func TestPayoutSplitBatch_BumpsLifetimePayoutEstimate(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const netPayout = 1003
+
+	parentID := insertMerchant(t, pool)
+	for _, w := range []int64{5000, 3000, 2000} {
+		childID := insertMerchant(t, pool)
+		_, err := pool.Exec(ctx, `
+			INSERT INTO merchant_split_children (parent_merchant_id, child_merchant_id, split_weight_bps)
+			VALUES ($1, $2, $3)
+		`, parentID, childID, w)
+		if err != nil {
+			t.Fatalf("insert split child: %v", err)
+		}
+	}
+	var batchID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, net_payout_fils, closed_at)
+		VALUES ($1, DATE '2026-03-21', 'closed', $2, now())
+		RETURNING id
+	`, parentID, netPayout).Scan(&batchID)
+	if err != nil {
+		t.Fatalf("insert closed batch: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, last_settlement_batch_id, updated_at)
+		VALUES ($1, $2, $3, now())
+	`, parentID, netPayout, batchID)
+	if err != nil {
+		t.Fatalf("insert merchant balance: %v", err)
+	}
+
+	if _, err := PayoutSplitBatch(ctx, pool, batchID); err != nil {
+		t.Fatalf("PayoutSplitBatch: %v", err)
+	}
+
+	var got int64
+	err = pool.QueryRow(ctx, `SELECT lifetime_net_payout_monitoring_estimate FROM merchants WHERE id = $1`, parentID).Scan(&got)
+	if err != nil {
+		t.Fatalf("read estimate: %v", err)
+	}
+	if got != netPayout {
+		t.Errorf("lifetime_net_payout_monitoring_estimate = %d, want %d", got, netPayout)
+	}
+}
+
+// TestPayoutSplitBatch_NegativeNetLeavesLifetimePayoutEstimate pays a split
+// parent's closed batch whose net is negative (money owed). The estimate is a
+// running total of payouts, so it must not go down.
+func TestPayoutSplitBatch_NegativeNetLeavesLifetimePayoutEstimate(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	parentID := insertMerchant(t, pool)
+	for _, w := range []int64{6000, 4000} {
+		childID := insertMerchant(t, pool)
+		_, err := pool.Exec(ctx, `
+			INSERT INTO merchant_split_children (parent_merchant_id, child_merchant_id, split_weight_bps)
+			VALUES ($1, $2, $3)
+		`, parentID, childID, w)
+		if err != nil {
+			t.Fatalf("insert split child: %v", err)
+		}
+	}
+	_, err := pool.Exec(ctx, `UPDATE merchants SET lifetime_net_payout_monitoring_estimate = 700 WHERE id = $1`, parentID)
+	if err != nil {
+		t.Fatalf("seed estimate: %v", err)
+	}
+	var batchID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, net_payout_fils, closed_at)
+		VALUES ($1, DATE '2026-03-22', 'closed', -500, now())
+		RETURNING id
+	`, parentID).Scan(&batchID)
+	if err != nil {
+		t.Fatalf("insert closed batch: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, last_settlement_batch_id, updated_at)
+		VALUES ($1, -500, $2, now())
+	`, parentID, batchID)
+	if err != nil {
+		t.Fatalf("insert merchant balance: %v", err)
+	}
+
+	_, _ = PayoutSplitBatch(ctx, pool, batchID) // whether it errors is not what this test pins
+
+	var got int64
+	err = pool.QueryRow(ctx, `SELECT lifetime_net_payout_monitoring_estimate FROM merchants WHERE id = $1`, parentID).Scan(&got)
+	if err != nil {
+		t.Fatalf("read estimate: %v", err)
+	}
+	if got != 700 {
+		t.Errorf("lifetime_net_payout_monitoring_estimate = %d, want 700 unchanged", got)
+	}
+}
