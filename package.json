@@ -8,6 +8,7 @@
     "apps/*"
   ],
   "scripts": {
+    "build": "npm run build --workspace @filspay/web",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p db --noEmit && tsc -p scripts --noEmit",
     "test": "npm run test --workspaces --if-present && tsx --test scripts/*.test.ts",
     "migrate": "tsx db/migrate.ts",

@@ -38,6 +38,10 @@ From the repository root:
 npm ci
 ```
 
+For Dilmun Cloud web deployments, use `npm ci` as the install command and
+`npm run build` as the build command. The root build script builds
+`@filspay/web`; set the output directory to `apps/web/dist`.
+
 ## Local development
 
 The web and admin frontends run as separate Vite dev servers. Start each in
