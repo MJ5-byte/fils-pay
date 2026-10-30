@@ -197,6 +197,40 @@ test("a non-2xx response is a 500 settlement_run_failed — the call landed, set
   }
 });
 
+test("a non-2xx body from settlement is never echoed in the AppError; Go's safe 4xx error code is kept", async () => {
+  const leaky = 'pq: relation "x" does not exist SELECT * FROM merchants';
+  const fake = await startFakeSettlement((_req, res) => {
+    res.writeHead(500, { "content-type": "text/plain" });
+    res.end(leaky);
+  });
+  const realError = console.error;
+  console.error = () => {};
+  try {
+    const err = await triggerSettlementRunBatch(configFor(fake.url), { date: "2026-09-09" }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof AppError);
+    assert.equal(err.code, "settlement_run_failed");
+    assert.ok(!err.message.includes("pq:") && !err.message.includes("SELECT"), err.message);
+  } finally {
+    console.error = realError;
+    await fake.close();
+  }
+
+  const bad = await startFakeSettlement((_req, res) => sendJson(res, 400, { error: "invalid_date" }));
+  try {
+    const err = await triggerSettlementRunBatch(configFor(bad.url), { date: "x" }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof AppError);
+    assert.ok(err.message.includes("invalid_date"), err.message);
+  } finally {
+    await bad.close();
+  }
+});
+
 test("a 200 with unparseable JSON is settlement_run_failed, not a crash", async () => {
   const fake = await startFakeSettlement((_req, res) => {
     res.writeHead(200, { "content-type": "application/json" });

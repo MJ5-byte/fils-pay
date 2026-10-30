@@ -392,3 +392,11 @@
 - **Cause:** `attemptOneDelivery` (`apps/api/src/webhooks/dispatcher.ts:180`) passed the raw receiver body into `response_body_excerpt`, and Postgres TEXT rejects NUL. The query threw before the UPDATE applied, and the per-row catch in `attemptDueDeliveries` leaves the row untouched.
 - **Breaks:** A receiver controls whether its own delivery ever progresses or backs off, and it adds a failing query to every pass, with an error log line each time.
 - **Fix:** One `replaceAll` strips NUL from the body before the three UPDATEs that share it; the 2000-character cap is unchanged. PR: https://github.com/SilentYsf/fils-pay/pull/72. Tests added in `dispatcher.test.ts` for a 200 and a 500 response, which also check that another endpoint is still delivered.
+
+### Bug: Admin settlement errors leak the internal service body
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** When the settlement service failed, the admin API returned its raw response body in the error message, for example `pq: relation "x" does not exist SELECT ...`.
+- **Cause:** `callSettlementInternal` (`apps/api/src/admin/settlementClient.ts:133`) copied the first 500 characters of the non-2xx body into the `AppError` message, and all admin settlement calls route through it.
+- **Breaks:** Table names, SQL and driver text from an internal service reached the admin browser.
+- **Fix:** The body is now logged server-side only. The message keeps the path and status, plus Go's own `{"error":"<code>"}` code when the body is exactly that shape, so the admin UI still shows validation codes. Test added in `settlementClient.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/76.

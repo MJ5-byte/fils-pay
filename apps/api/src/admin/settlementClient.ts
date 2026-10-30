@@ -137,10 +137,15 @@ async function callSettlementInternal(
     } catch {
       excerpt = "";
     }
+    // The body can carry SQL or driver text; it goes to the server log only.
+    console.error(`settlement internal call to ${path} returned ${response.status}: ${excerpt}`);
+    // Go's own 4xx validation replies are `{"error":"<snake_case_code>"}`; the admin UI shows
+    // that code to the operator, so keep it when the body is exactly that shape.
+    const code = /^\{"error":"([a-z_]{1,64})"\}\s*$/.exec(excerpt)?.[1];
     throw new AppError(
       500,
       "settlement_run_failed",
-      `settlement internal call to ${path} returned ${response.status}: ${excerpt}`,
+      `settlement internal call to ${path} returned ${response.status}${code ? `: ${code}` : ""}`,
     );
   }
 
