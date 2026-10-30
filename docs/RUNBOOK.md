@@ -110,18 +110,27 @@ what the scheme was paid; finance reconciles against it.
 
 ## Month-end residue (finance)
 
-Until residue posting is automated (see ARCHITECTURE, "The scheme
-boundary"), finance runs a month-end script modelled on
-`scripts/reconcile_march.ts`:
+Residue posting is automated: since BHA-19 (PR #111) CloseBatch journals
+each scheme export line's rounding residue at close, as ADR-0002 says, so
+there is no month-end script to copy or edit. `scripts/reconcile_march.ts`
+is only for batches closed before that, in March 2026:
 
-1. Copy the script, change the window constants at the top to the new
-   month (UTC calendar month, `YYYY-MM-01T00:00Z` to the first of the next
-   month).
-2. Run it once against production with finance on the call.
-3. Attach the log from `scripts/out/` to the month-end ticket.
+1. Run it once against production with finance on the call:
+   `DATABASE_URL=... npx tsx scripts/reconcile_march.ts`.
+2. Attach its output to the month-end ticket.
 
-The script checks for an existing posting with the same description, so a
-second run is a no-op.
+It picks the batches whose `batch_date` falls in March. `batch_date` is the
+Asia/Bahrain business day CloseBatch closes (`BusinessDayWindow`), so this is
+the Bahrain business month. It posts one balanced group per export line and
+skips any batch that already carries residue legs, from CloseBatch or from an
+earlier run, so a second run posts nothing. It posts nothing and exits with
+an error if any line's residue is outside 0 to 9 fils, or if the old version
+of the script left `merchant_payable` legs that have not been reversed.
+
+The old-script check nets those `merchant_payable` legs to zero only when
+finance's reversal carries the same description string as the old run
+("March 2026 scheme rounding residue sweep — manual recon per finance"); a
+reversal with any other description keeps the sweep blocked.
 
 > **Huda** (#fp-finance): please don't run anything for April onwards until March (FP-187) is resolved
 

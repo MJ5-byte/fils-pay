@@ -914,6 +914,13 @@
 - **Cause:** `CreditsPage` passed every failure to `describeError`, which prints the API's `message` or else its raw `code`, and the API raises this one as a bare code (`creditApproval.ts:13`).
 - **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
 - **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
+### Bug: The March sweep script is not safe to run twice
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** The script that patched the March scheme rounding gap doubled it when run twice on staging. It also took the residue off what merchants are owed, and missed residue lost on split captures.
+- **Cause:** `scripts/reconcile_march.ts:74` posted a new `randomUUID` journal group on every run. The dedupe claimed at `:71` and in `docs/RUNBOOK.md:123` did not exist. The legs at `:78-79` debited `merchant_payable`, where ADR-0002 says credit `card_scheme_clearing`. `:41` took the residue from cumulative `captured_fils` instead of each scheme export line.
+- **Breaks:** Every extra run moved money again. Merchant payables were reduced by the residue. Rounding lost across several captures went unrecorded.
+- **Fix:** The sweep now posts one ADR-0002 group per export line, with the line's transaction and batch, and computes the residue as gross minus `amount_fils`. It runs under an advisory lock in one transaction and skips any batch that already carries residue legs. A second run, or a batch CloseBatch already journalled, posts nothing. It aborts if a line's residue is outside 0 to 9 fils, and it refuses to post over unreversed old-script rows. Batches are picked by a March `batch_date` (the Bahrain business month), so a batch is swept whole. Tests added in `scripts/reconcile_march.integration.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/127
 
 ### Bug: Recalculate MDR moves a fil on discounted merchants with no rate change (BHA-171)
 - **Status:** Fixed
