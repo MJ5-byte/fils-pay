@@ -160,9 +160,14 @@ export function createAcquirerSimulator(config: SimulatorConfig): AcquirerSimula
       const rolled = rollOutcome();
       const latencyMs = await applyLatency();
 
+      // The acquirer issues its own reference for the refund, distinct from
+      // the transaction's authorization reference (`req.acquirerReference`).
+      // The cache keyed on idempotencyKey means a genuine retry of the same
+      // refund returns the same reference, while two distinct refunds of one
+      // transaction get distinct references.
       const result: AcquirerRefundResult = {
         outcome: rolled.outcome,
-        acquirerReference: req.acquirerReference,
+        acquirerReference: `acqr_${randomUUID()}`,
         latencyMs,
       };
       refundCache.set(req.idempotencyKey, result);

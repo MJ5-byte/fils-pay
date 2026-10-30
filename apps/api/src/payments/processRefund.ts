@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { ZERO_FILS, calculateRefundFee, compareFils, subtractFils, toFils, type Fils } from "@filspay/money";
 import { enqueueEvent } from "@filspay/events";
 import { withTransaction } from "../db/withTransaction.js";
@@ -152,6 +152,7 @@ export async function processRefund(
          (transaction_id, merchant_id, amount_fils, fee_reversed_fils, status,
           acquirer_reference, reason, created_by_type, created_by_id)
        VALUES ($1, $2, $3, $4, 'succeeded', $5, $6, $7, $8)
+       ON CONFLICT (acquirer_reference) DO NOTHING
        RETURNING id, occurred_at`,
       [
         txn.id,
@@ -159,14 +160,18 @@ export async function processRefund(
         requestedAmount,
         feeReversedFils,
         acquirerResult.acquirerReference,
-        input.reason ?? null,
+        input.reason ?? "unspecified",
         input.actor.type,
         input.actor.id,
       ],
     );
     const refund = refundResult.rows[0];
     if (!refund) {
-      throw new Error("processRefund: insert into refunds returned no row");
+      // A refund already exists for this acquirer reference: a duplicate or
+      // re-posted refund. Return the refund that was recorded first and move
+      // no money again, rather than inserting a second row and reversing the
+      // fee twice (BHA-123).
+      return replayExistingRefund(client, claim.row.id, acquirerResult.acquirerReference);
     }
 
     const updateResult = await client.query<{ refunded_fils: string | number }>(
@@ -258,4 +263,55 @@ export async function processRefund(
     });
     return { statusCode: 200, body };
   });
+}
+
+interface ExistingRefundRow {
+  id: string;
+  amount_fils: string | number;
+  fee_reversed_fils: string | number;
+  occurred_at: Date;
+  transaction_id: string;
+  merchant_id: string;
+  transaction_status: string;
+  refunded_fils: string | number;
+}
+
+/**
+ * The refund insert hit the unique acquirer_reference: a refund with this
+ * reference was already recorded. Return that first refund unchanged, so a
+ * duplicate attempt reads as a replay and never moves money a second time.
+ */
+async function replayExistingRefund(
+  client: PoolClient,
+  claimId: string,
+  acquirerReference: string,
+): Promise<ProcessRefundResult> {
+  const existing = await client.query<ExistingRefundRow>(
+    `SELECT r.id, r.amount_fils, r.fee_reversed_fils, r.occurred_at,
+            t.id AS transaction_id, t.merchant_id,
+            t.status AS transaction_status, t.refunded_fils
+       FROM refunds r
+       JOIN transactions t ON t.id = r.transaction_id
+      WHERE r.acquirer_reference = $1`,
+    [acquirerReference],
+  );
+  const row = existing.rows[0];
+  if (!row) {
+    throw new Error("processRefund: refund conflict but no existing refund found");
+  }
+
+  const body = {
+    id: row.id,
+    transactionId: row.transaction_id,
+    merchantId: row.merchant_id,
+    amountFils: toFils(Number(row.amount_fils)),
+    feeReversedFils: toFils(Number(row.fee_reversed_fils)),
+    status: "succeeded",
+    transactionStatus: row.transaction_status,
+    refundedTotalFils: toFils(Number(row.refunded_fils)),
+    acquirerReference,
+    occurredAt: row.occurred_at.toISOString(),
+  };
+  await completeIdempotencyKey(client, claimId, { statusCode: 200, body, resourceId: row.id });
+  return { statusCode: 200, body };
 }

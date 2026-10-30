@@ -421,6 +421,13 @@
 - **Breaks:** A merchant checking one day's payments against that day's settlement batch got a list three hours off, so the two never matched. Near midnight the admin could close the wrong day's batch by accepting the default.
 - **Fix:** `dayStartIso` now parses the date at `+03:00`, the same parse apps/api's `bahrainLocalMidnightUtc` uses. The Run batch default moved to `apps/admin/src/pages/settlement/businessDate.ts` and takes yesterday from the Bahrain calendar date, the same technique as apps/api's `todayBahrainDateString`, whatever the browser's zone. The web test that asserted UTC midnight now asserts 21:00Z on the previous day. A new admin test pins both sides of 21:00Z with a fixed clock, and admin gained the same `tsx --test` script the web app has. On a local run, the 27 Aug filter now includes a payment made at 01:03 Bahrain time (22:03Z on 26 Aug) that the old filter left out.
 
+### Bug: Refunds have no unique reference, so a retry double-posts
+- **Status:** Fixed (BHA-123)
+- **Type:** Money, medium
+- **Problem:** A retried or re-posted refund (the same logical refund sent again with a new idempotency key, or re-imported) created a second refund row and reversed the fee a second time, moving the money twice.
+- **Cause:** The acquirer simulator (`apps/api/src/acquirer/simulator.ts`) echoed the transaction's authorization reference back as the refund's reference, so every refund of one transaction stored the same `acquirer_reference`, and 0042 left that column without a UNIQUE constraint. `processRefund` then inserted a plain row with no guard, so two attempts both wrote.
+- **Breaks:** Any duplicate refund attempt paid the merchant twice and reversed the platform fee twice for one refund.
+- **Fix:** The acquirer now issues its own reference per refund (distinct refunds of one transaction get distinct references, a genuine retry the same one). A new additive migration adds `UNIQUE (acquirer_reference)` on refunds, and the insert is atomic: `ON CONFLICT (acquirer_reference) DO NOTHING`, returning the first refund unchanged on a conflict so a duplicate moves no money again. The insert also stops passing an explicit NULL `reason`, which the applied `chk_refunds_reason_not_null` constraint rejects; this let the refund insert succeed and turned the 11 pre-existing refund-insert test failures green. Red/green test added (`payments/refundUniqueReference.new.test.ts`): a second refund carrying the same acquirer reference posts once and returns the first refund. Schema change, needs human sign-off (rule 3).
 ### Bug: The webhook dispatcher double-delivers when more than one replica runs
 - **Status:** Fixed (BHA-135)
 - **Type:** Concurrency, high
