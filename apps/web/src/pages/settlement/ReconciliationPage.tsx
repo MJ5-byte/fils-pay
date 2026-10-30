@@ -7,6 +7,7 @@ import {
   PageHeader,
   Skeleton,
   StatusBadge,
+  formatBusinessDate,
 } from "@filspay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { getReconciliation, listSettlementBatches } from "../../api/settlement.js";
@@ -149,7 +150,7 @@ export function ReconciliationPage() {
             <div className="dash-card-head"><h2 className="dash-card-title">Reconciliation result</h2>
               <StatusBadge status={report.explained ? "reconciled" : "gap"}>{report.explained ? "Reconciled, no gap" : <>Gap: <Money fils={report.gapFils} /></>}</StatusBadge>
             </div>
-            <p className="fp-widget-description">{report.periodFrom} to {report.periodTo} (exclusive)</p>
+            <p className="fp-widget-description">{formatBusinessDate(report.periodFrom)} to {formatBusinessDate(report.periodTo)} (exclusive)</p>
           </section>
           <div className="dash-metrics fp-stagger">
             <KpiTile icon={IconWallet} label="Ledger payable"><Money fils={report.ledgerMerchantPayableNetFils} /></KpiTile>

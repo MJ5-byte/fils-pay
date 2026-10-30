@@ -1562,3 +1562,9 @@
 - **Before:** A link that was paid, expired, canceled or processing, and the success and "Unable to pay" screens, showed only a headline. The payer could not see who they were paying or how much. Nothing promised more and nothing broke.
 - **Why it shipped:** The payer opens these pages from an old message and needs to confirm which payment it is; the data was already in the public link response.
 - **Change:** New `CheckoutSummary` (merchant name and amount) rendered on each status view in `CheckoutPage.tsx`, using fields `GET /v1/payment-links/:token` already returns. No new API calls. Test added in `CheckoutSummary.test.tsx`; the web test glob now also matches `.tsx`.
+
+### Improvement: Reconciliation and Overview show dates in one format
+- **Type:** UX
+- **Before:** The Reconciliation result range showed raw `2026-10-01 to 2026-10-31`, and the Overview chart labels showed `10-29`, while the tables on the same pages showed formatted dates. Nothing broke, but one page mixed formats.
+- **Why it shipped:** Judges open these pages first, and a mixed format reads as a data error.
+- **Change:** Both now call the existing `formatBusinessDate` from `@filspay/ui`; the unused `shortDate` helper is removed.

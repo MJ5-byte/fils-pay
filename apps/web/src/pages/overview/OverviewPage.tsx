@@ -34,12 +34,6 @@ import { DatePicker } from "../../components/DatePicker.js";
  *  not introduce the first one. */
 const POLL_MS = 60_000;
 
-/** `2026-10-29` to `10-29`, so the x-axis reads without crowding. The full
- *  date stays in the chart's hover readout and in the table below. */
-function shortDate(iso: string): string {
-  return iso.length >= 10 ? iso.slice(5, 10) : iso;
-}
-
 export function OverviewPage() {
   // Left blank, the server applies its own "last 30 Asia/Bahrain days"
   // default, the client does not compute a competing one.
@@ -104,14 +98,14 @@ export function OverviewPage() {
 
   const volumeColumns: ChartColumn[] = volumePoints.map((point) => ({
     key: point.date,
-    label: shortDate(point.date),
+    label: formatBusinessDate(point.date),
     tooltipLabel: point.date,
     segments: [{ name: "Captured gross", value: point.capturedGrossFils, color: "var(--fp-brand)" }],
   }));
 
   const payoutColumns: ChartColumn[] = payoutPoints.map((point) => ({
     key: point.settlementBatchId,
-    label: shortDate(point.batchDate),
+    label: formatBusinessDate(point.batchDate),
     tooltipLabel: point.batchDate,
     segments: [
       { name: "Net payout", value: point.netPayoutFils, color: "var(--fp-brand)" },
