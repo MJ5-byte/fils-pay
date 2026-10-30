@@ -363,6 +363,27 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Reporting saved-filters has no creation quota and no bounded listing
+- **Status:** Fixed
+- **Type:** Performance, medium
+- **Problem:** A merchant could create saved filters without limit, and `GET /v1/reporting/saved-filters` returned every stored row in one response, so the listing grew without bound.
+- **Cause:** `createSavedFilter` inserted unconditionally with no per-merchant cap, and `listSavedFilters` ran a `SELECT ... ORDER BY created_at DESC` with no `LIMIT`. A code comment claimed a CHECK in the 0061 migration capped a merchant at 50 filters; that claim is false (migration 0061 is chart-of-accounts, and 0069 creates the table with no such CHECK).
+- **Breaks:** One merchant can accumulate saved filters indefinitely and every list call returns all of them, a response that grows without limit.
+- **Fix:** `createSavedFilter` now writes the row inside a single INSERT guarded by a count subquery (`... SELECT ... WHERE (SELECT count(*) ...) < $4`), which bounds a merchant to about 100 filters; at the cap it writes nothing and throws a 409 `saved_filter_quota_exceeded` (under READ COMMITTED two racing creates can overshoot by one or two, which is fine for a quota that only needs to bound growth). `listSavedFilters` clamps a `LIMIT` to the house range (default 25, max 100), matching the other list queries, and the `GET /v1/reporting/saved-filters` route reads and passes through an optional `?limit`. The false comment claiming a 0061 CHECK cap is removed. Tests added, including a route test that asserts `?limit` is honoured.
+
+### Bug: Analytics date validator accepts impossible dates and 500s
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** `GET /v1/analytics/*` accepted an impossible but correctly-shaped date such as 2026-02-30 or 2026-04-31 and then answered 500.
+- **Cause:** `isValidDateString` in `routes/analytics.ts` relied on `Date.parse`, which silently normalizes 2026-02-30 to 2026-03-02 instead of rejecting it, so the impossible date passed the check and reached Postgres, which errored.
+- **Breaks:** A malformed date returned a 500 instead of a clean 400.
+- **Fix:** `isValidDateString` now builds a UTC date from the parsed year/month/day and requires each component to round-trip unchanged, so a day that does not exist is rejected at the boundary with a 400 `invalid_date`. Test added.
+
+### Not a bug: Reporting transactions already rejects filter=null
+- **Type:** UX
+- **Claim:** BHA-165 reported that `GET /v1/reporting/transactions?filter=null` 500s because the parsed JSON null is dereferenced as a filter object.
+- **Checked:** On `origin/main` the route already guards a parsed null, non-object or array filter and answers 400 `invalid_filter` (`routes/reporting.ts`), and `routes/reporting.test.ts` already asserts `filter=null` returns 400. The guard landed with BHA-91.
+- **Why it is not a bug:** The reported 500 no longer reproduces on the current base; the per-route validation BHA-165 asked for is already present and tested, so no change is needed.
 ### Bug: Client request errors are reported as 500 on every JSON route
 - **Status:** Fixed
 - **Type:** UX, high

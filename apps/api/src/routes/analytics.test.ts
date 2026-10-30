@@ -193,6 +193,29 @@ test("GET /v1/analytics/volumes: invalid date query params are rejected 400", as
   assert.equal(res2.statusCode, 400, res2.body);
 });
 
+// BHA-163/164: an impossible but correctly-shaped date (Feb 30, Apr 31) used
+// to slip past Date.parse (which normalizes it) and 500 inside Postgres. It
+// must be rejected at the boundary with a clean 400.
+test("GET /v1/analytics/volumes: an impossible date is rejected 400, not 500", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("volumes-impossible-date");
+
+  const feb30 = await app.inject({
+    method: "GET",
+    url: "/v1/analytics/volumes?from=2026-02-30&to=2026-03-10",
+    headers: authHeader(rawKey),
+  });
+  assert.equal(feb30.statusCode, 400, feb30.body);
+  assert.equal(feb30.json().error, "invalid_date");
+
+  const apr31 = await app.inject({
+    method: "GET",
+    url: "/v1/analytics/volumes?from=2026-01-01&to=2026-04-31",
+    headers: authHeader(rawKey),
+  });
+  assert.equal(apr31.statusCode, 400, apr31.body);
+  assert.equal(apr31.json().error, "invalid_date");
+});
+
 test("GET /v1/analytics/volumes: default from/to window (no query params) succeeds and is a real 31-day window", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("volumes-default-window");
 

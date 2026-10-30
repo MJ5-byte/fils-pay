@@ -97,3 +97,29 @@ test("GET /v1/reporting/transactions answers 400 for a malformed date or filter 
   assert.equal((await get(filter({ status: ["a"] }))).statusCode, 400);
   assert.equal((await get(filter({ from: "2026-10-01", to: "2026-10-31" }))).statusCode, 200);
 });
+
+// BHA-163: the listing was unbounded. The route must bound its response to the
+// house default and honour an explicit, clamped ?limit.
+test("GET /v1/reporting/saved-filters bounds its response and honours ?limit", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("saved-filters-limit");
+  for (let i = 0; i < 30; i++) {
+    await pool.query(
+      `INSERT INTO reporting_saved_filters (merchant_id, name, filter_json) VALUES ($1, $2, '{}'::jsonb)`,
+      [merchantId, `filter ${i}`],
+    );
+  }
+  const list = (qs: string) =>
+    app.inject({
+      method: "GET",
+      url: `/v1/reporting/saved-filters${qs}`,
+      headers: { authorization: `Bearer ${rawKey}` },
+    });
+
+  const defaulted = await list("");
+  assert.equal(defaulted.statusCode, 200, defaulted.body);
+  assert.equal((defaulted.json() as unknown[]).length, 25, "default listing is bounded to 25, not all 30");
+
+  const limited = await list("?limit=5");
+  assert.equal(limited.statusCode, 200, limited.body);
+  assert.equal((limited.json() as unknown[]).length, 5, "the route honours ?limit");
+});

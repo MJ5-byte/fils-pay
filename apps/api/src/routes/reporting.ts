@@ -104,10 +104,18 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get(
+  app.get<{ Querystring: { limit?: string } }>(
     "/saved-filters",
     { preHandler: requireMerchantAuth },
-    async (request) => listSavedFilters(app.db, { merchantId: request.merchantAuth!.merchantId }),
+    async (request) => {
+      const rawLimit =
+        request.query.limit !== undefined ? Number.parseInt(request.query.limit, 10) : undefined;
+      const limit = rawLimit !== undefined && Number.isFinite(rawLimit) ? rawLimit : undefined;
+      return listSavedFilters(app.db, {
+        merchantId: request.merchantAuth!.merchantId,
+        limit,
+      });
+    },
   );
 
   app.get("/export-summary", { preHandler: requireMerchantAuth }, async (request) => {

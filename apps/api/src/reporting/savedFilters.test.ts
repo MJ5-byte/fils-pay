@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, test } from "node:test";
 import { Pool } from "pg";
-import { createSavedFilter, listSavedFilters } from "./savedFilters.js";
+import { createSavedFilter, listSavedFilters, MAX_SAVED_FILTERS_PER_MERCHANT } from "./savedFilters.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -87,4 +87,43 @@ test("a merchant with no saved filters lists nothing", async () => {
   const merchantId = await createMerchant();
 
   assert.deepEqual(await listSavedFilters(pool, { merchantId }), []);
+});
+
+// BHA-163: creation was unbounded, so a merchant could accumulate filters
+// without limit. At the cap the next create must be rejected, not stored.
+test("creating past the per-merchant cap is rejected with a 409", async () => {
+  const merchantId = await createMerchant();
+
+  for (let i = 0; i < MAX_SAVED_FILTERS_PER_MERCHANT; i++) {
+    await createSavedFilter(pool, { merchantId, name: `filter ${i}`, filter: {} });
+  }
+
+  await assert.rejects(
+    createSavedFilter(pool, { merchantId, name: "one too many", filter: {} }),
+    (err: unknown) =>
+      err instanceof Error &&
+      (err as { code?: string }).code === "saved_filter_quota_exceeded" &&
+      (err as { statusCode?: number }).statusCode === 409,
+  );
+
+  const stored = await pool.query<{ count: string }>(
+    `SELECT count(*) AS count FROM reporting_saved_filters WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(Number(stored.rows[0]!.count), MAX_SAVED_FILTERS_PER_MERCHANT);
+});
+
+// BHA-163: listing returned every stored row in one response. It must be
+// bounded by the house default, and honour an explicit (clamped) limit.
+test("listing is bounded by a default limit and honours an explicit one", async () => {
+  const merchantId = await createMerchant();
+  for (let i = 0; i < 30; i++) {
+    await createSavedFilter(pool, { merchantId, name: `filter ${i}`, filter: {} });
+  }
+
+  const defaulted = await listSavedFilters(pool, { merchantId });
+  assert.equal(defaulted.length, 25, "default listing is bounded to 25, not all 30");
+
+  const limited = await listSavedFilters(pool, { merchantId, limit: 5 });
+  assert.equal(limited.length, 5);
 });
