@@ -43,3 +43,12 @@ fixes the first real build exposed: argon2 toolchain, Go module root).
   fresh volume boots every service but each DB call fails with
   "relation … does not exist" and the daemon retries noisily every minute.
   Run migrate + seed before the services (the README order matters).
+- **Recurring rootless-crun failure** (`crun start … cannot open
+  /run/user/1000/crun/…/exec.fifo`): rootless podman keeps per-container FIFO
+  state under `/run/user/1000`, which is recreated whenever the login session
+  restarts — any container whose state lived in the old dir then fails to
+  start with this exact error. It is environmental, not a compose bug: the
+  next `up -d` recreates the container and succeeds. Durable fix:
+  `loginctl enable-linger burglar` so `/run/user/1000` survives logout/reboot;
+  after a session restart, prefer `docker compose down` then `up -d postgres`
+  (volumes are untouched by `down`).
