@@ -239,7 +239,7 @@ test("capture with a reused idempotency key and identical body replays without a
   assert.ok(Number(countAfterFirst.rows[0]!.c) > 0);
 });
 
-test("capture still returns 200 when the discount adjustment fails after the capture commits, and a same-key replay applies it", async () => {
+test("a capture whose discount adjustment fails commits nothing, and a same-key retry captures with the rebate", async () => {
   const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("discount-adjustment-retry");
   await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchantId]);
   const txn = await authorize(rawKey, 10_000);
@@ -258,22 +258,23 @@ test("capture still returns 200 when the discount adjustment fails after the cap
   try {
     await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
 
+    // The rebate posts in the capture's own transaction (BHA-235), so its
+    // failure rolls the capture back instead of committing the fee in full.
     const first = await capture(rawKey, txn.id, {}, key);
-    assert.equal(first.statusCode, 200, first.body);
-    assert.equal(first.json().status, "captured");
+    assert.equal(first.statusCode, 500, first.body);
 
-    const beforeReplay = await pool.query<{ c: number }>(
-      `SELECT COUNT(*)::int AS c FROM ledger_entries
-        WHERE transaction_id = $1 AND description = 'capture: negotiated discount adjustment'`,
+    const beforeReplay = await pool.query<{ status: string; c: number }>(
+      `SELECT t.status, (SELECT COUNT(*)::int FROM ledger_entries l WHERE l.transaction_id = t.id) AS c
+         FROM transactions t WHERE t.id = $1`,
       [txn.id],
     );
-    assert.equal(beforeReplay.rows[0]!.c, 0);
+    assert.deepEqual(beforeReplay.rows[0], { status: "authorized", c: 0 });
 
     await pool.query(`DROP TRIGGER ${fn} ON ledger_entries`);
 
     const replay = await capture(rawKey, txn.id, {}, key);
     assert.equal(replay.statusCode, 200, replay.body);
-    assert.deepEqual(replay.json(), first.json());
+    assert.equal(replay.json().status, "captured");
 
     const afterReplay = await pool.query<{ c: number }>(
       `SELECT COUNT(*)::int AS c FROM ledger_entries

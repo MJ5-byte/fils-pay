@@ -167,7 +167,8 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         idempotencyKey,
         actor: requireMerchantWriterActor(request.merchantAuth!),
       });
-      // Capture committed: an adjustment failure must not invite a second capture; a same-key replay re-runs the idempotent adjustment.
+      // captureTransaction already posted the rebate with the capture (BHA-235), so this idempotent call finds nothing owed;
+      // a failure here must still not invite a second capture.
       if (result.statusCode === 200) {
         try {
           await applyCaptureDiscountAdjustment(app.db, {

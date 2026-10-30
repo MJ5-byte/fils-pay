@@ -252,3 +252,54 @@ test("a different request under the same key after an approve-then-rollback neve
   assert.equal(second.statusCode, 201);
   assert.equal(new Set(sim.authorizeKeys).size, 2, `acquirer authorized under keys ${sim.authorizeKeys.join(", ")}`);
 });
+
+test("a capture whose discount rebate fails rolls back, and the same-key retry posts the rebate with its fee", async () => {
+  const { merchantId, transactionId, actor } = await merchantWithAuthorizedTransaction(false);
+  await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchantId]);
+  const sim = countingSimulator();
+  const input = { transactionId, merchantId, idempotencyKey: randomUUID(), actor };
+
+  const suffix = randomUUID().replace(/-/g, "");
+  const fn = `bha235_fail_${suffix}`;
+  await pool.query(
+    `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+     BEGIN
+       IF NEW.transaction_id = '${transactionId}' AND NEW.description = 'capture: negotiated discount adjustment' THEN
+         RAISE EXCEPTION 'injected rebate failure';
+       END IF;
+       RETURN NEW;
+     END $$`,
+  );
+  await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+  try {
+    // A fee leg committed without its rebate overcharges the merchant until
+    // someone happens to replay, so the capture must not commit at all.
+    await assert.rejects(captureTransaction(pool, sim.acquirer, input), /injected rebate failure/);
+  } finally {
+    await pool.query(`DROP TRIGGER ${fn} ON ledger_entries`);
+    await pool.query(`DROP FUNCTION ${fn}()`);
+  }
+  assert.equal(await ledgerGroups(transactionId, "capture: MDR fee"), 0);
+
+  const retry = await captureTransaction(pool, sim.acquirer, input);
+  assert.equal(retry.statusCode, 200);
+  assert.equal(new Set(sim.captureKeys).size, 1, `acquirer captured under keys ${sim.captureKeys.join(", ")}`);
+
+  // 250 bps of 10 000 is a 250 fils fee; the 10 % discount rebates 25 of it,
+  // posted at the fee's own time so the same business day's batch sees both.
+  const legs = await pool.query<{ description: string; amount_fils: string; occurred_at: Date }>(
+    `SELECT description, amount_fils, occurred_at FROM ledger_entries
+      WHERE transaction_id = $1 AND account_id = 'merchant_payable'
+        AND description IN ('capture: MDR fee', 'capture: negotiated discount adjustment')
+      ORDER BY id`,
+    [transactionId],
+  );
+  assert.deepEqual(
+    legs.rows.map((r) => [r.description, r.amount_fils]),
+    [
+      ["capture: MDR fee", "250"],
+      ["capture: negotiated discount adjustment", "25"],
+    ],
+  );
+  assert.equal(legs.rows[1]?.occurred_at.getTime(), legs.rows[0]?.occurred_at.getTime());
+});

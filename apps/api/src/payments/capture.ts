@@ -10,6 +10,7 @@ import { serializeTransaction, type TransactionRow } from "../transactions/seria
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
 import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
+import { postCaptureDiscountAdjustment } from "./discountAdjustment.js";
 
 async function recordCaptureMetric(
   client: import("pg").PoolClient,
@@ -246,6 +247,10 @@ export async function captureTransaction(
         [entryGroupId, input.merchantId, txn.id, feeFils],
       );
     }
+    // The negotiated-discount rebate on that fee commits with it: posted in its
+    // own transaction afterwards, a failure left the fee charged in full with
+    // nothing to retry it (BHA-235).
+    await postCaptureDiscountAdjustment(client, { merchantId: input.merchantId, transactionId: txn.id });
 
     // Hold lifecycle: released exactly when nothing remains outstanding.
     if (newStatus === "captured") {

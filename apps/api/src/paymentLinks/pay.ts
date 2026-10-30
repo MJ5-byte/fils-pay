@@ -171,9 +171,9 @@ export async function payPaymentLink(
   // No-op without a negotiated discount; fixes BHA-32 overcharging discounted link payments.
   // The capture already committed and money moved, so a failure here must not throw:
   // that would leave the link reserved and let a fresh-key retry capture again (a double
-  // charge). Log it loudly instead and let finalize mark the link paid. Nothing re-runs a
-  // failed adjustment, so the log line is the only trace; calling it again is safe because
-  // it is idempotent.
+  // charge). Log it loudly instead and let finalize mark the link paid. captureTransaction
+  // now posts the rebate in its own transaction (BHA-235), so this finds nothing owed on a
+  // fresh capture; calling it again is safe because it is idempotent.
   try {
     await applyCaptureDiscountAdjustment(pool, {
       merchantId: link.merchantId,
