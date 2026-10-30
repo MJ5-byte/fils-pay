@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
 import { getMerchant, recomputeTransactionStatuses, submitKycReview } from "../../api/merchants.js";
 import { adjustBalance } from "../../api/balanceAdjustments.js";
+import { parseAdjustmentBhd } from "../../lib/adjustmentAmount.js";
 import { issueCredit } from "../../api/credits.js";
 import { rotateApiKey } from "../../api/apiKeys.js";
 import { startImpersonation } from "../../api/impersonation.js";
@@ -116,9 +117,11 @@ export function MerchantDetailPage() {
   // MK: it's the journaled one since Sep
   async function handleAdjustBalance(): Promise<void> {
     if (!id) return;
-    const deltaFils = Number(adjustDeltaFils.trim());
-    if (!Number.isInteger(deltaFils) || deltaFils === 0) {
-      setActionError("Enter a non-zero whole number of fils.");
+    let deltaFils: number;
+    try {
+      deltaFils = parseAdjustmentBhd(adjustDeltaFils);
+    } catch (err) {
+      setActionError(err instanceof RangeError ? "Enter a non-zero amount in BHD, up to 3 decimals." : describeError(err));
       return;
     }
     setBusy(true);
@@ -324,12 +327,12 @@ export function MerchantDetailPage() {
       >
         <div className="admin-form">
           <label>
-            Delta (fils, may be negative)
+            Amount in BHD (negative to take money back)
             <input
               value={adjustDeltaFils}
               onChange={(e) => setAdjustDeltaFils(e.target.value)}
-              inputMode="numeric"
-              placeholder="50000"
+              inputMode="text"
+              placeholder="0.000"
             />
           </label>
           <label>

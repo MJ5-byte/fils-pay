@@ -163,7 +163,7 @@ export function AdjustmentImportPage() {
             />
           </label>
           <label>
-            CSV (columns: merchantId, amount, reason)
+            CSV (columns: merchantId, amount, reason; amount in BHD, e.g. 4.750, not fils)
             <textarea
               value={csvContent}
               onChange={(e) => setCsvContent(e.target.value)}
