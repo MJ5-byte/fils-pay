@@ -1,0 +1,18 @@
+# Image for api, reporting, migrate and seed (see ops/README.md: node:20, full install).
+# Build context is the repo root (docker-compose.yml uses `context: ..`).
+FROM node:20
+
+WORKDIR /app
+
+# Install dependencies first so Docker can cache this layer.
+# package-lock.json + every workspace package.json are needed for `npm ci`.
+COPY package.json package-lock.json ./
+COPY apps ./apps
+COPY packages ./packages
+RUN npm ci
+
+# Everything else (db/, scripts/, tsconfigs...).
+COPY . .
+
+# Each compose service sets its own `command:`.
+CMD ["npx", "tsx", "apps/api/src/index.ts"]

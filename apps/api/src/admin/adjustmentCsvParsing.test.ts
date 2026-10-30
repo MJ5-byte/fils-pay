@@ -13,6 +13,29 @@ test("an empty amount throws", () => {
   assert.throws(() => parseAdjustmentAmountFils(""), /could not parse amount/);
 });
 
+// BD has THREE decimals: 1 BD = 1000 fils. These lock in the correct reading
+// of a CSV amount (the importer used to read "4.75" as 475 fils, 10x too small).
+test("amounts are parsed as BD with three decimals (1 BD = 1000 fils)", () => {
+  assert.equal(parseAdjustmentAmountFils("4.75"), 4_750);
+  assert.equal(parseAdjustmentAmountFils("4.750"), 4_750);
+  assert.equal(parseAdjustmentAmountFils("10.00"), 10_000);
+  assert.equal(parseAdjustmentAmountFils("12"), 12_000);
+});
+
+test("the third decimal is kept, never silently dropped", () => {
+  assert.equal(parseAdjustmentAmountFils("4.756"), 4_756);
+  assert.equal(parseAdjustmentAmountFils("0.005"), 5);
+});
+
+test("negative amounts keep their sign", () => {
+  assert.equal(parseAdjustmentAmountFils("-3.50"), -3_500);
+  assert.equal(parseAdjustmentAmountFils("-0.001"), -1);
+});
+
+test("more than three decimals is rejected instead of truncated", () => {
+  assert.throws(() => parseAdjustmentAmountFils("4.7561"), /could not parse amount/);
+});
+
 // ------------------------------------------------------------ csv splitting
 
 const MERCHANT_A = "11111111-1111-4111-8111-111111111111";

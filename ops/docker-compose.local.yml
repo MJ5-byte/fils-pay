@@ -1,0 +1,20 @@
+# Local-only additions on top of ops/docker-compose.yml.
+#
+# 1) The settlement daemon exits at boot without SETTLEMENT_INTERNAL_TOKEN,
+#    even though the compose file's comment says it defaults to dev-token.
+# 2) The api and the seed job both refuse to start without a valid
+#    WEBHOOK_SECRET_ENCRYPTION_KEY (must base64-decode to exactly 32 bytes).
+#    The built-in "dev fallback" key in apps/api/src/config.ts decodes to 34
+#    bytes, so it is rejected and the stack cannot start on defaults.
+#    The value below is a random DEV-ONLY key for local use. Never reuse it.
+services:
+  seed:
+    environment:
+      WEBHOOK_SECRET_ENCRYPTION_KEY: "AOSOkZOpAahmB9YAXF6EQzaFVZtJ1FSD6cmuzEFuvtE="
+  api:
+    environment:
+      WEBHOOK_SECRET_ENCRYPTION_KEY: "AOSOkZOpAahmB9YAXF6EQzaFVZtJ1FSD6cmuzEFuvtE="
+      SETTLEMENT_INTERNAL_TOKEN: dev-token
+  settlement:
+    environment:
+      SETTLEMENT_INTERNAL_TOKEN: dev-token
