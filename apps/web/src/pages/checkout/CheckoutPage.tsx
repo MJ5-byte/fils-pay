@@ -182,11 +182,14 @@ export function CheckoutPage() {
             placeholder="4242 4242 4242 4242"
             autoComplete="cc-number"
             required
+            maxLength={23}
             value={card.pan}
             onChange={(e) => {
-              const pan = e.target.value;
+              // Card numbers run 12 to 19 digits (what the API accepts), shown
+              // in groups of four; the API strips the spaces before Luhn.
+              const digits = e.target.value.replace(/\D/g, "").slice(0, 19);
+              const pan = digits.replace(/(\d{4})(?=\d)/g, "$1 ");
               setCard({ ...card, pan });
-              const digits = pan.replace(/\D/g, "");
               if (digits.length >= 4) {
                 void import("../../utils/helpers.js").then((m) => {
                   setBrandHint(m.formatCardBrandHint(digits));
@@ -228,8 +231,9 @@ export function CheckoutPage() {
               required
               placeholder="123"
               autoComplete="cc-csc"
+              maxLength={4}
               value={card.cvv}
-              onChange={(e) => setCard({ ...card, cvv: e.target.value })}
+              onChange={(e) => setCard({ ...card, cvv: e.target.value.replace(/\D/g, "").slice(0, 4) })}
             />
           </label>
         </div>
