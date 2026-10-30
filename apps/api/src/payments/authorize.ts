@@ -11,12 +11,32 @@ import { BadRequestError, ConflictError, UnprocessableEntityError } from "../lib
 // YA: part of the idempotency scope, never rename it
 export const AUTHORIZE_ENDPOINT = "transactions.authorize";
 
+function passesLuhn(digits: string): boolean {
+  let sum = 0;
+  let doubleDigit = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let digit = Number(digits[i]);
+    if (doubleDigit) {
+      digit *= 2;
+      if (digit > 9) {
+        digit -= 9;
+      }
+    }
+    sum += digit;
+    doubleDigit = !doubleDigit;
+  }
+  return sum % 10 === 0;
+}
+
 /**
  * Validates the card shape at the acquirer boundary. Every authorize caller
  * (POST /v1/transactions and the public payment-link pay flow) hands the
  * acquirer a client-supplied card; without this, a missing or wrong-typed
  * field (e.g. `card: {}`) reaches `pan.endsWith(...)` in the simulator and
  * crashes with an unhandled 500 instead of a clean 400.
+ * The PAN must also be 12 to 19 digits (spaces and dashes allowed) passing
+ * Luhn, so a malformed number is refused with 422 before the link is
+ * reserved or the acquirer is called (BHA-237).
  */
 export function assertValidCard(card: unknown): asserts card is SimulatedCardInput {
   if (card === null || typeof card !== "object") {
@@ -31,6 +51,10 @@ export function assertValidCard(card: unknown): asserts card is SimulatedCardInp
   }
   if (typeof cvv !== "string" || cvv.length === 0) {
     throw new BadRequestError("invalid_request", "card.cvv is required and must be a string");
+  }
+  const digits = pan.replace(/[\s-]/g, "");
+  if (!/^\d{12,19}$/.test(digits) || !passesLuhn(digits)) {
+    throw new UnprocessableEntityError("invalid_card_number", "card.pan must be a valid card number");
   }
 }
 

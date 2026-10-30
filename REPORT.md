@@ -1186,6 +1186,14 @@
 - **Breaks:** During any outage, signed-in merchants and operators were told to log in again, which fails too, with nothing saying the server was the problem. A crash on a page put internals on screen.
 - **Fix:** Only a 401, the one answer `/me` gives for a missing or expired session, now means signed out. A network error or another status sets a new `unavailable` status, and both route guards show "The server could not be reached, so your session could not be checked." with a Retry button. Each app gets one small class component error boundary in a pathless root route, which shows "Something went wrong on this page." and a reload link. Reproduced with the dev servers pointed at a closed port and at a stub answering 500: both apps landed on login before the change and show the retry message after; with the stub answering 401, Retry lands on login. No test added, since a break here shows on screen.
 
+### Bug: Checkout pays with any card number
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** On the public checkout page, the card number "1234 5678" was accepted and the payment link was paid.
+- **Cause:** `assertValidCard` in `apps/api/src/payments/authorize.ts`, the one card check both the pay route and `POST /v1/transactions` route through, only checked that the card number was a non-empty string, and the acquirer simulator approves every number that does not end in one of its decline suffixes.
+- **Breaks:** Any string passed as a card number, so a typo or junk input turned into a captured payment and a settled transaction instead of being refused.
+- **Fix:** `assertValidCard` now strips spaces and dashes and requires 12 to 19 digits that pass the Luhn check, and answers 422 `invalid_card_number` before the link is reserved or the acquirer is called. The simulator's decline and error test cards all pass Luhn, so they behave as before. Test added: the pay route answers 422 for "1234 5678" and leaves the link active (it answered 200 and paid the link before the change).
+
 ### Not a bug: Overview voids and the 30 Oct capture disagree with the transactions list (BHA-239)
 - **Type:** Data
 - **Claim:** On a flowshots DB, Delta Wholesale's overview counted 4 voided payments while the transactions list showed 3, and showed a 30 Oct capture of 317.416 BHD that no transaction backs.

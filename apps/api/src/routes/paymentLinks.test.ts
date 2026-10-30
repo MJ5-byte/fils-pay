@@ -229,6 +229,31 @@ test("an invalid card answers 400 without reserving the link; a real buyer right
   assert.equal(payRes.json().status, "paid");
 });
 
+test("a card number that fails the digit and Luhn check answers 422 without reserving the link (BHA-237)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("invalid-card-number");
+  const link = await createLink(rawKey, merchantId, { amountFils: 2_000 });
+
+  const badRes = await app.inject({
+    method: "POST",
+    url: `/v1/payment-links/${link.token}/pay`,
+    headers: { "idempotency-key": randomUUID() },
+    payload: { card: { ...APPROVED_CARD, pan: "1234 5678" } },
+  });
+  assert.equal(badRes.statusCode, 422, badRes.body);
+  assert.equal(badRes.json().error, "invalid_card_number");
+
+  const linkRow = await pool.query<{ status: string; reserved_at: Date | null }>(
+    `SELECT status, reserved_at FROM payment_links WHERE token = $1`,
+    [link.token],
+  );
+  assert.equal(linkRow.rows[0]?.status, "active");
+  assert.equal(linkRow.rows[0]?.reserved_at, null);
+
+  const payRes = await pay(link.token, APPROVED_CARD);
+  assert.equal(payRes.statusCode, 200, payRes.body);
+  assert.equal(payRes.json().status, "paid");
+});
+
 /** Amount comes from the link row; the body has only card (+ optional submittedAt). */
 test("pay charges exactly the link's own amount — the request body carries no amount field", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("own-amount");
