@@ -864,6 +864,11 @@
 - **Breaks:** ADR-0001 (money is integer fils). Nothing in Go, the TS API or the web apps reads the figure back, so no payout or balance was wrong; the ops figure was.
 - **Fix:** Migration 0078 changes the column to `BIGINT` (type change only, nothing dropped), the payout code adds `int64` fils, `EstimateMonthlyPayout` sums `int64`, and the seed sums exactly instead of rounding through `Math.fround`. Test added: three payouts totalling 5,016,777,221 fils land on the exact sum (it read 5,016,777,216 before). The old small-value test now scans an `int64`. `splits.PayoutSplitBatch` never bumped the estimate, so it now runs the same UPDATE in its transaction with the batch's net payout (inlined, because `settlement` imports `splits`). Test added: a split parent's estimate equals its batch net after payout. A negative net is skipped, as `PayoutBatch` refuses one. Split-parent payouts made before this change are not backfilled into the estimate. PR: https://github.com/SilentYsf/fils-pay/pull/106
 
+### Improvement: The merchant app's root opens the dashboard
+- **Type:** UX
+- **Before:** The merchant app's root URL showed a bare "404 Not Found" page, because its router has no `/` route. Nothing promised a page there and nothing broke.
+- **Why it shipped:** The root is the first URL anyone opens, judges included; the hosted box already redirects it in nginx, but the app itself should not depend on the proxy for that.
+- **Change:** One route in `apps/web/src/router.tsx` sending `/` to `/dashboard`, the same shape as the existing `/dashboard` redirect; signed-out users land on the login form.
 ### Bug: Settlement Go suite only passes on a fresh database (BHA-186)
 - **Status:** Fixed
 - **Type:** Deploy, low
