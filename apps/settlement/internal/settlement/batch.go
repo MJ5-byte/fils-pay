@@ -22,6 +22,15 @@ import (
 // (RunDailyBatch) already filters merchants before ever calling it.
 var ErrMerchantNotEligible = errors.New("settlement: merchant not found or not eligible for settlement")
 
+// ErrBusinessDayNotOver is returned by CloseBatch for a business day that has
+// not yet ended in Asia/Bahrain time. Closing it early would mark the batch
+// closed before the rest of that day's captures land, and those later
+// captures fall outside every other day's window, so they would never settle.
+var ErrBusinessDayNotOver = errors.New("settlement: business day has not ended yet in Asia/Bahrain time")
+
+// now is the clock CloseBatch checks the business day against; tests replace it.
+var now = time.Now
+
 // BatchResult is CloseBatch's return value.
 type BatchResult struct {
 	BatchID       uuid.UUID
@@ -59,6 +68,9 @@ type eligibleEvent struct {
 // so a row can never be picked up by two batches.
 func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) (BatchResult, error) {
 	start, end := BusinessDayWindow(businessDate)
+	if now().Before(end) {
+		return BatchResult{}, fmt.Errorf("settlement: CloseBatch(%s): %w", businessDate.Format("2006-01-02"), ErrBusinessDayNotOver)
+	}
 	batchDateOnly := time.Date(businessDate.Year(), businessDate.Month(), businessDate.Day(), 0, 0, 0, 0, time.UTC)
 
 	tx, err := db.Begin(ctx)

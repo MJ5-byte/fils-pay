@@ -2,6 +2,7 @@ package settlement
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -616,5 +617,62 @@ func TestCloseBatchNetPayoutIsWholeFils(t *testing.T) {
 	}
 	if storedText != strconv.FormatInt(int64(result.NetPayoutFils), 10) {
 		t.Errorf("stored net_payout_fils = %q, want %d (the figure CloseBatch returned)", storedText, result.NetPayoutFils)
+	}
+}
+
+func TestCloseBatch_RefusesBusinessDayThatHasNotEnded(t *testing.T) {
+	pool := mustPool(t)
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+
+	today := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	todayStart, todayEnd := BusinessDayWindow(today)
+	yesterday := today.AddDate(0, 0, -1)
+	tomorrow := today.AddDate(0, 0, 1)
+
+	// 10:00 in Bahrain on 20 March: the 20th is still running.
+	fixedNow := todayStart.Add(10 * time.Hour)
+	realNow := now
+	now = func() time.Time { return fixedNow }
+	t.Cleanup(func() { now = realNow })
+
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 4750, todayStart.Add(time.Hour))
+	yesterdayStart, _ := BusinessDayWindow(yesterday)
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 3000, yesterdayStart.Add(time.Hour))
+
+	for _, date := range []time.Time{today, tomorrow} {
+		_, err := CloseBatch(context.Background(), pool, merchantID, date)
+		if !errors.Is(err, ErrBusinessDayNotOver) {
+			t.Errorf("CloseBatch(%s) err = %v, want ErrBusinessDayNotOver", date.Format("2006-01-02"), err)
+		}
+		if n := countRows(t, pool, `SELECT count(*) FROM settlement_batches WHERE merchant_id = $1 AND batch_date = $2`, merchantID, date); n != 0 {
+			t.Errorf("CloseBatch(%s) left %d settlement_batches row(s), want 0", date.Format("2006-01-02"), n)
+		}
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM transaction_events te JOIN transactions t ON t.id = te.transaction_id WHERE t.merchant_id = $1 AND te.settlement_batch_id IS NOT NULL AND te.occurred_at >= $2`, merchantID, todayStart); n != 0 {
+		t.Errorf("%d of today's capture events were batched by a refused close, want 0", n)
+	}
+
+	closed, err := CloseBatch(context.Background(), pool, merchantID, yesterday)
+	if err != nil {
+		t.Fatalf("CloseBatch(yesterday): %v", err)
+	}
+	if closed.AlreadyClosed || closed.GrossFils != 3000 {
+		t.Errorf("CloseBatch(yesterday) = %+v, want a fresh close of 3000 fils", closed)
+	}
+
+	fixedNow = todayEnd.Add(-time.Nanosecond)
+	if _, err := CloseBatch(context.Background(), pool, merchantID, today); !errors.Is(err, ErrBusinessDayNotOver) {
+		t.Errorf("CloseBatch(today) just before Bahrain midnight err = %v, want ErrBusinessDayNotOver", err)
+	}
+
+	// At Bahrain midnight the 20th is over and closes, picking up its capture.
+	fixedNow = todayEnd
+	closed, err = CloseBatch(context.Background(), pool, merchantID, today)
+	if err != nil {
+		t.Fatalf("CloseBatch(today) at Bahrain midnight: %v", err)
+	}
+	if closed.GrossFils != 4750 {
+		t.Errorf("CloseBatch(today) at Bahrain midnight GrossFils = %d, want 4750", closed.GrossFils)
 	}
 }
