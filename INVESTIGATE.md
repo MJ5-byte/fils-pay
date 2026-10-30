@@ -82,18 +82,12 @@ data, so use it only with a development database.
 
 ### Current setup caveats
 
-- `ops/docker-compose.yml` references `ops/Dockerfile.node` and
-  `ops/Dockerfile.go`, which are not present in this checkout.
-- A fresh database migration currently fails: migration `0054_views.sql`
-  references the missing `settlement_batch_events` relation, and
-  `0055_chart_of_accounts_suspense.sql` expects chart columns that are not in
-  the schema created by migration `0007_ledger_double_entry.sql`.
 - The API allows browser requests from the local web and admin origins on
   ports 5173 and 5174. A different host or port must be explicitly added to
   the API's CORS allowlist.
 
-These issues need to be resolved before a clean, full-stack local setup works
-from scratch.
+`ops/Dockerfile.node` and `ops/Dockerfile.go` build the compose services, and
+all migrations apply cleanly to an empty database.
 
 ## Development accounts
 
@@ -142,8 +136,8 @@ data you need.
    page.
 
 The API and frontend must remain running in their terminals. These credentials
-are for local development only. A new database cannot use this sequence as-is:
-see the migration caveats above before setting one up.
+are for local development only. For a new database, run `npm run migrate` and
+`npm run seed` first.
 
 ## Tests and checks
 
