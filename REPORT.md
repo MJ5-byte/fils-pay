@@ -915,6 +915,13 @@
 - **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
 - **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
 
+### Bug: Recalculate MDR moves a fil on discounted merchants with no rate change (BHA-171)
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** For a merchant with a negotiated discount, running Recalculate MDR at the same rate rewrote the fee of a closed batch of seeded captures and posted an adjustment, for example a seeded 600 fils capture at 2.5% with a 10% discount went from a fee of 13 fils to 14. Seeded captures carry the discount inside their fee and have no separate `capture: MDR fee` leg; live captures with that leg are already priced right since #117 (BHA-183).
+- **Cause:** The API and the ledger price a discount off the MDR fee (capture.ts posts `applyRateFils(amount, mdr)`, discountAdjustment.ts rebates `applyRateFils(fee, discount)`), and CloseBatch charges that journaled fee less the posted rebate. Go's `ComputeSettlementFee` took the discount off the amount first, then charged MDR, and the two orders land a fil apart at about one point in five. RecalculateMDR and CloseBatch's fallback for events without a journaled fee both use `ComputeSettlementFee`.
+- **Breaks:** Recalculate MDR charged or refunded discount merchants with seeded captures fils they were never owed, and a fallback-priced batch did not match the ledger. ADR-0001 fixes one half-to-even rounding per rate but not the order, so we kept the order the ledger, the seed and the fee estimate already use.
+- **Fix:** `ComputeSettlementFee` in `discounted_fee.go` now computes the MDR fee on the amount, then subtracts the discount off that fee, the same two steps as the ledger. Neither step multiplies two rates, so nothing new can overflow int64. Its test table now holds the fees the TS code gives for the same inputs, including two half-to-even ties; three rows fail on `main` (602/275/1250 gave 14, want 15). `ARCHITECTURE.md` stated the old order and is corrected.
 ### Bug: The seed wipes any database it is pointed at, and the March batch closes at zero
 - **Status:** Fixed
 - **Type:** Data, high

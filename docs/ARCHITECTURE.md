@@ -53,8 +53,10 @@ records the batch's payout disbursement. Re-running a day is
 safe; closed and paid batches are left alone.
 
 Fees are computed per capture event, not per batch total. Rates come from
-`fee_schedules`, falling back to `merchants.mdr_bps`. Discounts reduce the
-amount the MDR is charged on.
+`fee_schedules`, falling back to `merchants.mdr_bps`. A negotiated discount
+is taken off the MDR fee, not the amount: capture.ts posts the fee and
+discountAdjustment.ts rebates the discount from it, and `discounted_fee.go`
+prices the same way.
 
 ## Events
 
