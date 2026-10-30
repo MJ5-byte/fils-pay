@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { ZERO_FILS, calculateRefundFee, compareFils, subtractFils, toFils, type Fils } from "@filspay/money";
+import { ZERO_FILS, addFils, calculateRefundFee, compareFils, subtractFils, toFils, type Fils } from "@filspay/money";
 import { enqueueEvent } from "@filspay/events";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
@@ -11,6 +11,7 @@ import { validateRefundRequest } from "./refundValidation.js";
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 
 const ENDPOINT = "refunds.create";
+const FEE_REVERSAL_DESCRIPTION = "refund: MDR fee reversal";
 
 export interface ProcessRefundInput {
   transactionId: string;
@@ -70,9 +71,9 @@ export async function processRefund(
     const txnResult = await client.query<RefundTransactionRow>(
       `SELECT id, merchant_id, status, amount_fils, captured_fils, refunded_fils, acquirer_reference
          FROM transactions
-        WHERE id = $1
+        WHERE id = $1 AND merchant_id = $2
         FOR UPDATE`,
-      [input.transactionId],
+      [input.transactionId, input.merchantId],
     );
     const txn = txnResult.rows[0];
     if (!txn) {
@@ -104,17 +105,19 @@ export async function processRefund(
       return { statusCode, body: validation };
     }
 
-    // The fee this transaction was actually charged at capture, read from
-    // the ledger rather than recomputed from the merchant's current
-    // mdr_bps, so a rate change after capture can never retroactively alter
-    // what a refund reverses.
-    const feeResult = await client.query<{ fee_fils: string }>(
-      `SELECT COALESCE(SUM(amount_fils), 0)::text AS fee_fils
+    // The fee this transaction was actually charged, read from the ledger
+    // rather than recomputed from the merchant's current mdr_bps, so a rate
+    // change after capture can never retroactively alter what a refund
+    // reverses. Net of every debit except earlier refunds' reversals, so the
+    // negotiated discount capture already handed back is not reversed twice.
+    const feeResult = await client.query<{ fee_fils: string; reversed_fils: string }>(
+      `SELECT (COALESCE(SUM(amount_fils) FILTER (WHERE direction = 'credit'), 0)
+             - COALESCE(SUM(amount_fils) FILTER (WHERE direction = 'debit' AND description <> $2), 0))::text AS fee_fils,
+              COALESCE(SUM(amount_fils) FILTER (WHERE direction = 'debit' AND description = $2), 0)::text AS reversed_fils
          FROM ledger_entries
         WHERE transaction_id = $1
-          AND account_id = 'platform_fee_revenue'
-          AND direction = 'credit'`,
-      [txn.id],
+          AND account_id = 'platform_fee_revenue'`,
+      [txn.id, FEE_REVERSAL_DESCRIPTION],
     );
     const feeRow = feeResult.rows[0];
     if (!feeRow) {
@@ -122,6 +125,7 @@ export async function processRefund(
     }
 
     const feeChargedFils = toFils(Number(feeRow.fee_fils));
+    const feeAlreadyReversedFils = toFils(Number(feeRow.reversed_fils));
     const requestedAmount = validation.amountFils;
 
     const acquirerResult = await acquirer.refund({
@@ -141,10 +145,20 @@ export async function processRefund(
       return { statusCode: 502, body };
     }
 
-    const feeReversedFils = calculateRefundFee(
-      capturedFils,
-      feeChargedFils,
-      requestedAmount,
+    // Cumulative: everything refunded so far is owed fee(refunded after), and
+    // this refund reverses whatever of that is not yet reversed. Partial
+    // refunds that add up to the capture then reverse exactly the fee, where
+    // rounding each partial alone can overshoot it, and a later capture at a
+    // different rate cannot leave fils behind. fee(x) <= the fee charged
+    // because a refund never exceeds what was captured.
+    const feeReversedFils = toFils(
+      Math.max(
+        0,
+        subtractFils(
+          calculateRefundFee(capturedFils, feeChargedFils, addFils(refundedFils, requestedAmount)),
+          feeAlreadyReversedFils,
+        ),
+      ),
     );
 
     const refundResult = await client.query<{ id: string; occurred_at: Date }>(
@@ -159,7 +173,8 @@ export async function processRefund(
         requestedAmount,
         feeReversedFils,
         acquirerResult.acquirerReference,
-        input.reason ?? null,
+        // 0070 rejects an explicit NULL, and by now the acquirer has already refunded.
+        input.reason ?? "unspecified",
         input.actor.type,
         input.actor.id,
       ],
@@ -202,9 +217,9 @@ export async function processRefund(
         `INSERT INTO ledger_entries
            (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
          VALUES
-           ($1, $2, $3, 'platform_fee_revenue', 'debit',  $4, now(), 'refund: MDR fee reversal'),
-           ($1, $2, $3, 'merchant_payable',     'credit', $4, now(), 'refund: MDR fee reversal')`,
-        [entryGroupId, txn.merchant_id, txn.id, feeReversedFils],
+           ($1, $2, $3, 'platform_fee_revenue', 'debit',  $4, now(), $5),
+           ($1, $2, $3, 'merchant_payable',     'credit', $4, now(), $5)`,
+        [entryGroupId, txn.merchant_id, txn.id, feeReversedFils, FEE_REVERSAL_DESCRIPTION],
       );
     }
 

@@ -6,11 +6,8 @@ import { processRefund, type ProcessRefundResult } from "../payments/processRefu
 import { ForbiddenError, NotFoundError } from "../lib/errors.js";
 
 /**
- * `POST /v1/merchants/:merchantId/refunds` business logic.
- *
- * Merchant-scoped path, refund target in the body — the same registration
- * shape `routes/paymentLinks.ts` and `routes/webhooks.ts` use under the
- * `/v1/merchants` prefix.
+ * `POST /v1/refunds` business logic: the merchant comes from the caller's
+ * session or API key, the refund target from the body.
  */
 
 /**
@@ -25,7 +22,7 @@ export function assertRefundRequestScope(auth: MerchantAuthContext, merchantIdPa
 }
 
 export interface InitiateMerchantRefundInput {
-  /** From the path, already scope-checked against the session above. */
+  /** The authenticated caller's merchant, never the request body's. */
   merchantId: string;
   /** From the body. */
   transactionId: string;
@@ -59,9 +56,10 @@ export async function initiateMerchantRefund(
 ): Promise<ProcessRefundResult> {
   await assertRefundsNotOnHold(pool, input.merchantId);
 
-  const result = await pool.query<{ id: string; merchant_id: string }>(
-    `SELECT id, merchant_id FROM transactions WHERE id = $1`,
-    [input.transactionId],
+  // Another merchant's transaction answers exactly like a missing one.
+  const result = await pool.query<{ id: string }>(
+    `SELECT id FROM transactions WHERE id = $1 AND merchant_id = $2`,
+    [input.transactionId, input.merchantId],
   );
   const txn = result.rows[0];
   if (!txn) {
@@ -70,7 +68,7 @@ export async function initiateMerchantRefund(
 
   return processRefund(pool, acquirer, {
     transactionId: txn.id,
-    merchantId: txn.merchant_id,
+    merchantId: input.merchantId,
     amountFils: input.amountFils,
     idempotencyKey: input.idempotencyKey,
     actor: input.actor,

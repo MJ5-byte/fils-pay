@@ -2,10 +2,10 @@
  * Tests for the refund processor against a real, migrated Postgres (no DB
  * mocking). Requires `DATABASE_URL` (run `npm run migrate` first).
  *
- * There is no route to `inject` against yet — `POST /v1/refunds` is still a
- * 501 stub — so these call `processRefund()` directly. The transactions they
- * refund are set up through the real authorize/capture routes, so the ledger
- * and fee state under test is the state capture actually produces.
+ * These call `processRefund()` directly; the route itself is covered in
+ * `routes/transactions.test.ts`. The transactions they refund are set up
+ * through the real authorize/capture routes, so the ledger and fee state
+ * under test is the state capture actually produces.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -477,6 +477,116 @@ test("unknown transaction ids answer 404", async () => {
   });
   assert.equal(result.statusCode, 404);
   assert.deepEqual(result.body, { error: "transaction_not_found" });
+});
+
+test("another merchant's transaction answers 404 and refunds nothing", async () => {
+  const owner = await createApprovedMerchantWithApiKey("refund-owner");
+  const intruder = await createApprovedMerchantWithApiKey("refund-intruder");
+  const txn = await capturedTransaction(owner.rawKey, 5_000);
+
+  const result = await processRefund(pool, approvingAcquirer, {
+    transactionId: txn.id,
+    merchantId: intruder.merchantId,
+    idempotencyKey: randomUUID(),
+    actor: await apiKeyActor(intruder.merchantId),
+  });
+  assert.equal(result.statusCode, 404);
+  assert.deepEqual(result.body, { error: "transaction_not_found" });
+
+  const row = await pool.query<{ refunded_fils: string }>(`SELECT refunded_fils FROM transactions WHERE id = $1`, [
+    txn.id,
+  ]);
+  assert.equal(Number(row.rows[0]!.refunded_fils), 0);
+});
+
+/** Fee reversals of every refund of one capture must add up to the fee, never one fils more. */
+async function feeReversals(transactionId: string): Promise<{ refunds: number[]; ledger: number }> {
+  const refunds = await pool.query<{ fee_reversed_fils: string }>(
+    `SELECT fee_reversed_fils FROM refunds WHERE transaction_id = $1 ORDER BY occurred_at, created_at`,
+    [transactionId],
+  );
+  const ledger = await pool.query<{ fils: string }>(
+    `SELECT COALESCE(SUM(amount_fils), 0)::text AS fils FROM ledger_entries
+      WHERE transaction_id = $1 AND account_id = 'platform_fee_revenue' AND direction = 'debit'
+        AND description = 'refund: MDR fee reversal'`,
+    [transactionId],
+  );
+  return { refunds: refunds.rows.map((r) => Number(r.fee_reversed_fils)), ledger: Number(ledger.rows[0]!.fils) };
+}
+
+test("refunds of 300, 300 and 400 fils against a 25 fils fee reverse exactly 25", async () => {
+  const merchant = await createApprovedMerchantWithApiKey("refund-cumulative-fee");
+  const txn = await capturedTransaction(merchant.rawKey, 1_000);
+  const actor = await apiKeyActor(merchant.merchantId);
+
+  for (const amount of [300, 300, 400]) {
+    const result = await processRefund(pool, approvingAcquirer, {
+      transactionId: txn.id,
+      merchantId: merchant.merchantId,
+      amountFils: toFils(amount),
+      idempotencyKey: randomUUID(),
+      actor,
+    });
+    assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+  }
+
+  // fee(300) = 7.5 -> 8, fee(600) = 15, fee(1000) = 25: each refund reverses the step, 8 + 7 + 10.
+  assert.deepEqual(await feeReversals(txn.id), { refunds: [8, 7, 10], ledger: 25 });
+});
+
+test("a capture at a new rate after a refund still has its whole fee reversed", async () => {
+  const merchant = await createApprovedMerchantWithApiKey("refund-two-rates", 200);
+  const txn = await capturedTransaction(merchant.rawKey, 2_000, 1_000);
+  const actor = await apiKeyActor(merchant.merchantId);
+  const refundAll = () =>
+    processRefund(pool, approvingAcquirer, {
+      transactionId: txn.id,
+      merchantId: merchant.merchantId,
+      amountFils: toFils(1_000),
+      idempotencyKey: randomUUID(),
+      actor,
+    });
+
+  // 200 bps of the first 1 000 is 20; refunding it reverses all 20.
+  assert.equal((await refundAll()).statusCode, 200);
+
+  // The rest is captured at 250 bps, 25 fils, so 45 was charged in all and
+  // the second refund must reverse the 25 still held, not 45 - fee(1 000 of 2 000).
+  await pool.query(`UPDATE merchants SET mdr_bps = 250 WHERE id = $1`, [merchant.merchantId]);
+  const secondCapture = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${txn.id}/capture`,
+    headers: { authorization: `Bearer ${merchant.rawKey}`, "idempotency-key": randomUUID() },
+    payload: { amountFils: 1_000 },
+  });
+  assert.equal(secondCapture.statusCode, 200, secondCapture.body);
+  assert.equal((await refundAll()).statusCode, 200);
+
+  assert.deepEqual(await feeReversals(txn.id), { refunds: [20, 25], ledger: 45 });
+});
+
+test("a refund reverses the fee net of the negotiated discount", async () => {
+  const merchant = await createApprovedMerchantWithApiKey("refund-discounted-fee");
+  await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchant.merchantId]);
+  const txn = await capturedTransaction(merchant.rawKey, 10_000);
+  const actor = await apiKeyActor(merchant.merchantId);
+
+  // 250 bps of 10 000 is 250; the 10 % discount hands 25 back, so 225 was kept.
+  const result = await processRefund(pool, approvingAcquirer, {
+    transactionId: txn.id,
+    merchantId: merchant.merchantId,
+    idempotencyKey: randomUUID(),
+    actor,
+  });
+  assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+  assert.deepEqual(await feeReversals(txn.id), { refunds: [225], ledger: 225 });
+
+  const net = await pool.query<{ fils: string }>(
+    `SELECT COALESCE(SUM(CASE direction WHEN 'credit' THEN amount_fils ELSE -amount_fils END), 0)::text AS fils
+       FROM ledger_entries WHERE transaction_id = $1 AND account_id = 'platform_fee_revenue'`,
+    [txn.id],
+  );
+  assert.equal(Number(net.rows[0]!.fils), 0);
 });
 
 test("two concurrent full refunds of one captured transaction pay out once", async () => {
