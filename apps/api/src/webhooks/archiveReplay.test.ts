@@ -58,10 +58,21 @@ async function insertDelivery(
   endpointId: string,
   opts: { eventType: string; createdAt: string },
 ): Promise<string> {
+  // The outbox row is shared with other consumers (apps/reporting reads every
+  // transaction.* event), so it carries the same payload shape the real
+  // producers in payments/capture.ts and void.ts emit.
+  const outboxPayload =
+    opts.eventType === "transaction.captured"
+      ? { amountCapturedFils: 1_000, feeFils: 25, newStatus: "captured", capturedTotalFils: 1_000 }
+      : {};
   const outbox = await pool.query<{ id: string }>(
     `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-     VALUES ($1, 'transaction', $2, '{}'::jsonb) RETURNING id`,
-    [opts.eventType, randomUUID()],
+     SELECT $1, 'transaction', $2,
+            $3::jsonb || jsonb_build_object('merchantId', e.merchant_id)
+       FROM webhook_endpoints e
+      WHERE e.id = $4
+     RETURNING id`,
+    [opts.eventType, randomUUID(), JSON.stringify(outboxPayload), endpointId],
   );
   const outboxEventId = outbox.rows[0]!.id;
 

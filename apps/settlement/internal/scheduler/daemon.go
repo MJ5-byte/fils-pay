@@ -75,10 +75,11 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	// current UTC calendar day is already past today's Bahrain midnight),
 	// which would make this check permanently unable to hold a run back to
 	// let last-minute transactions settle.
-	// MK: UTC here is fine, BusinessDayWindow converts to Bahrain.
-	// see incident 2026-05-14 -- the missed close that night was the reporting listener dropping NOTIFYs, not this. -- FH
+	// BusinessDayWindow only reads the Y/M/D of its argument, so "now" must be
+	// turned into the Bahrain calendar date first; a raw UTC instant gives the
+	// previous business day between 21:00 and 24:00 UTC.
 	now := time.Now().UTC()
-	todayStart, _ := settlement.BusinessDayWindow(now)
+	todayStart, _ := settlement.BusinessDayWindow(settlement.BusinessDate(now))
 	dueAt := todayStart.Add(time.Duration(runDelayMinutes) * time.Minute)
 	if now.Before(dueAt) {
 		// The grace period after today's Bahrain midnight hasn't elapsed

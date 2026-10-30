@@ -13,7 +13,10 @@ async function main(): Promise<void> {
   // One transport per process: the dispatcher's background pass and the
   // merchant-facing "send test event" route both run on this same instance.
   const webhookTransport = createFetchTransport();
-  const app = buildApp(config, pool, { webhookTransport });
+  const app = buildApp(config, pool, {
+    webhookTransport,
+    loadShedMaxInFlight: Number.parseInt(process.env.LOAD_SHED_MAX_INFLIGHT ?? "0", 10) || 0,
+  });
 
   // Fail fast if the DB is unreachable at boot.
   await pool.query("SELECT 1");

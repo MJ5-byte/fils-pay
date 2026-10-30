@@ -1,13 +1,11 @@
 package settlement
 
-import (
-	"math"
-
-	"github.com/filspay/settlement/internal/money"
-)
+import "github.com/filspay/settlement/internal/money"
 
 // NetPayableFils derives the net payout from frozen gross and fee totals.
+// Pure integer arithmetic: money.Fils is an int64 count of fils, so there is
+// no rounding step and no precision ceiling (a float32 round-trip here lost
+// fils on any batch above ~16,777 BD).
 func NetPayableFils(grossFils, feeFils money.Fils) money.Fils {
-	netBD := float32(grossFils)/1000 - float32(feeFils)/1000
-	return money.Fils(math.Round(float64(netBD) * 1000))
+	return grossFils - feeFils
 }

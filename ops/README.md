@@ -2,7 +2,8 @@
 
 Local development stack for FilsPay: Postgres plus the three services that
 talk to it directly (apps/api, apps/settlement, apps/reporting). The hosted
-demo instance uses the same compose file with a different `.env`.
+Dilmune box does not use compose; it runs systemd services installed by
+`ops/dilmune/setup.sh` (see `docs/DEPLOY.md`).
 
 ## Quick start
 
@@ -22,13 +23,14 @@ each package), not services with their own database connection.
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | the stack |
-| `.env.docker` | shared service settings, loaded by compose for every service |
-| `Dockerfile.node` | image for api, reporting, migrate and seed (`node:20`, full install) |
-| `Dockerfile.go` | multi-stage build of `apps/settlement` |
+| `Dockerfile.node` | image for api, reporting, migrate and seed (`node:22-alpine`) |
+| `Dockerfile.go` | multi-stage build of `apps/settlement` (`golang:1.22-alpine` → distroless) |
+| `dilmune/setup.sh` | systemd setup for the hosted Dilmune VM |
 
-> **AM (July):** the two Dockerfiles aren't in the repo for me. built my own
->
-> **MK:** they were in the initial ops commit. check you're on main
+There is no shared env file: each service's settings are in its
+`environment:` block. `ops/.env.docker` used to be committed with a sandbox
+acquirer secret; it is now untracked and was never read by compose. Treat
+that secret as exposed and rotate it with the acquirer sandbox.
 
 ## Database
 
@@ -41,32 +43,26 @@ Postgres and every service run on the same Docker Compose bridge network,
 which never carries traffic outside the host, so there's no untrusted hop
 for a connection to cross.
 
-The settlement worker can be given a second connection string,
-`PGCONN_SETTLEMENT`, for its batch-close pool. It only takes effect when
-`DATABASE_URL` is unset.
+The settlement worker also reads `PGCONN_SETTLEMENT`. When it is set it
+**replaces** `DATABASE_URL` for that worker; compose leaves it unset.
 
 To reset the database to a clean, freshly-seeded state at any point, re-run
-the `seed` job above — `db/seed/index.ts` truncates and regenerates its
-fixture tables on every invocation; it doesn't need the volume removed
-first.
+the `seed` job above. It truncates (with `CASCADE`) merchants,
+transactions, the ledger, settlement batches, the outbox, admin users and
+more, then regenerates fixtures. Only ever run it against this local
+database.
 
 ## Required settings per service
 
 | Service | Needs | Where it comes from in compose |
 |---|---|---|
-| api | `DATABASE_URL`, `SETTLEMENT_INTERNAL_URL` | `environment:` |
-| api | `WEBHOOK_SECRET_ENCRYPTION_KEY` | only outside dev; a dev key is used otherwise |
-| api | `ACQUIRER_CALLBACK_SIGNING_SECRET`, `NODE_ENV` | `.env.docker` |
-| settlement | `DATABASE_URL` | `environment:` |
-| settlement | `SETTLEMENT_INTERNAL_TOKEN` | defaults to `dev-token` |
+| api | `DATABASE_URL`, `SETTLEMENT_INTERNAL_URL`, `SETTLEMENT_INTERNAL_TOKEN` | `environment:` |
+| api | `WEBHOOK_SECRET_ENCRYPTION_KEY`, `ACQUIRER_CALLBACK_SIGNING_SECRET` | required only with `NODE_ENV=production`; dev defaults otherwise |
+| settlement | `DATABASE_URL`, `SETTLEMENT_INTERNAL_TOKEN` | `environment:`; `daemon` exits without the token |
 | reporting | `DATABASE_URL` | `environment:`; runs `worker` by default |
-
-> **MK:** the api won't boot without WEBHOOK_SECRET_ENCRYPTION_KEY in any environment. set it on the hosted box.
 
 ## Resource sizing
 
-The hosted demo box is 0.5 vCPU / 2 GB RAM / 2 GB disk; the API container is
-limited to 512 MB. Postgres defaults are fine at this size. The settlement
-image is built on the box with `go build` from `Dockerfile.go`.
-
-> **AM:** first build on the box filled the disk (go build cache). cleared it and it went through on the second try
+The hosted Dilmune VM is 1 vCPU / 2 GB RAM / 50 GB disk. `setup.sh` caps
+the API at 0.5 vCPU / 512 MB, settlement at 0.25 vCPU / 256 MB and
+reporting at 0.2 vCPU / 256 MB.
