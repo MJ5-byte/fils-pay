@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/filspay/settlement/internal/money"
 )
 
 // recalcWindow returns the half-open [from, to) range covering exactly the
@@ -444,5 +446,150 @@ func TestRecalculateMDR_SkipsBatchWhoseNetWouldGoNegative(t *testing.T) {
 	}
 	if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE settlement_batch_id = $1 AND description = 'MDR recalculation adjustment'`, refunded.BatchID); n != 0 {
 		t.Errorf("skipped batch got %d adjustment ledger legs, want 0", n)
+	}
+}
+
+// BHA-194: raising MDR must discount the fee increase, charging 37 fils instead of 38.
+func TestRecalculateMDR_RateIncreaseRebatesDiscountOnIncrease(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const originalMdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, originalMdrBps)
+	if _, err := pool.Exec(ctx, `UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, merchantID); err != nil {
+		t.Fatalf("set negotiated_discount_bps: %v", err)
+	}
+
+	businessDate := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+	for i, capture := range []struct {
+		amountFils money.Fils
+		feeFils    money.Fils
+		rebateFils int64
+	}{
+		{600, 15, 2},
+		{200, 5, 0},
+		{602, 15, 2},
+	} {
+		occurredAt := start.Add(time.Duration(i+1) * time.Hour)
+		var txnID uuid.UUID
+		if err := pool.QueryRow(ctx, `
+			INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+			VALUES ($1, 'captured', $2, $2, $3, $4) RETURNING id
+		`, merchantID, int64(capture.amountFils), "acq-ref-"+uuid.New().String(), occurredAt).Scan(&txnID); err != nil {
+			t.Fatalf("insert transaction: %v", err)
+		}
+		insertJournaledCapture(t, pool, merchantID, txnID, "captured", capture.amountFils, capture.feeFils, occurredAt)
+		if capture.rebateFils > 0 {
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO ledger_entries
+				  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+				VALUES
+				  ($1, $2, $3, 'platform_fee_revenue', 'debit',  $4, $5, 'capture: negotiated discount adjustment'),
+				  ($1, $2, $3, 'merchant_payable',     'credit', $4, $5, 'capture: negotiated discount adjustment')
+			`, uuid.New(), merchantID, txnID, capture.rebateFils, occurredAt.Add(time.Minute)); err != nil {
+				t.Fatalf("insert discount adjustment: %v", err)
+			}
+		}
+	}
+
+	closed, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+	if closed.FeeFils != 31 {
+		t.Fatalf("CloseBatch FeeFils = %d, want 31", closed.FeeFils)
+	}
+
+	const newMdrBps = 300
+	if _, err := pool.Exec(ctx, `UPDATE merchants SET mdr_bps = $2 WHERE id = $1`, merchantID, newMdrBps); err != nil {
+		t.Fatalf("update mdr_bps: %v", err)
+	}
+
+	from, to := recalcWindow(businessDate)
+	result, err := RecalculateMDR(ctx, pool, merchantID, from, to)
+	if err != nil {
+		t.Fatalf("RecalculateMDR: %v", err)
+	}
+	if result.BatchesConsidered != 1 {
+		t.Errorf("BatchesConsidered = %d, want 1", result.BatchesConsidered)
+	}
+	if len(result.Adjusted) != 1 {
+		t.Fatalf("len(Adjusted) = %d, want 1", len(result.Adjusted))
+	}
+	adj := result.Adjusted[0]
+	if adj.BatchID != closed.BatchID {
+		t.Errorf("adjusted BatchID = %s, want %s", adj.BatchID, closed.BatchID)
+	}
+	if adj.OldFeeFils != 31 {
+		t.Errorf("OldFeeFils = %d, want 31", adj.OldFeeFils)
+	}
+	if adj.NewFeeFils != 37 {
+		t.Errorf("NewFeeFils = %d, want 37", adj.NewFeeFils)
+	}
+	if adj.DiffFils != 6 {
+		t.Errorf("DiffFils = %d, want 6", adj.DiffFils)
+	}
+}
+
+// A sale captured in parts on two business days has a fee leg and a rebate in
+// each day's batch. Recalculating either batch at the same rate must read only
+// that day's fee legs, the same window as its rebates, and adjust nothing.
+func TestRecalculateMDR_SplitCaptureAcrossDaysUnchangedRateAdjustsNothing(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	if _, err := pool.Exec(ctx, `UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, merchantID); err != nil {
+		t.Fatalf("set negotiated_discount_bps: %v", err)
+	}
+
+	day1 := time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC)
+	day2 := day1.AddDate(0, 0, 1)
+	start1, _ := BusinessDayWindow(day1)
+	start2, _ := BusinessDayWindow(day2)
+	var txnID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+		VALUES ($1, 'captured', 1202, 1202, $2, $3) RETURNING id
+	`, merchantID, "acq-ref-"+uuid.New().String(), start1.Add(time.Hour)).Scan(&txnID); err != nil {
+		t.Fatalf("insert transaction: %v", err)
+	}
+	for _, part := range []struct {
+		at         time.Time
+		amountFils money.Fils
+	}{
+		{start1.Add(time.Hour), 600},
+		{start2.Add(time.Hour), 602},
+	} {
+		insertJournaledCapture(t, pool, merchantID, txnID, "captured", part.amountFils, 15, part.at)
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO ledger_entries
+			  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+			VALUES
+			  ($1, $2, $3, 'platform_fee_revenue', 'debit',  2, $4, 'capture: negotiated discount adjustment'),
+			  ($1, $2, $3, 'merchant_payable',     'credit', 2, $4, 'capture: negotiated discount adjustment')
+		`, uuid.New(), merchantID, txnID, part.at.Add(time.Minute)); err != nil {
+			t.Fatalf("insert discount adjustment: %v", err)
+		}
+	}
+
+	for _, day := range []time.Time{day1, day2} {
+		closed, err := CloseBatch(ctx, pool, merchantID, day)
+		if err != nil {
+			t.Fatalf("CloseBatch %s: %v", day.Format("2006-01-02"), err)
+		}
+		if closed.FeeFils != 13 {
+			t.Fatalf("CloseBatch %s FeeFils = %d, want 13", day.Format("2006-01-02"), closed.FeeFils)
+		}
+	}
+
+	from, _ := recalcWindow(day1)
+	_, to := recalcWindow(day2)
+	result, err := RecalculateMDR(ctx, pool, merchantID, from, to)
+	if err != nil {
+		t.Fatalf("RecalculateMDR: %v", err)
+	}
+	if len(result.Adjusted) != 0 {
+		t.Errorf("unchanged rate adjusted %d batch(es): %+v", len(result.Adjusted), result.Adjusted)
 	}
 }

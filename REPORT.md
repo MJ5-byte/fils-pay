@@ -957,6 +957,14 @@
 - **Cause:** The API had no merchant-scoped single-link read, so `PaymentLinkDetailPage` fetched the newest 100 links (the list's maximum page) and searched them for the id.
 - **Breaks:** An old active link stayed payable and the merchant had no way to cancel it from the dashboard. It was first filed as an improvement because the page admitted its limit; a listed link that cannot be opened is a wrong outcome a user hits, so it is a bug.
 - **Fix:** New `GET /v1/merchants/:merchantId/payment-links/:id` (own merchant only, 404 for anyone else's link) and the detail page calls it. Test added: 105 links, two pages with no duplicates or gaps, the oldest opens by id, another merchant gets 404. Red (404) before, green after. The list pager itself needed no change.
+
+### Bug: MDR recalculation to a higher rate skips the discount on the fee increase (BHA-194)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** For a merchant with a negotiated discount, recalculating a closed batch at a higher MDR charged the whole fee increase with no discount. Captures of 600, 200 and 602 fils at 250 bps with a 1000 bps discount, with rebates of 2, 0 and 2 posted, recalculated at 300 bps to a fee of 38 fils instead of 37.
+- **Cause:** Since #117 (BHA-183), `recomputeBatchFee` in `recalculate_mdr.go` priced a capture with a `capture: MDR fee` leg at the MDR alone and then subtracted the rebates already posted. Those rebates were computed on the old fee, so the discount share of the increase was never taken off.
+- **Breaks:** A discounted merchant was overcharged the discount share of any fee increase applied by recalculation, about a fil per capture at these sizes.
+- **Fix:** Every event is now priced with `ComputeSettlementFee` at the new rate, MDR first and then the discount off that fee, the same order as the ledger (#123). The only thing carried over from the ledger is the shortfall between the rebate owed on each posted MDR fee leg and the rebate that actually posted, so a rebate that never posted is still never paid back (#117's guard), and at an unchanged rate the result is the same as before. Test added with the ticket's example: it gave 38 (diff 7) before and gives 37 (diff 6) after.
 ### Bug: Merchant dashboard shows an expired payment link as active
 - **Status:** Fixed
 - **Type:** UX, medium
