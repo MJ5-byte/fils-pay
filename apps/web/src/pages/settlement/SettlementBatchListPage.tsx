@@ -20,6 +20,7 @@ import { IconSettlement } from "../../components/icons.js";
 import { dateTime } from "../../format.js";
 import { classNames } from "../../utils/helpers.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
+import { DatePicker } from "../../components/DatePicker.js";
 
 const STATUSES: SettlementBatchStatus[] = ["open", "closed", "paid"];
 const PAGE_SIZE = 25;
@@ -103,11 +104,11 @@ export function SettlementBatchListPage() {
         <div className="dash-toolbar">
           <label>
             From
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <DatePicker value={from} onChange={setFrom} />
           </label>
           <label>
             To (exclusive)
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <DatePicker value={to} onChange={setTo} />
           </label>
         </div>
 

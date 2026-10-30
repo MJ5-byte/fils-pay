@@ -14,6 +14,7 @@ import { ApiError, describeError } from "../../api/client.js";
 import { Money } from "../../components/Money.js";
 import { IconAlert, IconCheck } from "../../components/icons.js";
 import type { ReconciliationReport } from "../../types.js";
+import { DatePicker } from "../../components/DatePicker.js";
 
 /**
  * `from`/`to` are required by this endpoint (`400 invalid_request` without
@@ -126,11 +127,11 @@ export function ReconciliationPage() {
       >
         <label>
           From
-          <input type="date" required value={from} onChange={(e) => setFrom(e.target.value)} />
+          <DatePicker required value={from} onChange={setFrom} />
         </label>
         <label>
           To (exclusive)
-          <input type="date" required value={to} onChange={(e) => setTo(e.target.value)} />
+          <DatePicker required value={to} onChange={setTo} />
         </label>
         <button type="submit" className="dash-button dash-button-primary" disabled={loading}>
           {loading ? "Loading" : "Run report"}

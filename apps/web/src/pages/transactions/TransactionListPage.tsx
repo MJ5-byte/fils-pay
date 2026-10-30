@@ -19,6 +19,7 @@ import { IconSearch } from "../../components/icons.js";
 import { dash, dateTime, dayStartIso } from "../../format.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
+import { DatePicker } from "../../components/DatePicker.js";
 
 const STATUSES: TransactionStatus[] = [
   "authorized",
@@ -133,7 +134,7 @@ export function TransactionListPage() {
           </div>
           <label>
             From
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <DatePicker value={from} onChange={setFrom} />
           </label>
           <label>
             {/* Exclusive, because the endpoint's own predicate is
@@ -141,7 +142,7 @@ export function TransactionListPage() {
               day here, which would make this page and the API disagree about
               what a filter means. */}
             To (exclusive)
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <DatePicker value={to} onChange={setTo} />
           </label>
         </div>
 

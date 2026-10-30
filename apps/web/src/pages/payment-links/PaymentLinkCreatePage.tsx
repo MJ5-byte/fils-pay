@@ -9,6 +9,7 @@ import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { IconArrowLeft } from "../../components/icons.js";
 import { localDateTimeToIso, parseBhdAmount } from "../../format.js";
+import { DatePicker, todayKey } from "../../components/DatePicker.js";
 
 /**
  * `POST /v1/merchants/:merchantId/payment-links`, `owner`/`finance`
@@ -100,12 +101,7 @@ export function PaymentLinkCreatePage() {
         </label>
         <label>
           Expires at
-          <input
-            type="datetime-local"
-            required
-            value={expiresAt}
-            onChange={(e) => setExpiresAt(e.target.value)}
-          />
+          <DatePicker mode="datetime" required min={todayKey()} value={expiresAt} onChange={setExpiresAt} />
         </label>
         <div className="fp-form-actions"><Link className="dash-button-ghost" to="/dashboard/payment-links">Cancel</Link>
           <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>

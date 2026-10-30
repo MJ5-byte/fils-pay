@@ -26,6 +26,7 @@ import { IconCoins, IconReceipt, IconStar, IconTrend } from "../../components/ic
 import { dash, dateTime } from "../../format.js";
 import { formatCount } from "../../utils/helpers.js";
 import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "../../types.js";
+import { DatePicker } from "../../components/DatePicker.js";
 
 /** 60s: comfortably above the reporting worker's 15s worst-case lag, and
  *  more than often enough for a dashboard. Poll, not push:
@@ -136,11 +137,11 @@ export function OverviewPage() {
       } toolbar={<div className="dash-toolbar">
         <label>
           From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <DatePicker value={from} onChange={setFrom} />
         </label>
         <label>
           To (exclusive)
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <DatePicker value={to} onChange={setTo} />
         </label>
         <label>
           Top links
