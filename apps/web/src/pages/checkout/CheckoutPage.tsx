@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
+import { CheckoutSummary } from "./CheckoutSummary.js";
 import { loadFailureKind } from "./loadFailure.js";
 import { payFailure } from "./payFailure.js";
 import type { PaymentLinkPublicDto, PayPaymentLinkResponse, SimulatedCardInput } from "../../types.js";
@@ -111,6 +112,7 @@ export function CheckoutPage() {
   if (payState.kind === "success") {
     return (
       <main className="checkout-page">
+        <CheckoutSummary merchantDisplayName={link.merchantDisplayName} amountFils={link.amountFils} />
         <StatusBadge status="succeeded">Payment successful</StatusBadge><h1>Thank you, your payment has been received.</h1>
         <dl className="dash-dl">
           <div className="dash-fact"><dt>Transaction ID</dt>
@@ -125,6 +127,7 @@ export function CheckoutPage() {
   if (payState.kind === "terminal") {
     return (
       <main className="checkout-page">
+        <CheckoutSummary merchantDisplayName={link.merchantDisplayName} amountFils={link.amountFils} />
         <IconAlert className="checkout-state-icon" /><h1>{payState.title ?? "Unable to pay"}</h1>
         <p>{payState.message}</p>
       </main>
@@ -134,6 +137,7 @@ export function CheckoutPage() {
   if (link.status === "paid") {
     return (
       <main className="checkout-page">
+        <CheckoutSummary merchantDisplayName={link.merchantDisplayName} amountFils={link.amountFils} />
         <StatusBadge status="paid" /><h1>This invoice has already been paid.</h1>
       </main>
     );
@@ -141,6 +145,7 @@ export function CheckoutPage() {
   if (link.status === "expired") {
     return (
       <main className="checkout-page">
+        <CheckoutSummary merchantDisplayName={link.merchantDisplayName} amountFils={link.amountFils} />
         <StatusBadge status="expired" /><h1>This payment link has expired.</h1>
       </main>
     );
@@ -148,6 +153,7 @@ export function CheckoutPage() {
   if (link.status === "canceled") {
     return (
       <main className="checkout-page">
+        <CheckoutSummary merchantDisplayName={link.merchantDisplayName} amountFils={link.amountFils} />
         <StatusBadge status="canceled" /><h1>This payment link is no longer available.</h1>
       </main>
     );
@@ -155,6 +161,7 @@ export function CheckoutPage() {
   if (link.status === "processing") {
     return (
       <main className="checkout-page">
+        <CheckoutSummary merchantDisplayName={link.merchantDisplayName} amountFils={link.amountFils} />
         <StatusBadge status="processing" /><h1>A payment is being processed for this link, please wait a moment and refresh.</h1>
       </main>
     );

@@ -1551,3 +1551,9 @@
 - **Cause:** `processRefund` posts the refund's `merchant_payable` legs at once, but `getReconciliationReport` (`apps/api/src/settlement/query.ts:331`) only counted unbatched captures as pending, so an unbatched refund was in the ledger figure and in neither settlement nor pending.
 - **Breaks:** Merchants and finance saw a shortfall every day that had a refund, and the report marked a correct book as unexplained.
 - **Fix:** The report now subtracts the net (amount minus reversed fee) of succeeded, not yet batched refunds in the window from the pending figure ([PR #193](https://github.com/SilentYsf/fils-pay/pull/193)). Test added in `apps/api/src/routes/settlement.test.ts`.
+
+### Improvement: Checkout status pages show the merchant and the amount
+- **Type:** UX
+- **Before:** A link that was paid, expired, canceled or processing, and the success and "Unable to pay" screens, showed only a headline. The payer could not see who they were paying or how much. Nothing promised more and nothing broke.
+- **Why it shipped:** The payer opens these pages from an old message and needs to confirm which payment it is; the data was already in the public link response.
+- **Change:** New `CheckoutSummary` (merchant name and amount) rendered on each status view in `CheckoutPage.tsx`, using fields `GET /v1/payment-links/:token` already returns. No new API calls. Test added in `CheckoutSummary.test.tsx`; the web test glob now also matches `.tsx`.

@@ -22,7 +22,7 @@
   .checkout-form-row { gap: 8px; }
 }
 
-.checkout-page h1.checkout-merchant { font: 500 12px/1.55 var(--fp-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--fp-brand-ink); }
+.checkout-page .checkout-merchant { margin: 0 0 20px; font: 500 12px/1.55 var(--fp-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--fp-brand-ink); }
 
 .checkout-expiry { min-width: 0; margin: 0; padding: 0; border: 0; }
 .checkout-expiry legend { padding: 0; margin-bottom: 6px; }
