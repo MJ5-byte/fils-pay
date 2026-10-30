@@ -1090,6 +1090,12 @@
 - **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
 - **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.
 
+### Improvement: The settlement batch page drops a bar that measured nothing
+- **Type:** UX
+- **Before:** A closed batch page showed an unlabelled blue bar under the title. It was gross as a percent of a fixed 1,000 BHD, so it read as payout progress on a batch that is closed but not paid.
+- **Why it shipped:** The bar stated nothing true about the batch, and the Status and Paid at fields below already say where the batch stands, so a merchant could only misread it.
+- **Change:** Removed the bar and the `displayProgress` value that fed it from `SettlementBatchDetailPage.tsx`; nothing else read either.
+
 ### Improvement: Checkout receipt and admin import history show raw timestamps
 - **Type:** UX
 - **Before:** The checkout receipt's "Paid at" printed the raw ISO string (`2026-10-30T13:33:27.668Z`) and the admin adjustment-import history printed Postgres text (`2026-10-30 13:33:27.668874+00`). Nothing was wrong with the data.
