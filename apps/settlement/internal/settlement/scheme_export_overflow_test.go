@@ -15,6 +15,22 @@ import (
 // the BIGINT amount_fils rather than a narrow decimal copy that overflows.
 func TestSchemeExportLargeCaptureDoesNotOverflow(t *testing.T) {
 	pool := mustPool(t)
+	ctx := context.Background()
+
+	// CloseBatch adds this batch's 100,000,000 BD gross to the platform-wide
+	// volume counter, which puts it far past the volume-tier threshold. Put
+	// the counter back afterwards, or every later batch on this database is
+	// charged the tier bonus and the fee assertions in batch_test.go fail.
+	var originalProcessed int64
+	if err := pool.QueryRow(ctx, `SELECT total_processed_fils FROM platform_stats WHERE id = 1`).Scan(&originalProcessed); err != nil {
+		t.Fatalf("read platform_stats: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `UPDATE platform_stats SET total_processed_fils = $1 WHERE id = 1`, originalProcessed); err != nil {
+			t.Errorf("restore platform_stats: %v", err)
+		}
+	})
+
 	const mdrBps = 250
 	merchantID := insertActiveMerchant(t, pool, mdrBps)
 	businessDate := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
@@ -25,12 +41,12 @@ func TestSchemeExportLargeCaptureDoesNotOverflow(t *testing.T) {
 	const largeGrossFils money.Fils = 100_000_000_000
 	insertCaptureEvent(t, pool, merchantID, mdrBps, largeGrossFils, start.Add(time.Hour))
 
-	result, err := CloseBatch(context.Background(), pool, merchantID, businessDate)
+	result, err := CloseBatch(ctx, pool, merchantID, businessDate)
 	if err != nil {
 		t.Fatalf("CloseBatch on a large capture: %v", err)
 	}
 
-	lines, err := LoadSchemeExportLines(context.Background(), pool, result.BatchID)
+	lines, err := LoadSchemeExportLines(ctx, pool, result.BatchID)
 	if err != nil {
 		t.Fatalf("LoadSchemeExportLines: %v", err)
 	}

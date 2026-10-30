@@ -864,6 +864,13 @@
 - **Breaks:** ADR-0001 (money is integer fils). Nothing in Go, the TS API or the web apps reads the figure back, so no payout or balance was wrong; the ops figure was.
 - **Fix:** Migration 0078 changes the column to `BIGINT` (type change only, nothing dropped), the payout code adds `int64` fils, `EstimateMonthlyPayout` sums `int64`, and the seed sums exactly instead of rounding through `Math.fround`. Test added: three payouts totalling 5,016,777,221 fils land on the exact sum (it read 5,016,777,216 before). The old small-value test now scans an `int64`. `splits.PayoutSplitBatch` never bumped the estimate, so it now runs the same UPDATE in its transaction with the batch's net payout (inlined, because `settlement` imports `splits`). Test added: a split parent's estimate equals its batch net after payout. A negative net is skipped, as `PayoutBatch` refuses one. Split-parent payouts made before this change are not backfilled into the estimate. PR: https://github.com/SilentYsf/fils-pay/pull/106
 
+### Bug: Settlement Go suite only passes on a fresh database (BHA-186)
+- **Status:** Fixed
+- **Type:** Deploy, low
+- **Problem:** Running `go test ./...` in `apps/settlement` a second time on the same database failed nine CloseBatch tests in `internal/settlement` and one in `internal/internalapi`, all with fees 15 bps too low.
+- **Cause:** `TestSchemeExportLargeCaptureDoesNotOverflow` closes a 100,000,000 BD batch, which adds that gross to `platform_stats.total_processed_fils` and leaves the counter far past the 2,000,000 BD volume-tier threshold. Every later CloseBatch on that database got the 15 bps tier bonus that the fee assertions do not expect.
+- **Breaks:** Anyone re-running the suite, including a hidden regression run, saw false fee failures on code that was correct.
+- **Fix:** The test now saves the counter before its close and restores it in `t.Cleanup`, the same way `TestCloseBatch_PaysTheFeeJournaledAtCapture` already does. No assertion changed. Three runs in a row on one database now pass with `go test -p 1 ./...`. The suite can still fail now and then when packages run in parallel, because of a separate balance cache bug that is reported on its own.
 ### Bug: The admin webhook replay "failed" status replays nothing
 - **Status:** Fixed
 - **Type:** UX, low
