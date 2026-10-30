@@ -1516,6 +1516,65 @@ test("settlement run-batch: a failing call surfaces its status and leaves an aud
   settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
 });
 
+test("cross-process admin actions: the audit row is not 'succeeded' while the call is still running", async () => {
+  const finance = await signedInAdmin("finance", "outcome-pending");
+  const ok = { businessDate: "2026-09-09", merchantResults: [] };
+  const outcomeDuringCall = async (action: string): Promise<string | undefined> => {
+    const seen = await pool.query<{ outcome: string }>(
+      `SELECT outcome FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2`,
+      [finance.id, action],
+    );
+    return seen.rows[0]?.outcome;
+  };
+
+  let runBatchSeen: string | undefined;
+  settlementSpy.runBatchImpl = async () => {
+    runBatchSeen = await outcomeDuringCall("settlement_run_batch");
+    return ok;
+  };
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/settlement/run-batch",
+    headers: { cookie: finance.cookie },
+    payload: { date: "2026-09-09" },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  settlementSpy.runBatchImpl = async () => ok;
+
+  assert.equal(runBatchSeen, "failed", "a row written before the op ran must not claim it succeeded");
+  assert.equal((await auditRowsFor(finance.id, "settlement_run_batch"))[0]!.outcome, "succeeded");
+
+  let rebuildSeen: string | undefined;
+  settlementSpy.rebuildImpl = async () => {
+    rebuildSeen = await outcomeDuringCall("balance_rebuild");
+    return { rebuiltCount: 0, changed: [] };
+  };
+  const rebuild = await app.inject({
+    method: "POST",
+    url: "/v1/admin/balances/rebuild",
+    headers: { cookie: finance.cookie },
+    payload: {},
+  });
+  assert.equal(rebuild.statusCode, 200, rebuild.body);
+  assert.equal(rebuildSeen, "failed");
+  assert.equal((await auditRowsFor(finance.id, "balance_rebuild"))[0]!.outcome, "succeeded");
+
+  let mdrSeen: string | undefined;
+  settlementSpy.recalcMdrImpl = async () => {
+    mdrSeen = await outcomeDuringCall("mdr_recalculation");
+    return { batchesConsidered: 0, adjusted: [] };
+  };
+  const mdr = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${randomUUID()}/mdr-recalculation`,
+    headers: { cookie: finance.cookie },
+    payload: { from: "2026-04-01", to: "2026-04-30" },
+  });
+  assert.equal(mdr.statusCode, 200, mdr.body);
+  assert.equal(mdrSeen, "failed");
+  assert.equal((await auditRowsFor(finance.id, "mdr_recalculation"))[0]!.outcome, "succeeded");
+});
+
 test("settlement run-batch validates its input before writing an audit row or calling anything", async () => {
   const finance = await signedInAdmin("finance", "runbatch-bad");
   settlementSpy.runBatchCalls = [];

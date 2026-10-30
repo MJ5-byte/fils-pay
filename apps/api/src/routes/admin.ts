@@ -129,6 +129,8 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
           targetType: merchantId ? "merchant" : "platform",
           targetId: merchantId ?? null,
           metadata: { date, merchantId: merchantId ?? null },
+          // Not done yet: only markAdminAuditOutcome may say "succeeded".
+          outcome: "failed",
         }),
       );
 
@@ -181,6 +183,8 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
           targetType: "platform",
           targetId: null,
           metadata: {},
+          // Not done yet: only markAdminAuditOutcome may say "succeeded".
+          outcome: "failed",
         }),
       );
 
@@ -283,6 +287,8 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
           targetType: "merchant",
           targetId: request.params.id,
           metadata: { from, to },
+          // Not done yet: only markAdminAuditOutcome may say "succeeded".
+          outcome: "failed",
         }),
       );
 

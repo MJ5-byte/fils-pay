@@ -393,6 +393,13 @@
 - **Breaks:** A receiver controls whether its own delivery ever progresses or backs off, and it adds a failing query to every pass, with an error log line each time.
 - **Fix:** One `replaceAll` strips NUL from the body before the three UPDATEs that share it; the 2000-character cap is unchanged. PR: https://github.com/SilentYsf/fils-pay/pull/72. Tests added in `dispatcher.test.ts` for a 200 and a 500 response, which also check that another endpoint is still delivered.
 
+### Bug: Admin audit rows for settlement re-run, balance rebuild and MDR recalculation say "succeeded" before the action has run
+- **Status:** Fixed (BHA-153)
+- **Type:** Data, medium
+- **Problem:** The audit log showed `outcome = succeeded` for an admin action whose outcome was not known yet. If the API crashed or restarted during the call, or the follow-up update failed, the row stayed `succeeded` for an action that may never have finished.
+- **Cause:** The three cross-process routes in `apps/api/src/routes/admin.ts` (`/settlement/run-batch`, `/balances/rebuild`, `/merchants/:id/mdr-recalculation`) commit their audit row before the HTTP call and left `outcome` at the column default `succeeded`; `insertAdminAuditLog` (`apps/api/src/adminAudit/log.ts:83`) applies that default.
+- **Breaks:** The audit trail could claim money-moving admin actions succeeded when they did not.
+- **Fix:** These three inserts now pass `outcome: "failed"`, and the existing `markAdminAuditOutcome` call sets `succeeded` only after the call returns. No migration. A `failed` row without an `error` field means the outcome is unknown (still running or the process died). Single-transaction callers are unchanged: their row rolls back with the action. Test added in `admin.test.ts` that reads the row from inside the stubbed call for all three routes.
 ### Bug: Admin settlement errors leak the internal service body
 - **Status:** Fixed
 - **Type:** Security, medium
