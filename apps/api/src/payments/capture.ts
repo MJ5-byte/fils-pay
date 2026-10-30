@@ -141,6 +141,17 @@ export async function captureTransaction(
       return { statusCode: 409, body };
     }
 
+    // Enforce the scheme hold window using the DB clock under the row lock so capture cannot race expiry.
+    const expiredHold = await client.query(
+      `SELECT 1 FROM holds WHERE transaction_id = $1 AND expires_at <= now() LIMIT 1`,
+      [txn.id],
+    );
+    if (expiredHold.rows[0]) {
+      const body = { error: "authorization_expired" };
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 409, body });
+      return { statusCode: 409, body };
+    }
+
     // — YA: authorised vs captured. finance says "amount" and means both.
     const amountAuthorized = toFils(Number(txn.amount_fils));
     const capturedSoFar = toFils(Number(txn.captured_fils));

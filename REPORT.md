@@ -1140,6 +1140,22 @@
 - **Breaks:** Every capture, refund and adjustment got slower with each row ever written; a capacity run recorded 55,040 sequential scans reading 1.25 billion rows and no index scans.
 - **Fix:** Migration `0081` adds three plain indexes, `ledger_entries(entry_group_id)`, `ledger_entries(transaction_id)` and `holds(transaction_id)`, with `CREATE INDEX IF NOT EXISTS` (additive; not CONCURRENTLY because the migrator runs each file in a transaction). The trigger's lookup moves from a Seq Scan to an Index Scan; plans are in the PR. No query or trigger changed.
 
+### Bug: Authorizations past their 7-day hold can still be captured
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** A merchant can capture an authorization weeks after its hold expired.
+- **Cause:** captureTransaction checked status and remaining amount, never holds.expires_at, and the janitor scripts/expire_holds.ts is not scheduled on live.
+- **Breaks:** Money is captured against holds the scheme no longer guarantees; live has 4 August authorizations whose holds expired on 4 September.
+- **Fix:** capture.ts refuses with 409 authorization_expired when the hold's expires_at is at or before the DB clock, checked under the existing row lock; partially captured authorizations are included; a test was added.
+
+### Bug: The expire_holds janitor deletes expired holds instead of marking them expired
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** Running `scripts/expire_holds.ts` deleted every active hold past its expiry, while `authorize.ts`, the migration's status check and this report all said it marks them expired.
+- **Cause:** A June change ("FP-219", noted in `db/migrations/0005_holds.sql`) switched the janitor from an UPDATE to a DELETE to keep the table small. The earlier entry in this report also calls it a nightly cron job, which is wrong: nothing on live schedules it.
+- **Breaks:** The BHA-217 capture check refuses a capture when the transaction's hold has expired. Once the janitor deletes that row the check finds nothing, so an expired authorization becomes capturable again.
+- **Fix:** The janitor now sets `status = 'expired'` on holds that are still active and past `expires_at`, and keeps the rows. It uses `expires_at <= now()`, the same instant capture uses. The re-check guard and the empty-list `WHERE 1 = 0` stay. The existing janitor tests now assert the UPDATE and that no DELETE is issued.
+
 ### Bug: Dev fallback webhook encryption key is the wrong length
 - **Status:** Fixed
 - **Type:** Deploy, low
