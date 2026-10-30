@@ -486,3 +486,11 @@
 - **Cause:** `loadHistory` in `apps/admin/src/pages/adjustments/AdjustmentImportPage.tsx` kept `page.items` and dropped the API's `nextCursor`, so the page never asked for a second page although `GET /v1/admin/adjustment-imports` returns the cursor and accepts it.
 - **Breaks:** Finance could not open the per-row detail of any import beyond the 25 most recent, which is the page's audit purpose.
 - **Fix:** The page keeps `nextCursor`, shows a "Load more" button while one exists and appends the next page, the same way `CreditsPage` does. A small `appendImports` helper skips ids already shown. Test added in `appendImports.test.ts`.
+
+### Bug: Scheme export amount overflows on a large capture
+- **Status:** Fixed (BHA-158)
+- **Type:** Data, medium
+- **Problem:** Closing a settlement batch that holds a large capture (BD value past eight integer digits, e.g. 100,000,000.00 BD) failed outright: the whole CloseBatch transaction aborted with a numeric field overflow, so the batch never closed.
+- **Cause:** CloseBatch wrote a second, denormalised copy of the line amount into `scheme_export_lines.amount`, a `NUMERIC(10,2)` column (migration 0050), via `SchemeAmountBD`, a `float64(grossFils)/1000.0`. Fils are `BIGINT` everywhere (ADR-0001), and a large fils value does not fit `NUMERIC(10,2)`, so Postgres rejected the insert. The durable record, `amount_fils` (`BIGINT`), never overflows, and the export reader already preferred that column via COALESCE.
+- **Breaks:** No batch containing a large capture could be closed; settlement stalled for that merchant and day. The float copy also disagreed with `amount_fils` by up to 9 fils (it rounded the untruncated gross), against ADR-0002's "amount must be exactly amount_fils / 1000 formatted to two decimals".
+- **Fix:** Stop writing the overflow-prone float column at close (it is nullable and no reader needs it) and format the exported BD figure from the `BIGINT` `amount_fils` with the existing `formatFilsAsTwoDecimalString`, which is exact and cannot overflow. Removed the now-unused `SchemeAmountBD` float helper. No schema change. Test added: a 100,000,000.00 BD capture now closes and exports "100000000.00".

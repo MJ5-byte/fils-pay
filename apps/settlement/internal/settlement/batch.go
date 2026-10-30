@@ -249,10 +249,14 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 
 	for i, line := range lines {
 		truncated := TruncateToSchemeAmount(line.grossFils)
+		// amount_fils (BIGINT) is the durable record; the scheme file BD
+		// value is formatted from it at export (LoadSchemeExportLines). The
+		// nullable numeric(10,2) amount column is left unset: it overflows on
+		// a large capture and carries no value the export reads.
 		_, err = tx.Exec(ctx, `
-			INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
-			VALUES ($1, $2, $3, $4, $5)
-		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(line.grossFils), i+1)
+			INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, line_sequence)
+			VALUES ($1, $2, $3, $4)
+		`, batchID, line.transactionID, int64(truncated), i+1)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: insert scheme export line: %w", err)
 		}
