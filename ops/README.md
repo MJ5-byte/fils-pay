@@ -76,6 +76,7 @@ All the secrets below are set in `ops/.env.docker` (from the template).
 |---|---|---|---|---|
 | api | `DATABASE_URL`, `SETTLEMENT_INTERNAL_URL` | always | `environment:` | no |
 | api | `WEBHOOK_SECRET_ENCRYPTION_KEY` | every environment, must base64-decode to 32 bytes | `.env.docker` | no, throws at boot |
+| api | `CARD_FINGERPRINT_KEY` | when `NODE_ENV=production`, must base64-decode to 32 bytes | `.env.docker` | no, throws at boot |
 | api | `NODE_ENV=production` | hosted box | `.env.docker` | yes, but dev mode leaks OTP codes and uses a dev webhook key |
 | api, settlement | `SETTLEMENT_INTERNAL_TOKEN` | when `NODE_ENV=production`; no default | `.env.docker` | no, both crash-loop |
 | api | `ACQUIRER_CALLBACK_SIGNING_SECRET` | when `NODE_ENV=production` | `.env.docker` | no, throws at boot |

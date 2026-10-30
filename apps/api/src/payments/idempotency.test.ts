@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canonicalJson, hashRequest } from "./idempotency.js";
+import { createHash } from "node:crypto";
+import { canonicalJson, hashRequest, hmacRequest } from "./idempotency.js";
 
 test("canonicalJson sorts object keys recursively, independent of insertion order", () => {
   const a = { b: 1, a: 2, c: { z: 1, y: 2 } };
@@ -48,4 +49,14 @@ test("hashRequest is deterministic for repeated calls with the same body", () =>
 test("hashRequest returns a 64-char hex sha256 digest", () => {
   const digest = hashRequest({ any: "thing" });
   assert.match(digest, /^[0-9a-f]{64}$/);
+});
+
+test("hmacRequest keys the card hash: not a bare sha256, and different under another key", () => {
+  const body = { card: { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" } };
+  const bareSha256 = createHash("sha256").update(canonicalJson(body)).digest("hex");
+  const underKeyA = hmacRequest(body, Buffer.alloc(32, 1));
+  const underKeyB = hmacRequest(body, Buffer.alloc(32, 2));
+  assert.notEqual(underKeyA, bareSha256);
+  assert.notEqual(underKeyA, hashRequest(body));
+  assert.notEqual(underKeyA, underKeyB);
 });

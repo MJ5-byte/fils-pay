@@ -796,6 +796,13 @@
 - **Cause:** `createFetchTransport` in `apps/api/src/webhooks/transport.ts` appended every chunk to a string with no limit, although the dispatcher and test-send only keep the first 2000 characters of it.
 - **Breaks:** A fast receiver could push hundreds of MB into one delivery's memory on the 2 GB host, and a string past V8's limit throws a RangeError inside the data listener, which can take the API process down.
 - **Fix:** The transport stops reading at 64 KiB (`MAX_RESPONSE_BODY_BYTES`), destroys the response and resolves with the status code and the truncated body, once. The whole-exchange timeout is unchanged. Test added: a local receiver streams without end and the transport resolves in milliseconds, not at the timeout.
+### Bug: The stored card payment hash can be brute-forced back to the card (BHA-177)
+- **Status:** Fixed
+- **Type:** Security, high
+- **Problem:** Every card authorization stored a plain sha256 of a JSON body holding the full card number, expiry and CVV in `idempotency_keys.request_hash`.
+- **Cause:** `authorizeTransaction` in `apps/api/src/payments/authorize.ts` passed the card into `hashRequest`, an unkeyed sha256. It runs for `POST /v1/payment-links/:token/pay` and `POST /v1/transactions`.
+- **Breaks:** The link amount and reference are known, and a card number, expiry and CVV form a small enough space to try every value, so anyone who reads that table can recover cards and CVVs. PCI forbids storing the CVV in any form after authorization.
+- **Fix:** A new `hmacRequest` in `payments/idempotency.ts` hashes the same canonical body with HMAC-SHA256 under a server key, and authorize uses it. The key comes from a new `CARD_FINGERPRINT_KEY` (base64 of 32 bytes), required in production and checked at boot like `WEBHOOK_SECRET_ENCRYPTION_KEY`. Capture and refund bodies hold no card and keep the plain hash. No schema change. Rows written before the deploy keep their old hash: an authorize retried after the deploy with the same idempotency key gets a 422 `idempotency_key_reused` (on a payment link, a 409 that leaves the reservation alone) instead of a replay. That fails closed, never charges twice, and in practice hits only retries that were already in flight. Test added.
 ### Bug: Lifetime payout estimate drifts for high-volume merchants (BHA-26, BHA-128, BHA-129)
 - **Status:** Fixed
 - **Type:** Money, low

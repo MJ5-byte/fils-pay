@@ -7,6 +7,8 @@ import { payPaymentLink } from "./pay.js";
 import { recordKycReview } from "../onboarding/review.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
 
+const cardFingerprintKey = Buffer.alloc(32).toString("base64");
+
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   throw new Error(
@@ -51,7 +53,7 @@ test("a failed link capture voids the authorization and releases the hold", asyn
     refund: async () => ({ outcome: "approved", acquirerReference: "acq_test", latencyMs: 0 }),
   };
 
-  const result = await payPaymentLink(pool, stubAcquirer, { paymentLinkReservationTimeoutSeconds: 60 }, {
+  const result = await payPaymentLink(pool, stubAcquirer, { paymentLinkReservationTimeoutSeconds: 60, cardFingerprintKey }, {
     token,
     card: { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" },
     idempotencyKey: randomUUID(),
@@ -116,7 +118,7 @@ test("a transient capture error (502) is not voided, so a same-key retry still p
 
   // A capture 502 keeps the reservation, so the retry must find it stale to
   // reclaim it. Backdating reserved_at would change the reservation key.
-  const config = { paymentLinkReservationTimeoutSeconds: 0 };
+  const config = { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey };
   const card = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
   const idempotencyKey = randomUUID();
 

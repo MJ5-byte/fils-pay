@@ -139,7 +139,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         idempotencyKey,
         actor: { type: "merchant_api_key", id: request.apiKeyAuth!.apiKeyId },
       };
-      const result = await authorizeTransaction(app.db, app.acquirer, input);
+      const result = await authorizeTransaction(app.db, app.acquirer, app.config, input);
       reply.code(result.statusCode).send(result.body);
     },
   );

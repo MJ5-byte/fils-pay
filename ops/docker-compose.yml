@@ -93,8 +93,8 @@ services:
       dockerfile: ops/Dockerfile.node
     # WEBHOOK_SECRET_ENCRYPTION_KEY is required in every environment; the api
     # throws at boot without a valid 32-byte base64 key. Set it, plus
-    # SETTLEMENT_INTERNAL_TOKEN and ACQUIRER_CALLBACK_SIGNING_SECRET, in
-    # ops/.env.docker.
+    # SETTLEMENT_INTERNAL_TOKEN, ACQUIRER_CALLBACK_SIGNING_SECRET and
+    # CARD_FINGERPRINT_KEY, in ops/.env.docker.
     env_file:
       - .env.docker
     command: ["npx", "tsx", "apps/api/src/index.ts"]

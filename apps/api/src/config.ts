@@ -99,6 +99,11 @@ export interface Config {
    *  `Buffer.from(config.webhookSecretEncryptionKey, "base64")` to
    *  `encryptSecret`/`decryptSecret`, which take a `Buffer` key. */
   webhookSecretEncryptionKey: string;
+  /** Base64 of 32 bytes, the HMAC key for request hashes that carry card
+   *  data (payments/authorize.ts). Keyed so a stored hash cannot be
+   *  brute-forced back to a card number. Required in production; dev and
+   *  test fall back to a fixed key, as webhookSecretEncryptionKey does. */
+  cardFingerprintKey: string;
   /** Terminal-failure threshold for a single webhook_deliveries row — the
    *  attempt at which status flips from 'pending' to 'exhausted' instead of
    *  scheduling another retry. */
@@ -168,27 +173,26 @@ function parseFailClosedBoolEnv(value: string | undefined): boolean {
 }
 
 const DEV_FALLBACK_WEBHOOK_KEY_B64 = "dGVzdC1rZXktZm9yLWRldi1vbmx5LW5vdC1mb3ItcHJvZA==";
+const DEV_FALLBACK_CARD_FINGERPRINT_KEY_B64 = "ZGV2LW9ubHktY2FyZC1maW5nZXJwcmludC1rZXktMzI=";
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
-/** Validates WEBHOOK_SECRET_ENCRYPTION_KEY decodes to exactly 32 raw bytes,
- *  failing fast at boot (same posture as DATABASE_URL) rather than
+/** Validates a key env var (WEBHOOK_SECRET_ENCRYPTION_KEY, CARD_FINGERPRINT_KEY)
+ *  decodes to exactly 32 raw bytes, failing fast at boot (same posture as DATABASE_URL) rather than
  *  accepting a missing/malformed key and only discovering the problem at
  *  first-delivery time. Returns the original base64 string unchanged — the
  *  Config field stays base64-encoded; callers decode to a Buffer at the
  *  point of use. */
-function parseWebhookSecretEncryptionKey(value: string | undefined): string {
+function parseBase64Key32(name: string, value: string | undefined): string {
   if (!value) {
-    throw new Error("loadConfig: WEBHOOK_SECRET_ENCRYPTION_KEY environment variable is not set");
+    throw new Error(`loadConfig: ${name} environment variable is not set`);
   }
   if (!BASE64_RE.test(value)) {
-    throw new Error("loadConfig: WEBHOOK_SECRET_ENCRYPTION_KEY is not valid base64");
+    throw new Error(`loadConfig: ${name} is not valid base64`);
   }
   const decoded = Buffer.from(value, "base64");
   if (decoded.length !== 32) {
-    throw new Error(
-      `loadConfig: WEBHOOK_SECRET_ENCRYPTION_KEY must base64-decode to exactly 32 bytes, got ${decoded.length}`,
-    );
+    throw new Error(`loadConfig: ${name} must base64-decode to exactly 32 bytes, got ${decoded.length}`);
   }
   return value;
 }
@@ -264,8 +268,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsAllowedOrigins: parseCsvEnv(env.CORS_ALLOWED_ORIGINS, nodeEnv === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"]),
     paymentLinkReservationTimeoutSeconds: parseIntEnv(env.PAYMENT_LINK_RESERVATION_TIMEOUT_SECONDS, 60),
 
-    webhookSecretEncryptionKey: parseWebhookSecretEncryptionKey(
+    webhookSecretEncryptionKey: parseBase64Key32(
+      "WEBHOOK_SECRET_ENCRYPTION_KEY",
       env.WEBHOOK_SECRET_ENCRYPTION_KEY || (nodeEnv !== "production" ? DEV_FALLBACK_WEBHOOK_KEY_B64 : undefined),
+    ),
+    cardFingerprintKey: parseBase64Key32(
+      "CARD_FINGERPRINT_KEY",
+      env.CARD_FINGERPRINT_KEY || (nodeEnv !== "production" ? DEV_FALLBACK_CARD_FINGERPRINT_KEY_B64 : undefined),
     ),
     webhookMaxAttempts: parseIntEnv(env.WEBHOOK_MAX_ATTEMPTS, 8),
     webhookBackoffBaseMs: parseIntEnv(env.WEBHOOK_BACKOFF_BASE_MS, 30_000),

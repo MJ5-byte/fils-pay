@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type { PoolClient } from "pg";
 
 /**
@@ -64,6 +64,16 @@ function sortKeysDeep(value: unknown): unknown {
 /** sha256Hex(canonicalJson(body)). */
 export function hashRequest(body: unknown): string {
   return createHash("sha256").update(canonicalJson(body)).digest("hex");
+}
+
+/**
+ * HMAC-SHA256 of canonicalJson(body) under a server-side key, for bodies that
+ * carry card data. A bare sha256 of a card is brute-forceable from the small
+ * PAN, CVV and expiry space, so the stored request_hash would be as good as
+ * the card itself (BHA-177).
+ */
+export function hmacRequest(body: unknown, key: Buffer): string {
+  return createHmac("sha256", key).update(canonicalJson(body)).digest("hex");
 }
 
 interface IdempotencyKeyDbRow {

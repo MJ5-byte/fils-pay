@@ -59,7 +59,7 @@ export function expiryReferenceTime(submittedAt?: string): Date {
 export async function payPaymentLink(
   pool: Pool,
   acquirer: AcquirerSimulator,
-  config: { paymentLinkReservationTimeoutSeconds: number },
+  config: { paymentLinkReservationTimeoutSeconds: number; cardFingerprintKey: string },
   input: PayPaymentLinkInput,
 ): Promise<PayPaymentLinkResult> {
   // Expiry is judged by the server's clock; a client-sent time must never reach this check (BHA-7).
@@ -100,7 +100,7 @@ export async function payPaymentLink(
   const authorizeKey = `paylink:${link.id}:${link.reservationId}:authorize`;
   let authResult: AuthorizeResult;
   try {
-    authResult = await authorizeTransaction(pool, acquirer, {
+    authResult = await authorizeTransaction(pool, acquirer, config, {
       merchantId: link.merchantId,
       amountFils: link.amountFils,
       card: input.card,

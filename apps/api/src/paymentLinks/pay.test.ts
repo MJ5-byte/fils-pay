@@ -5,6 +5,7 @@ import { Pool } from "pg";
 import { createAcquirerSimulator } from "../acquirer/simulator.js";
 import { loadConfig } from "../config.js";
 import { recordKycReview } from "../onboarding/review.js";
+import { hashRequest, hmacRequest } from "../payments/idempotency.js";
 import { createPaymentLink } from "./create.js";
 import { expiryReferenceTime, payPaymentLink } from "./pay.js";
 
@@ -85,6 +86,15 @@ test("a link payment rebates the negotiated discount as balanced ledger legs", a
 
   assert.equal(result.statusCode, 200);
   const { transactionId } = result.body as { transactionId: string };
+  // BHA-177: the stored authorize hash covers the full card, so it must be keyed, never a bare sha256.
+  const stored = await pool.query<{ request_hash: string }>(
+    `SELECT request_hash FROM idempotency_keys WHERE endpoint = 'transactions.authorize' AND resource_id = $1`,
+    [transactionId],
+  );
+  const authorizeBody = { amountFils: 602, card: VALID_CARD, reference: null };
+  assert.notEqual(stored.rows[0]?.request_hash, hashRequest(authorizeBody));
+  const key = Buffer.from(config.cardFingerprintKey, "base64");
+  assert.equal(stored.rows[0]?.request_hash, hmacRequest(authorizeBody, key));
   const legs = await pool.query<{ account_id: string; direction: string; amount_fils: string }>(
     `SELECT account_id, direction, amount_fils FROM ledger_entries
       WHERE transaction_id = $1 AND description = 'capture: negotiated discount adjustment'

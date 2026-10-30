@@ -148,7 +148,7 @@ async function createEndpointViaRoute(rawKey: string, merchantId: string, url: s
 }
 
 async function authorizeAndCapture(merchantId: string, amountFils: number, label: string): Promise<string> {
-  const authRes = await authorizeTransaction(pool, app.acquirer, {
+  const authRes = await authorizeTransaction(pool, app.acquirer, config, {
     merchantId,
     amountFils: toFils(amountFils),
     card: APPROVED_CARD,

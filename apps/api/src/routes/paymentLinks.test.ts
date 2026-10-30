@@ -438,7 +438,7 @@ test(
     const row = claimed.rows[0]!;
 
     const authorizeKey = `paylink:${row.id}:${row.reservation_id}:authorize`;
-    const authRes = await authorizeTransaction(pool, app.acquirer, {
+    const authRes = await authorizeTransaction(pool, app.acquirer, config, {
       merchantId: row.merchant_id,
       amountFils: toFils(Number(row.amount_fils)),
       card: APPROVED_CARD,
@@ -502,7 +502,7 @@ test("a stale reservation reclaimed by a second pay is captured once: both reque
     },
   };
 
-  const pA = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+  const pA = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
@@ -528,7 +528,7 @@ test("a stale reservation reclaimed by a second pay is captured once: both reque
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
-  const pB = payPaymentLink(bPool, acquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+  const pB = payPaymentLink(bPool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
@@ -577,7 +577,7 @@ test("a different-card reclaim is rejected 409 processing and only the first car
   assert.ok(row);
 
   // A committed authorize, then crashed before capture or finalize.
-  const authRes = await authorizeTransaction(pool, app.acquirer, {
+  const authRes = await authorizeTransaction(pool, app.acquirer, config, {
     merchantId: row.merchant_id,
     amountFils: toFils(Number(row.amount_fils)),
     card: APPROVED_CARD,
@@ -669,14 +669,14 @@ test("an authorize 502 does not release a reservation a sibling has already auth
     },
   });
 
-  const pA = payPaymentLink(aPool, acquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+  const pA = payPaymentLink(aPool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
   });
   await aEntered;
 
-  const pB = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+  const pB = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
@@ -717,7 +717,7 @@ test("an authorize 502 frees the link: a different card then pays it, and a stra
     const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("different-card-after-502");
     const link = await createLink(rawKey, merchantId, { amountFils: 3_300 });
 
-    const first = await payPaymentLink(pool, erroringAcquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+    const first = await payPaymentLink(pool, erroringAcquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
       token: link.token,
       card: APPROVED_CARD,
       idempotencyKey: randomUUID(),
@@ -727,7 +727,7 @@ test("an authorize 502 frees the link: a different card then pays it, and a stra
     const afterError = await pool.query<{ status: string }>(`SELECT status FROM payment_links WHERE id = $1`, [link.id]);
     assert.equal(afterError.rows[0]?.status, "active", "a 502 must leave the link payable again");
 
-    const second = await payPaymentLink(pool, app.acquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+    const second = await payPaymentLink(pool, app.acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
       token: link.token,
       card: APPROVED_CARD_B,
       idempotencyKey: randomUUID(),
@@ -748,7 +748,7 @@ test("an authorize 502 frees the link: a different card then pays it, and a stra
     const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("cancel-after-502");
     const link = await createLink(rawKey, merchantId, { amountFils: 3_300 });
 
-    const first = await payPaymentLink(pool, erroringAcquirer, { paymentLinkReservationTimeoutSeconds: 0 }, {
+    const first = await payPaymentLink(pool, erroringAcquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
       token: link.token,
       card: APPROVED_CARD,
       idempotencyKey: randomUUID(),

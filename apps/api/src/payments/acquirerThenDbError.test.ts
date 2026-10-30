@@ -212,13 +212,13 @@ test("an authorize retried after a DB failure that followed acquirer approval ho
   );
   await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON transactions FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
   try {
-    await assert.rejects(authorizeTransaction(pool, sim.acquirer, input), /injected transaction failure/);
+    await assert.rejects(authorizeTransaction(pool, sim.acquirer, config, input), /injected transaction failure/);
   } finally {
     await pool.query(`DROP TRIGGER ${fn} ON transactions`);
     await pool.query(`DROP FUNCTION ${fn}()`);
   }
 
-  const retry = await authorizeTransaction(pool, sim.acquirer, input);
+  const retry = await authorizeTransaction(pool, sim.acquirer, config, input);
   assert.equal(retry.statusCode, 201);
   assert.equal(new Set(sim.authorizeKeys).size, 1, `acquirer authorized under keys ${sim.authorizeKeys.join(", ")}`);
 });
@@ -242,13 +242,13 @@ test("a different request under the same key after an approve-then-rollback neve
   );
   await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON transactions FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
   try {
-    await assert.rejects(authorizeTransaction(pool, sim.acquirer, first), /injected transaction failure/);
+    await assert.rejects(authorizeTransaction(pool, sim.acquirer, config, first), /injected transaction failure/);
   } finally {
     await pool.query(`DROP TRIGGER ${fn} ON transactions`);
     await pool.query(`DROP FUNCTION ${fn}()`);
   }
 
-  const second = await authorizeTransaction(pool, sim.acquirer, { ...first, amountFils: toFils(7_000) });
+  const second = await authorizeTransaction(pool, sim.acquirer, config, { ...first, amountFils: toFils(7_000) });
   assert.equal(second.statusCode, 201);
   assert.equal(new Set(sim.authorizeKeys).size, 2, `acquirer authorized under keys ${sim.authorizeKeys.join(", ")}`);
 });

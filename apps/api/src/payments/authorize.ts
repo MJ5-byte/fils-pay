@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import type { Fils } from "@filspay/money";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
-import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRequest } from "./idempotency.js";
+import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hmacRequest } from "./idempotency.js";
+import type { Config } from "../config.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
 import { BadRequestError, ConflictError, UnprocessableEntityError } from "../lib/errors.js";
@@ -68,16 +69,21 @@ export interface AuthorizeResult {
 export async function authorizeTransaction(
   pool: Pool,
   acquirer: AcquirerSimulator,
+  config: Pick<Config, "cardFingerprintKey">,
   input: AuthorizeInput,
 ): Promise<AuthorizeResult> {
   assertValidCard(input.card);
   const actor = input.actor ?? { type: "system" as const, id: null };
   // Card is part of the hash: a reclaim with a different card must not ride the first card's charge.
-  const requestHash = hashRequest({
-    amountFils: input.amountFils,
-    card: input.card,
-    reference: input.reference ?? null,
-  });
+  // Keyed, because this hash is stored and the body holds the full card.
+  const requestHash = hmacRequest(
+    {
+      amountFils: input.amountFils,
+      card: input.card,
+      reference: input.reference ?? null,
+    },
+    Buffer.from(config.cardFingerprintKey, "base64"),
+  );
 
   return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {
