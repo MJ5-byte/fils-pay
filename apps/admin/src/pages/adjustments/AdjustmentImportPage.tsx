@@ -7,6 +7,7 @@ import {
 } from "../../api/adjustmentImports.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { appendImports } from "./appendImports.js";
 import type {
   AdjustmentImportRowDetail,
   AdjustmentImportSummary,
@@ -36,6 +37,7 @@ export function AdjustmentImportPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const [imports, setImports] = useState<AdjustmentImportSummary[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
 
   const [openImportId, setOpenImportId] = useState<string | null>(null);
@@ -47,10 +49,23 @@ export function AdjustmentImportPage() {
     try {
       const page = await listAdjustmentImports({ limit: 25 });
       setImports(page.items);
+      setNextCursor(page.nextCursor);
     } catch (err) {
       setListError(describeError(err));
     }
   }, []);
+
+  async function loadMore(): Promise<void> {
+    if (!nextCursor) return;
+    setListError(null);
+    try {
+      const page = await listAdjustmentImports({ limit: 25, cursor: nextCursor });
+      setImports((current) => appendImports(current, page.items));
+      setNextCursor(page.nextCursor);
+    } catch (err) {
+      setListError(describeError(err));
+    }
+  }
 
   useEffect(() => {
     void loadHistory();
@@ -170,6 +185,14 @@ export function AdjustmentImportPage() {
           </tbody>
         </table>
       )}
+
+      {nextCursor ? (
+        <p>
+          <button type="button" onClick={() => void loadMore()}>
+            Load more
+          </button>
+        </p>
+      ) : null}
 
       {rowsError ? <p className="admin-error">{rowsError}</p> : null}
 

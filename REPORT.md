@@ -407,3 +407,11 @@
 - **Cause:** `callSettlementInternal` (`apps/api/src/admin/settlementClient.ts:133`) copied the first 500 characters of the non-2xx body into the `AppError` message, and all admin settlement calls route through it.
 - **Breaks:** Table names, SQL and driver text from an internal service reached the admin browser.
 - **Fix:** The body is now logged server-side only. The message keeps the path and status, plus Go's own `{"error":"<code>"}` code when the body is exactly that shape, so the admin UI still shows validation codes. Test added in `settlementClient.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/76.
+
+### Bug: Admin adjustment import history cannot page past the newest 25
+- **Status:** Fixed
+- **Type:** UX, medium
+- **Problem:** The "Past imports" table on Import adjustments showed only the 25 newest imports. Older imports could not be reached from the page.
+- **Cause:** `loadHistory` in `apps/admin/src/pages/adjustments/AdjustmentImportPage.tsx` kept `page.items` and dropped the API's `nextCursor`, so the page never asked for a second page although `GET /v1/admin/adjustment-imports` returns the cursor and accepts it.
+- **Breaks:** Finance could not open the per-row detail of any import beyond the 25 most recent, which is the page's audit purpose.
+- **Fix:** The page keeps `nextCursor`, shows a "Load more" button while one exists and appends the next page, the same way `CreditsPage` does. A small `appendImports` helper skips ids already shown. Test added in `appendImports.test.ts`.
