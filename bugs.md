@@ -14,8 +14,8 @@ needs action) · **Open**
 | 1 | API site served the repo as static files (admin password downloadable) | Critical | Mitigated |
 | 2 | Admin password and sandbox secret committed to git | Critical | Mitigated |
 | 3 | Postgres port 5432 open to the internet | High | Open |
-| 4 | `*.dilmune.app` DNS records never created | High | Open |
-| 5 | No HTTPS (nothing on port 443) | High | Open |
+| 4 | `*.dilmune.app` DNS records never created | High | Fixed |
+| 5 | No HTTPS (nothing on port 443) | High | Fixed |
 | 6 | API, settlement and reporting not running | High | Fixed |
 | 7 | `DATABASE_URL` holds a placeholder password | High | Fixed |
 | 8 | Overlapping API deploys corrupted `node_modules` | High | Fixed |
@@ -62,19 +62,28 @@ needs action) · **Open**
 - **Blocked:** deleting the rule was denied by the Claude Code permission
   check. Delete firewall rule #4 in the Dilmun dashboard.
 
-### 4. DNS records missing — Open
+### 4. DNS records missing — Fixed
 - **What:** when the server was created, a Postgres install held the dpkg
   lock, so nginx was missing and all site creations failed
-  (`site_create_failed: sudo: nginx: command not found`). nginx was
-  installed later, but Dilmun never created the DNS records.
-- **Verified:** none of the three hostnames resolve (8.8.8.8, 1.1.1.1).
-- **Blocked:** `retry_site` refuses ("not in error state") and
-  `*.dilmune.app` names can't be added as managed domains. Needs Dilmun
-  support, or deleting and recreating the three sites.
+  (`site_create_failed: sudo: nginx: command not found`). For several
+  hours none of the three hostnames resolved (health checks failed with
+  curl exit 6).
+- **Fix:** the records appeared on Dilmun's side later on 2026-10-30 (no
+  change from us); all three now resolve to Cloudflare, which proxies to
+  139.59.13.131.
+- **Verified:** resolves via 8.8.8.8 and 1.1.1.1; plain HTTP reaches the
+  origin.
 
-### 5. No HTTPS — Open
-- Depends on #4: Let's Encrypt can't issue until DNS resolves. Port 443
-  refuses connections.
+### 5. No HTTPS — Fixed
+- **What:** nothing listened on 443, so Cloudflare returned **521** for
+  every `https://` request even after DNS worked.
+- **Fix:** `enable_ssl` (auto-renew on) for all three sites issued
+  Let's Encrypt certificates (valid to 2027-01-28).
+- **Verified:** `https://fp-api-tzakir.dilmune.app/healthz` and `/readyz`
+  return 200; CORS preflight from the admin origin returns 204; both
+  frontends serve their app on `/`, deep links and login routes; HTTP
+  redirects to HTTPS; the custom nginx configs (SPA fallback, API proxy)
+  survived; `/filspay-admin-login.txt` and `/.env` return 404.
 
 ### 6. Services not running — Fixed
 - **What:** `filspay-api`, `filspay-settlement`, `filspay-reporting` were
