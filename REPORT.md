@@ -849,6 +849,13 @@
 - **Breaks:** ADR-0001 (money is integer fils). Nothing in Go, the TS API or the web apps reads the figure back, so no payout or balance was wrong; the ops figure was.
 - **Fix:** Migration 0078 changes the column to `BIGINT` (type change only, nothing dropped), the payout code adds `int64` fils, `EstimateMonthlyPayout` sums `int64`, and the seed sums exactly instead of rounding through `Math.fround`. Test added: three payouts totalling 5,016,777,221 fils land on the exact sum (it read 5,016,777,216 before). The old small-value test now scans an `int64`. `splits.PayoutSplitBatch` never bumped the estimate, so it now runs the same UPDATE in its transaction with the batch's net payout (inlined, because `settlement` imports `splits`). Test added: a split parent's estimate equals its batch net after payout. A negative net is skipped, as `PayoutBatch` refuses one. Split-parent payouts made before this change are not backfilled into the estimate. PR: https://github.com/SilentYsf/fils-pay/pull/106
 
+### Bug: The admin webhook replay "failed" status replays nothing
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** On the admin Webhook Replay page, choosing the "failed" status replayed zero deliveries, even for an endpoint full of permanently failed ones.
+- **Cause:** `replayWebhookDeliveriesBatch` filters `status = ANY($2)` with the statuses as sent, and the dispatcher never writes `failed`: a delivery that uses up its attempts is stored as `exhausted`. It is the same cause as BHA-143 on the merchant list.
+- **Breaks:** An operator who picked "failed" to resend failed webhooks got an empty result and no hint that "exhausted" was the option that worked.
+- **Fix:** `replayBatch.ts` maps the `failed` filter value onto `exhausted` (deduped), the same mapping BHA-143 added in `deliveries.ts`. Test added in `admin.test.ts`: red (0 matched) before, green after.
 ### Bug: Approving your own credit shows a raw error code
 - **Status:** Fixed
 - **Type:** UX, low

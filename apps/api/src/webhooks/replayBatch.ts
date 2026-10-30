@@ -20,6 +20,15 @@ const MAX_BATCH_SIZE = 500;
 // MK: the route rejects succeeded
 export const DEFAULT_REPLAY_STATUSES = ["exhausted"] as const;
 
+/**
+ * The admin replay page offers `failed`, but a delivery that uses up every
+ * attempt is stored as `exhausted` (see dispatcher.ts); `failed` is a status
+ * CHECK value that nothing writes. Map the filter value onto the stored status
+ * so choosing `failed` replays the real permanently-failed deliveries, the same
+ * mapping the merchant deliveries list uses (BHA-143).
+ */
+const FILTER_STATUS_TO_STORED: Record<string, string> = { failed: "exhausted" };
+
 export interface BatchReplayResult {
   matchedCount: number;
   replayedDeliveryIds: string[];
@@ -68,6 +77,9 @@ export async function replayWebhookDeliveriesBatch(
       throw new ConflictError("endpoint_disabled");
     }
 
+    const storedStatuses = [
+      ...new Set(input.statuses.map((status) => FILTER_STATUS_TO_STORED[status] ?? status)),
+    ];
     const candidates = await client.query<{
       id: string;
       endpoint_id: string;
@@ -81,7 +93,7 @@ export async function replayWebhookDeliveriesBatch(
           AND created_at >= $3 AND created_at < $4
         ORDER BY created_at ASC
         LIMIT $5`,
-      [input.endpointId, input.statuses, input.from, input.to, MAX_BATCH_SIZE],
+      [input.endpointId, storedStatuses, input.from, input.to, MAX_BATCH_SIZE],
     );
 
     const replayedDeliveryIds: string[] = [];

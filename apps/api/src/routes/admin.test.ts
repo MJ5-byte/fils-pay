@@ -1091,6 +1091,36 @@ test("webhook batch replay replays every matching failed delivery in range, once
   assert.equal((audit[0]!.metadata as { replayedDeliveryIds: string[] }).replayedDeliveryIds.length, 3);
 });
 
+test("webhook batch replay with the failed filter replays exhausted deliveries (BHA-179)", async () => {
+  const admin = await signedInAdmin("support", "replay-failed");
+  const { merchantId } = await createMerchant("replay-failed");
+  const endpoint = await createWebhookEndpoint(pool, config, {
+    merchantId,
+    url: "http://127.0.0.1:9/hook",
+    createdByType: "merchant_session",
+    createdById: randomUUID(),
+  });
+  const [exhaustedId] = await createFailedDeliveries(merchantId, endpoint.id, [
+    { status: "exhausted", createdAt: "2026-05-03T00:00:00Z" },
+    { status: "succeeded", createdAt: "2026-05-03T12:00:00Z" },
+  ]);
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/replay-batch`,
+    headers: { cookie: admin.cookie },
+    payload: { from: "2026-05-01T00:00:00Z", to: "2026-05-05T00:00:00Z", statuses: ["failed"] },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { matchedCount: number; replayedDeliveryIds: string[] };
+  assert.equal(body.matchedCount, 1);
+  const replay = await pool.query<{ replay_of_delivery_id: string }>(
+    `SELECT replay_of_delivery_id FROM webhook_deliveries WHERE id = ANY($1)`,
+    [body.replayedDeliveryIds],
+  );
+  assert.equal(replay.rows[0]!.replay_of_delivery_id, exhaustedId);
+});
+
 test("webhook batch replay accepts an explicit statuses filter, and rejects bad input / foreign endpoints", async () => {
   const admin = await signedInAdmin("finance", "replay-edge");
   const { merchantId } = await createMerchant("replay-edge");
