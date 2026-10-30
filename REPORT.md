@@ -1557,6 +1557,14 @@
 - **Breaks:** Merchants and finance saw a shortfall every day that had a refund, and the report marked a correct book as unexplained.
 - **Fix:** The report now subtracts the net (amount minus reversed fee) of succeeded, not yet batched refunds in the window from the pending figure ([PR #193](https://github.com/SilentYsf/fils-pay/pull/193)). Test added in `apps/api/src/routes/settlement.test.ts`.
 
+### Bug: Simultaneous correct logins to one account get "too many attempts"
+- **Status:** Fixed
+- **Type:** Security, low
+- **Problem:** Eight people signing in to the same account with the right password at the same moment got five successes and three `too_many_login_attempts` refusals.
+- **Cause:** `reserveLoginAttempt` (`apps/api/src/auth/loginLimit.ts:30`) writes a failure row before the Argon2 check so parallel guesses stay capped at five, which means correct logins still being hashed look like failures until they verify and clear; the sixth request in a burst saw five rows and was refused at once.
+- **Breaks:** Shared accounts (judges on one demo login) could be told to wait 15 minutes for no reason.
+- **Fix:** When the budget is full only because the newest counted row is under two seconds old, the request waits 330 ms outside any transaction and recounts, at most three times; rows from correct logins have cleared by then, rows from wrong guesses stay and still lock. The limit stays at five and the wait holds no pool connection or advisory lock; a refused guess within two seconds of the last one now takes about a second to get its 429. ([PR #198](https://github.com/SilentYsf/fils-pay/pull/198)) Test added in `apps/api/src/routes/auth.test.ts`.
+
 ### Improvement: Checkout status pages show the merchant and the amount
 - **Type:** UX
 - **Before:** A link that was paid, expired, canceled or processing, and the success and "Unable to pay" screens, showed only a headline. The payer could not see who they were paying or how much. Nothing promised more and nothing broke.

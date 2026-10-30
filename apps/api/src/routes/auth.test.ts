@@ -298,6 +298,24 @@ test("five wrong passwords lock one account's login for a cooldown, and a correc
   assert.equal(longUnknown.statusCode, 401, "a long unknown email must return invalid credentials without an index error");
 });
 
+test("eight simultaneous correct logins to one account all succeed, and parallel wrong passwords still lock", async () => {
+  const email = `password-burst-${randomUUID()}@auth.test`;
+  const password = "password-login-burst";
+  const merchantId = await createMerchantWithOwner("password-burst", email, password);
+  const login = (suppliedPassword: string) =>
+    app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password: suppliedPassword } });
+
+  const correct = await Promise.all(Array.from({ length: 8 }, () => login(password)));
+  assert.deepEqual(correct.map((r) => r.statusCode), Array(8).fill(200), "in-flight correct logins must not count as failures");
+
+  const wrong = await Promise.all(Array.from({ length: 6 }, () => login("wrong-password")));
+  const statuses = wrong.map((r) => r.statusCode).sort();
+  assert.deepEqual(statuses, [401, 401, 401, 401, 401, 429], `parallel guesses must stay capped at five: ${statuses.join(",")}`);
+  const locked = await login(password);
+  assert.equal(locked.statusCode, 429, "the right password must still be refused once five wrong guesses landed");
+  assert.equal(locked.json().error, "too_many_login_attempts", "the burst lockout must use the password lockout code");
+});
+
 test("login with an array merchantId is rejected as invalid_request, not a 500", async () => {
   const res = await app.inject({
     method: "POST",
