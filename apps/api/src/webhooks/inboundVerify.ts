@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 /** Verifies the signature on an inbound acquirer callback. */
 
@@ -30,7 +30,7 @@ function parseAcquirerSignatureHeader(header: string): ParsedAcquirerSignatureHe
 }
 
 /** There is no timestamp reason: freshness is not checked for inbound callbacks. */
-export type VerifyAcquirerCallbackFailureReason = "malformed_header" | "signature_mismatch";
+export type VerifyAcquirerCallbackFailureReason = "malformed_header" | "signature_mismatch" | "timestamp_out_of_tolerance";
 
 export interface VerifyAcquirerCallbackResult {
   valid: boolean;
@@ -39,7 +39,7 @@ export interface VerifyAcquirerCallbackResult {
 
 function constantTimeEquals(a: string, b: string): boolean {
   return Buffer.from(a).length === Buffer.from(b).length &&
-    Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0;
+    timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 /** Verifies the acquirer callback signature when present and required. */
@@ -48,6 +48,7 @@ export function verifyAcquirerCallbackSignature(
   header: string | undefined,
   secret: string,
   requireSignature = false,
+  options?: { now: number; toleranceSeconds: number },
 ): VerifyAcquirerCallbackResult {
   if (!header) {
     return requireSignature
@@ -59,11 +60,14 @@ export function verifyAcquirerCallbackSignature(
   if (!parsed) return { valid: false, reason: "malformed_header" };
 
   const expected = createHmac("sha256", secret)
-    .update(`${parsed.timestamp}.${JSON.stringify(payload)}`)
+    .update(`${parsed.timestamp}.${typeof payload === "string" ? payload : JSON.stringify(payload)}`)
     .digest("hex");
 
   if (!constantTimeEquals(expected, parsed.signature)) {
     return { valid: false, reason: "signature_mismatch" };
+  }
+  if (options && Math.abs(options.now - parsed.timestamp) > options.toleranceSeconds) {
+    return { valid: false, reason: "timestamp_out_of_tolerance" };
   }
 
   return { valid: true };

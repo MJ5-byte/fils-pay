@@ -267,6 +267,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     loginMaxFailuresPerAccount: parseIntEnv(env.LOGIN_MAX_FAILURES_PER_ACCOUNT, 5),
     loginMaxFailuresPerIp: parseIntEnv(env.LOGIN_MAX_FAILURES_PER_IP, 50),
     otpMaxChallengesPerUser: parseIntEnv(env.OTP_MAX_CHALLENGES_PER_USER, 5),
-    acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),
+    acquirerCallbackRequireSignature: nodeEnv === "production" || parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),
   };
 }
