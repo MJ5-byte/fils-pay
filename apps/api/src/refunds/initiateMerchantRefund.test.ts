@@ -54,9 +54,8 @@ const approvingAcquirer: AcquirerSimulator = {
   capture() {
     throw new Error("approvingAcquirer: capture is not used by these tests");
   },
-  refund(): Promise<AcquirerRefundResult> {
-    // The acquirer issues its own reference per refund, like the real simulator.
-    return Promise.resolve({ outcome: "approved", acquirerReference: `acqr_${randomUUID()}`, latencyMs: 0 });
+  refund(req): Promise<AcquirerRefundResult> {
+    return Promise.resolve({ outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 });
   },
 };
 

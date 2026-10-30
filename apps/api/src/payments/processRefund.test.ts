@@ -56,9 +56,8 @@ function fixedAcquirer(outcome: AcquirerOutcome): AcquirerSimulator {
     capture() {
       throw new Error("fixedAcquirer: capture is not used by these tests");
     },
-    refund(): Promise<AcquirerRefundResult> {
-      // The acquirer issues its own reference per refund, like the real simulator.
-      return Promise.resolve({ outcome, acquirerReference: `acqr_${randomUUID()}`, latencyMs: 0 });
+    refund(req): Promise<AcquirerRefundResult> {
+      return Promise.resolve({ outcome, acquirerReference: req.acquirerReference, latencyMs: 0 });
     },
   };
 }

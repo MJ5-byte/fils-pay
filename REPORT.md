@@ -502,13 +502,6 @@
 - **Fix:** `CloseBatch` now returns `ErrBusinessDayNotOver` when the day's Bahrain midnight has not passed, before it opens a transaction or creates a batch row, so all three callers are covered in one place. The clock is a package variable so the test can fix it. https://github.com/SilentYsf/fils-pay/pull/75
 - **Test added:** `TestCloseBatch_RefusesBusinessDayThatHasNotEnded` in `batch_test.go` fixes the clock at 10:00 Bahrain time and checks that today and tomorrow are refused with no batch row and no event claimed, that yesterday still closes, and that today closes with its capture once Bahrain midnight passes. It fails without the guard.
 
-### Bug: Refunds have no unique reference, so a retry double-posts
-- **Status:** Fixed (BHA-123)
-- **Type:** Money, medium
-- **Problem:** A retried or re-posted refund (the same logical refund sent again with a new idempotency key, or re-imported) created a second refund row and reversed the fee a second time, moving the money twice.
-- **Cause:** The acquirer simulator (`apps/api/src/acquirer/simulator.ts`) echoed the transaction's authorization reference back as the refund's reference, so every refund of one transaction stored the same `acquirer_reference`, and 0042 left that column without a UNIQUE constraint. `processRefund` then inserted a plain row with no guard, so two attempts both wrote.
-- **Breaks:** Any duplicate refund attempt paid the merchant twice and reversed the platform fee twice for one refund.
-- **Fix:** The acquirer now issues its own reference per refund (distinct refunds of one transaction get distinct references, a genuine retry the same one). A new additive migration adds `UNIQUE (acquirer_reference)` on refunds, and the insert is atomic: `ON CONFLICT (acquirer_reference) DO NOTHING`, returning the first refund unchanged on a conflict so a duplicate moves no money again. The insert also stops passing an explicit NULL `reason`, which the applied `chk_refunds_reason_not_null` constraint rejects; this let the refund insert succeed and turned the 11 pre-existing refund-insert test failures green. Red/green test added (`payments/refundUniqueReference.new.test.ts`): a second refund carrying the same acquirer reference posts once and returns the first refund. Schema change, needs human sign-off (rule 3).
 ### Bug: The webhook dispatcher double-delivers when more than one replica runs
 - **Status:** Fixed (BHA-135)
 - **Type:** Concurrency, high
