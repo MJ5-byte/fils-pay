@@ -4,6 +4,8 @@ FilsPay is a payment platform prototype for merchant checkout, operations,
 settlement, and reporting. Its services share a PostgreSQL database and
 communicate through a transactional outbox.
 
+Known bugs and their status: [`bugs.md`](bugs.md).
+
 ## Repository
 
 | Path | Purpose |
@@ -11,192 +13,168 @@ communicate through a transactional outbox.
 | `apps/api` | Fastify API for merchant, checkout, and admin operations |
 | `apps/web` | Merchant dashboard and checkout frontend (Vite/React) |
 | `apps/admin` | Internal operations console (Vite/React) |
-| `apps/settlement` | Go settlement worker and CLI |
+| `apps/settlement` | Go settlement daemon and CLI |
 | `apps/reporting` | Reporting read model and outbox consumer |
 | `packages/money` | Shared integer-fils money helpers |
 | `packages/events` | Outbox event types and database helper |
 | `db/migrations` | PostgreSQL schema migrations |
 | `db/seed` | Local development fixtures |
+| `ops/` | Docker Compose stack and the Dilmun VM setup script |
 | `docs/` | Architecture, operations, onboarding, and decision records |
 
-For the design and service responsibilities, see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Operational setup notes are in
-[`ops/README.md`](ops/README.md).
+Design and service responsibilities: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Local stack details: [`ops/README.md`](ops/README.md).
+Hosting: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Prerequisites
 
-- Node.js and npm
-- Go 1.22 or later for settlement
-- PostgreSQL 16 for local development and database-backed tests
-- Docker Desktop is optional, but useful for running PostgreSQL locally
+- Node.js 22 and npm
+- Go 1.22 or later (settlement)
+- Docker Desktop (local Postgres and backend services)
 
-## Install
+## Run it locally
+
+### 1. Backend (Docker Compose)
 
 From the repository root:
 
 ```sh
 npm ci
+docker compose -f ops/docker-compose.yml up -d postgres
+docker compose -f ops/docker-compose.yml run --rm migrate
+docker compose -f ops/docker-compose.yml run --rm seed
+docker compose -f ops/docker-compose.yml up -d --build api settlement reporting
 ```
 
-For Dilmun Cloud web deployments, use `npm ci` as the install command and
-`npm run build` as the build command. The root build script builds
-`@filspay/web`; set the output directory to `apps/web/dist`.
-
-## Local development
-
-The web and admin frontends run as separate Vite dev servers. Start each in
-its own terminal:
+This starts Postgres on `localhost:5432`, the API on `localhost:3000`, the
+settlement daemon and the reporting worker. Check it:
 
 ```sh
-npm run dev --workspace @filspay/web
-npm run dev --workspace @filspay/admin
+curl http://localhost:3000/healthz   # {"status":"ok",...}
+curl http://localhost:3000/readyz    # {"status":"ready"}
 ```
 
-By default, the merchant dashboard is at `http://localhost:5173` and the admin
-console is at `http://localhost:5174`. Both expect the API at
-`http://localhost:3000`.
+The seed resets merchants, transactions, the ledger and admin users, then
+regenerates fixtures. Only run it against this local database. It prints a
+test API key for one merchant (`fp_test_...`).
 
-The API requires `DATABASE_URL` to point to a migrated PostgreSQL database.
-Start it with:
+Stop everything with `docker compose -f ops/docker-compose.yml down`
+(add `-v` to delete the database volume).
+
+### 2. Frontends
+
+In two terminals:
 
 ```sh
+npm run dev --workspace @filspay/web     # http://localhost:5173
+npm run dev --workspace @filspay/admin   # http://localhost:5174
+```
+
+Both call the API at `http://localhost:3000`. The API allows these two
+origins by default; any other host or port must be added to
+`CORS_ALLOWED_ORIGINS`.
+
+### Without Docker
+
+Point `DATABASE_URL` at any migrated Postgres 16 and run the API directly.
+Outside `NODE_ENV=production` the API uses a built-in dev webhook key, so no
+other variables are needed:
+
+```sh
+DATABASE_URL="postgres://USER:PASSWORD@localhost:5432/filspay" npm run migrate
 DATABASE_URL="postgres://USER:PASSWORD@localhost:5432/filspay" npm run dev --workspace @filspay/api
 ```
 
-PowerShell equivalent:
+PowerShell:
 
 ```powershell
 $env:DATABASE_URL = "postgres://USER:PASSWORD@localhost:5432/filspay"
 npm.cmd run dev --workspace @filspay/api
 ```
 
-Apply migrations and load development fixtures with:
-
-```sh
-npm run migrate
-npm run seed
-```
-
-Both commands use `DATABASE_URL`. The seed resets and regenerates its fixture
-data, so use it only with a development database.
-
-### Current setup caveats
-
-- The API allows browser requests from the local web and admin origins on
-  ports 5173 and 5174. A different host or port must be explicitly added to
-  the API's CORS allowlist.
-
-`ops/Dockerfile.node` and `ops/Dockerfile.go` build the compose services, and
-all migrations apply cleanly to an empty database.
-
 ## Development accounts
 
-The seed creates local-only merchant and admin fixtures. All seeded merchant
-users use `FilsPaySeed!2026`; seeded admins use `FilsPayAdminSeed!2026`.
-Development login uses a one-time code returned by the API.
+The seed creates local-only fixtures. Never use these outside local
+development. In development the API returns the one-time login code in its
+response, and the login pages show it.
 
-Merchant dashboard login requires the merchant ID, email, password, and OTP.
-Find the fixture merchant ID in the `merchants` table. Admin login uses email,
-password, and OTP. Never use these fixture credentials outside local
-development.
+**Admin console** ([http://localhost:5174/login](http://localhost:5174/login)),
+password `FilsPayAdminSeed!2026`:
 
-### Log in to the local admin console
+| Email | Role |
+|---|---|
+| `support@filspay.test` | Support |
+| `finance@filspay.test` | Finance |
+| `superadmin@filspay.test` | Super admin |
 
-The following steps use the local PostgreSQL test container and seeded admin
-accounts from this development environment. The database must already be
-migrated and seeded; do not run the seed command against a database containing
-data you need.
+**Merchant dashboard** ([http://localhost:5173/dashboard/login](http://localhost:5173/dashboard/login)),
+password `FilsPaySeed!2026`. Login needs the merchant ID, which changes on
+every seed:
 
-1. In PowerShell, start the local PostgreSQL container:
+```sh
+docker compose -f ops/docker-compose.yml exec postgres \
+  psql -U filspay -d filspay -c \
+  "select m.id, m.display_name, u.email, u.role from merchant_users u join merchants m on m.id = u.merchant_id order by 2, 4"
+```
 
-   ```powershell
-   docker start filspay-test-pg-30220
-   ```
+For example `owner@alpharetail.example` (Alpha Retail Co).
 
-2. In a separate PowerShell terminal from the repository root, start the API:
+## Try a payment
 
-   ```powershell
-   $env:DATABASE_URL = "postgres://filspay_test:filspay_test_local@127.0.0.1:55432/filspay_test?sslmode=disable"
-   $env:WEBHOOK_SECRET_ENCRYPTION_KEY = [Convert]::ToBase64String([byte[]]::new(32))
-   npm.cmd run dev --workspace @filspay/api
-   ```
+With the API key the seed printed:
 
-3. In another terminal from the repository root, start the admin frontend:
+```sh
+KEY=fp_test_...
+curl -s http://localhost:3000/v1/transactions \
+  -H "authorization: Bearer $KEY" -H "content-type: application/json" \
+  -H "idempotency-key: $(uuidgen)" \
+  -d '{"amountFils":12500,"card":{"pan":"4242424242424242","expiryMonth":12,"expiryYear":2030,"cvv":"123"}}'
+# then POST /v1/transactions/<id>/capture and POST /v1/refunds
+```
 
-   ```powershell
-   npm.cmd run dev --workspace @filspay/admin
-   ```
-
-4. Open [http://localhost:5174/login](http://localhost:5174/login) and sign in:
-
-   - Email: `superadmin@filspay.test`
-   - Password: `FilsPayAdminSeed!2026`
-
-5. After selecting **Continue**, enter the development OTP displayed on the
-   page.
-
-The API and frontend must remain running in their terminals. These credentials
-are for local development only. For a new database, run `npm run migrate` and
-`npm run seed` first.
+Amounts are integer fils: `12500` is 12.500 BD.
 
 ## Tests and checks
 
 ```sh
-npm test
 npm run typecheck
+DATABASE_URL=postgres://... npm run migrate
+DATABASE_URL=postgres://... npm test          # needs a migrated, disposable database
+cd apps/settlement && go test -short ./...
 ```
 
-Database-backed TypeScript tests require `DATABASE_URL` to point to a migrated
-test database. On Windows, run the Go tests in short mode:
+Use a dedicated test database: the TypeScript suites share it and write
+outbox events, merchants and ledger rows.
 
-```sh
-cd apps/settlement
-go test -short ./...
-```
+## Helper scripts
+
+- `node create-merchant.cjs --dry-run`: signs up a merchant on the hosted
+  API. Copy `merchant-details.example.json` to `merchant-details.json`
+  first (gitignored).
+- `node check-admin-login.cjs`: checks step 1 of the hosted admin login.
+
+They are `.cjs` because the repository is an ES module package.
 
 ## Money and settlement conventions
 
-- Monetary values are integer fils: 1 BHD = 1,000 fils.
-- Parse text amounts with `parseBhdToFils` from `packages/money`.
-- Settlement business-day boundaries use Asia/Bahrain time.
+- Monetary values are integer fils: 1 BHD = 1,000 fils (ADR-0001).
+- Parse text amounts with `parseBhdToFils`; format with `formatBhd`.
+- Settlement business-day boundaries use Asia/Bahrain time (UTC+3).
 - Do not modify `packages/money` or `apps/settlement/internal/money` without
-  finance approval; those packages are frozen after audit.
+  a test demonstrating the defect and finance sign-off.
 
-## Login Details
+## Deployment
 
-Use these local development accounts at
-[http://localhost:5174/login](http://localhost:5174/login). The API must be
-running at `http://localhost:3000`, and the local database must be migrated
-and seeded.
+The hosted demo runs on Dilmun Cloud: two static sites (`apps/web`,
+`apps/admin`) and an API site whose processes run under systemd via
+`ops/dilmune/setup.sh`. See [`docs/DEPLOY.md`](docs/DEPLOY.md) for build
+commands, environment variables, nginx and known platform issues, and
+[`bugs.md`](bugs.md) for what is still open.
 
-| Email | Password | Role |
-|---|---|---|
-| `support@filspay.test` | `FilsPayAdminSeed!2026` | Support |
-| `finance@filspay.test` | `FilsPayAdminSeed!2026` | Finance |
-| `superadmin@filspay.test` | `FilsPayAdminSeed!2026` | Super admin |
+## History notes
 
-After entering your email and password, select **Continue** and enter the
-development OTP displayed on the page. These accounts are for local
-development only.
-
-## Investigation: adjustment CSV amount parsing
-
-The admin adjustment CSV parser previously used `parseDecimalMinor` with its
-two-decimal default. That interpreted `4.75` BHD as `475` fils rather than
-`4,750` fils, and did not follow ADR-0001's requirement that BHD text amounts
-use `parseBhdToFils`.
-
-`parseAdjustmentAmountFils` now delegates to `parseBhdToFils`. Two- and
-three-decimal BHD values are converted to integer fils consistently, signed
-adjustments remain supported, and invalid input is still returned as the
-existing `invalid_amount` API error.
-
-## Capture Git history
-
-From the repository root, capture the commit graph in `git-history.txt`:
-
-```sh
-git --no-pager log --graph > git-history.txt
-```
-
-The `>` redirection replaces the file's contents each time the command runs.
+- **Adjustment CSV amounts:** the parser used a two-decimal default and read
+  `4.75` BHD as 475 fils instead of 4,750. `parseAdjustmentAmountFils` now
+  delegates to `parseBhdToFils`.
+- **Commit graph:** `git --no-pager log --graph > git-history.txt` writes a
+  local snapshot; the file is gitignored.

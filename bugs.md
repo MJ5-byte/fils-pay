@@ -1,6 +1,6 @@
 # FilsPay bug list
 
-Found while testing locally and deploying to Dilmun Cloud on 2026-10-30.
+Found while testing locally, running the stack on localhost and deploying to Dilmun Cloud on 2026-10-30.
 Every "Fixed" row was re-checked against the live server or the repo on
 2026-10-30. "Open" rows say what is blocking them.
 
@@ -29,6 +29,8 @@ needs action) · **Open**
 | 16 | Docs and comments contradicted the code | Medium | Fixed |
 | 17 | Dilmun auto-deploy does not fire on push | Medium | Open |
 | 18 | Dilmun reports sites `active` / `sslEnabled: true` when they are not | Low | Open (platform) |
+| 19 | API dev webhook key was 34 bytes, so the API couldn't boot in dev without one | Medium | Fixed |
+| 20 | Local compose ran every Node service as `NODE_ENV=production` | Medium | Fixed |
 
 ## Details
 
@@ -168,6 +170,26 @@ needs action) · **Open**
 ### 18. Misleading Dilmun status — Open (platform)
 - Sites show `active`, `sslEnabled: true` and some deploys show
   `completed` with an error attached. Report to Dilmun support with #4.
+
+### 19. Dev webhook key had the wrong length — Fixed
+- **What:** `DEV_FALLBACK_WEBHOOK_KEY_B64` in `apps/api/src/config.ts`
+  decoded to 34 bytes (`test-key-for-dev-only-not-for-prod`), but the key
+  must be exactly 32. Every non-production start without an explicit key
+  crashed with `must base64-decode to exactly 32 bytes, got 34`. Every test
+  passed its own key, so none caught it.
+- **Fix:** 32-byte dev key, plus `apps/api/src/config.test.ts` (fails on the
+  old key, passes on the new one; production still requires a real key).
+- **Verified:** full suite 452/452; API boots locally with no key set.
+
+### 20. Local compose ran in production mode — Fixed
+- **What:** `ops/Dockerfile.node` sets `NODE_ENV=production`, so the local
+  `seed`, `api` and `reporting` containers demanded production secrets and
+  `seed` failed (`SETTLEMENT_INTERNAL_TOKEN is required when
+  NODE_ENV=production`).
+- **Fix:** compose sets `NODE_ENV: development` on every Node service.
+- **Verified:** migrate, seed, api, settlement and reporting all start;
+  admin login, merchant login, authorize → capture → refund and the
+  reporting rollup all work end to end on localhost.
 
 ## Incidents during the fix
 
