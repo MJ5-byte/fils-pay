@@ -915,6 +915,13 @@
 - **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
 - **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
 
+### Bug: Webhook archive create and replay are unbounded
+- **Status:** Fixed
+- **Type:** Concurrency, medium
+- **Problem:** Archiving or replaying a busy endpoint's history ran as one request over every delivery in the range, with no limit, while the batch replay and the dispatcher stop at 500.
+- **Cause:** `createWebhookDeliveryArchive` selected the whole range with no `LIMIT`, and `replayWebhookDeliveryArchive` looped over every entry of the archive, each inside a single transaction (`apps/api/src/webhooks/archiveReplay.ts`).
+- **Breaks:** One admin click could hold a transaction and its locks open for as long as it took to read or insert hundreds of thousands of rows, and build an unbounded JSON document in memory.
+- **Fix:** Each call is capped at 500, the same as `replayBatch.ts`. Create returns `nextCursor` (the last archived delivery id, keyset on `created_at, id`) and takes it back as `after`; replay takes `offset` and returns `nextOffset`. Nothing is dropped silently: a caller that ignores the cursor gets a partial archive, and a cursor that is not a delivery of the endpoint is a 404. The response fields that existed are unchanged and `apps/admin` does not call these routes. Test added: 502 deliveries need two calls to archive and two to replay (red on `main`), plus a foreign cursor is rejected.
 ### Bug: Rebuilding payout trends brings back the pre-MDR fee and net
 - **Status:** Fixed
 - **Type:** Money, medium
