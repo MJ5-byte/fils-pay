@@ -58,10 +58,13 @@ async function insertDelivery(
   endpointId: string,
   opts: { eventType: string; createdAt: string },
 ): Promise<string> {
+  // The outbox row only anchors the delivery FK. A rollup-eligible type
+  // would feed an empty synthetic event to apps/reporting's consumer
+  // the next time it runs against this database.
   const outbox = await pool.query<{ id: string }>(
-    `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-     VALUES ($1, 'transaction', $2, '{}'::jsonb) RETURNING id`,
-    [opts.eventType, randomUUID()],
+    `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+     VALUES ('webhooks.test.archive_fixture', 'transaction', $1, '{}'::jsonb, now()) RETURNING id`,
+    [randomUUID()],
   );
   const outboxEventId = outbox.rows[0]!.id;
 
@@ -245,8 +248,8 @@ test("capture is capped at 500 per call and hands back a cursor to continue", as
     const endpointId = await createEndpoint(merchantId);
     cleanup.push(endpointId);
     const outbox = await pool.query<{ id: string }>(
-      `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-       SELECT 'transaction.captured', 'transaction', gen_random_uuid(), '{}'::jsonb FROM generate_series(1, 502)
+      `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+       SELECT 'webhooks.test.archive_fixture', 'transaction', gen_random_uuid(), '{}'::jsonb, now() FROM generate_series(1, 502)
        RETURNING id`,
     );
     const outboxIds = outbox.rows.map((r) => r.id);
@@ -284,8 +287,8 @@ test("replay is capped at 500 per call and hands back an offset to continue", as
     const endpointId = await createEndpoint(merchantId);
     cleanup.push(endpointId);
     const outbox = await pool.query<{ id: string }>(
-      `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-       SELECT 'transaction.captured', 'transaction', gen_random_uuid(), '{}'::jsonb FROM generate_series(1, 502)
+      `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+       SELECT 'webhooks.test.archive_fixture', 'transaction', gen_random_uuid(), '{}'::jsonb, now() FROM generate_series(1, 502)
        RETURNING id`,
     );
     const outboxIds = outbox.rows.map((r) => r.id);

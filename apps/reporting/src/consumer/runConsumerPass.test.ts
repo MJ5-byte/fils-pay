@@ -81,11 +81,12 @@ test("runConsumerPass: end-to-end over real events with the producers' exact pay
   assert.equal(result.rows[0].voided_count, 1);
   void volumeDate;
 
-  const cursorRow = await pool.query<{ updated_at: Date }>(
-    `SELECT updated_at FROM reporting_outbox_cursor WHERE consumer_name = $1`,
+  // Compared on the database clock: the container's clock can run a few ms ahead of Node's.
+  const cursorRow = await pool.query<{ not_future: boolean }>(
+    `SELECT updated_at <= now() AS not_future FROM reporting_outbox_cursor WHERE consumer_name = $1`,
     [CONSUMER_NAME],
   );
-  assert.ok(cursorRow.rows[0]!.updated_at.getTime() <= Date.now());
+  assert.equal(cursorRow.rows[0]!.not_future, true);
 });
 
 test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_payout_trends", async () => {
