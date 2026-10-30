@@ -1,5 +1,12 @@
 # REPORT
 
+### Bug: One payment link charged twice
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** When a payment took longer than 60 seconds, a second pay request on the same link charged the customer again, and both requests answered "paid".
+- **Cause:** A reclaim after the 60 second timeout ran a fresh authorize and capture because the idempotency keys were scoped to the buyer's own key, and finalize's 0-row branch still answered 200 "paid".
+- **Breaks:** A slow acquirer turns one invoice into two charges on the customer's card, which is what happened on 2026-05-14 (every double charge had a first attempt over 60 seconds).
+- **Fix:** The authorize and capture idempotency keys are scoped to the link and its reservation (`pay.ts`), so a reclaim replays the first attempt's charge instead of making a new one, and `card` stays in the authorize hash (`authorize.ts:52`) so a different card cannot ride the first card's charge. A reclaim whose card differs hashes differently, so it answers 409 processing without touching the first buyer's reservation. A transient acquirer 502 seals that reservation's authorize key under a row lock and then releases the link (`pay.ts` settleFailedAuthorize), so the link stays payable by any card and cancelable instead of stranded, while a sibling still finalizing its own successful charge is left untouched. Finalize answers "paid" only when the link records this transaction, otherwise 409. The pay route validates the card (`assertValidCard`) before the link is reserved, so a malformed card such as `card: {}` answers 400 and leaves the link payable. Known limit: a link whose first buyer crashed mid-payment can only be finished with that buyer's card until the reservation expires, because cancel only accepts active links. No schema change. Tests added.
 ### Bug: Payout disbursement rows duplicate on webhook replay
 - **Status:** Fixed
 - **Type:** Money, high

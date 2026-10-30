@@ -8,7 +8,7 @@ import { serializeTransaction, type TransactionRow } from "../transactions/seria
 import { BadRequestError, ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 
 // YA: part of the idempotency scope, never rename it
-const ENDPOINT = "transactions.authorize";
+export const AUTHORIZE_ENDPOINT = "transactions.authorize";
 
 /**
  * Validates the card shape at the acquirer boundary. Every authorize caller
@@ -17,7 +17,7 @@ const ENDPOINT = "transactions.authorize";
  * field (e.g. `card: {}`) reaches `pan.endsWith(...)` in the simulator and
  * crashes with an unhandled 500 instead of a clean 400.
  */
-function assertValidCard(card: unknown): asserts card is SimulatedCardInput {
+export function assertValidCard(card: unknown): asserts card is SimulatedCardInput {
   if (card === null || typeof card !== "object") {
     throw new BadRequestError("invalid_request", "card is required and must be an object");
   }
@@ -72,6 +72,7 @@ export async function authorizeTransaction(
 ): Promise<AuthorizeResult> {
   assertValidCard(input.card);
   const actor = input.actor ?? { type: "system" as const, id: null };
+  // Card is part of the hash: a reclaim with a different card must not ride the first card's charge.
   const requestHash = hashRequest({
     amountFils: input.amountFils,
     card: input.card,
@@ -81,7 +82,7 @@ export async function authorizeTransaction(
   return withTransaction(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {
       merchantId: input.merchantId,
-      endpoint: ENDPOINT,
+      endpoint: AUTHORIZE_ENDPOINT,
       key: input.idempotencyKey,
       requestHash,
     });

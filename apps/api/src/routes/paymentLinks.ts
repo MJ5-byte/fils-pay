@@ -9,6 +9,7 @@ import { getPublicPaymentLink } from "../paymentLinks/read.js";
 import { payPaymentLink } from "../paymentLinks/pay.js";
 import { cancelPaymentLink } from "../paymentLinks/cancel.js";
 import { listPaymentLinks } from "../paymentLinks/query.js";
+import { assertValidCard } from "../payments/authorize.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
 
@@ -200,9 +201,8 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
   app.post<{ Params: TokenParams; Body: PayPaymentLinkBody }>("/:token/pay", async (request, reply) => {
     const idempotencyKey = getIdempotencyKey(request);
     const { card } = request.body ?? {};
-    if (!card) {
-      throw new BadRequestError("invalid_request", "card is required");
-    }
+    // Validate before payPaymentLink reserves the link, so a malformed card cannot leave it reserved.
+    assertValidCard(card);
 
     // No API-key auth here: use the server clock, ignoring buyer submittedAt as PayPaymentLinkBody documents.
     const result = await payPaymentLink(

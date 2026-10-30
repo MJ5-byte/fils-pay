@@ -159,6 +159,9 @@ export async function claimIdempotencyKey(
   }
 
   if (existing.status === "failed") {
+    // The SELECT ... FOR UPDATE above already serialized us behind any
+    // concurrent retry of this key (BHA-146), so the row is still 'failed'
+    // under our lock and this UPDATE always matches.
     const updateResult = await client.query<IdempotencyKeyDbRow>(
       `UPDATE idempotency_keys SET status = 'in_progress', attempt_count = attempt_count + 1
        WHERE id = $1
@@ -205,6 +208,34 @@ export async function completeIdempotencyKey(
       WHERE id = $1`,
     [id, result.statusCode, JSON.stringify(result.body), result.resourceId ?? null],
   );
+}
+
+/**
+ * Locks a key's row FOR UPDATE and, only if it is still `failed`, seals it as
+ * `completed` with the given response so no later attempt can re-run the
+ * operation on this key. Returns the key's status after the lock (and its
+ * stored response code), so a caller can tell a failure it just sealed from a
+ * sibling that already succeeded. Must run inside an open transaction: the
+ * lock waits for any sibling still holding the key, so the status read back is
+ * final, never a stale read of an in-flight retry.
+ */
+export async function sealFailedKey(
+  client: PoolClient,
+  input: { merchantId: string; endpoint: string; key: string; response: { statusCode: number; body: unknown } },
+): Promise<{ status: IdempotencyKeyRow["status"] | "missing"; responseStatusCode: number | null; sealed: boolean }> {
+  const lockResult = await client.query<IdempotencyKeyDbRow>(
+    `SELECT * FROM idempotency_keys WHERE merchant_id = $1 AND endpoint = $2 AND key = $3 FOR UPDATE`,
+    [input.merchantId, input.endpoint, input.key],
+  );
+  const row = lockResult.rows[0];
+  if (!row) {
+    return { status: "missing", responseStatusCode: null, sealed: false };
+  }
+  if (row.status === "failed") {
+    await completeIdempotencyKey(client, row.id, input.response);
+    return { status: "completed", responseStatusCode: input.response.statusCode, sealed: true };
+  }
+  return { status: row.status, responseStatusCode: row.response_status_code, sealed: false };
 }
 
 /**
