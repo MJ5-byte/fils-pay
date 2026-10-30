@@ -21,6 +21,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -131,8 +132,10 @@ func Handler(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 // failure — a port already in use, most commonly — is returned as an
 // error.
 func Serve(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) error {
-	// am: binds all interfaces. only on the docker network so fine??
-	addr := net.JoinHostPort("", strconv.Itoa(cfg.InternalPort))
+	// Empty host binds every interface, which is right inside the compose
+	// network but exposes the internal API publicly on a single VM. The
+	// hosted setup sets SETTLEMENT_INTERNAL_HOST=127.0.0.1.
+	addr := net.JoinHostPort(os.Getenv("SETTLEMENT_INTERNAL_HOST"), strconv.Itoa(cfg.InternalPort))
 	server := &http.Server{
 		Addr:    addr,
 		Handler: Handler(pool, cfg),

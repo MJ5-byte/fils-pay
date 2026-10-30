@@ -35,6 +35,14 @@ export async function rotateApiKeyAsAdmin(
       rotatedFromKeyId: input.apiKeyId,
     });
 
+    // Rotation means the old key stops working (0037: "revokes the old key
+    // with reason 'rotated'"). Nothing did that, so a leaked key that was
+    // "rotated" kept working forever next to its replacement.
+    await client.query(
+      `UPDATE api_keys SET revoked_at = now(), revoked_reason = 'rotated' WHERE id = $1 AND merchant_id = $2`,
+      [input.apiKeyId, input.merchantId],
+    );
+
     await insertAdminAuditLog(client, {
       adminUserId: input.adminUserId,
       action: "api_key_rotate",

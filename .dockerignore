@@ -1,0 +1,10 @@
+# Keep build contexts small and free of local state and secrets.
+.git
+.claude
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+npm-debug.log*
+.DS_Store

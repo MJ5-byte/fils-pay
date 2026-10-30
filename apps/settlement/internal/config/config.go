@@ -73,8 +73,7 @@ func Load() (Config, error) {
 		databaseURL = override
 	}
 
-	// YA: token is required for every subcommand, Load() fails without it
-	// FH: SETTLEMENT_V2_SHADOW should be read here too (settlement v2 shadow writes). MK: it's read in ledger/. AM: grep finds nothing. MK: then it's in the v2 branch
+	// Read here, required only by `daemon` (see RequireInternalToken).
 	internalToken := os.Getenv("SETTLEMENT_INTERNAL_TOKEN")
 
 	// FH: 5 conns x 3 services > pg max_connections? no, that's 15 of 100. fine

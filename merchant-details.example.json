@@ -1,0 +1,17 @@
+{
+  "businessProfile": {
+    "legalName": "CHANGE ME",
+    "registrationNumber": "CHANGE ME",
+    "businessType": "llc",
+    "country": "BH",
+    "contactEmail": "CHANGE ME",
+    "contactPhone": "CHANGE ME",
+    "addressLine1": "CHANGE ME",
+    "addressLine2": "",
+    "city": "Manama",
+    "postalCode": ""
+  },
+  "owner": {
+    "email": "CHANGE ME"
+  }
+}

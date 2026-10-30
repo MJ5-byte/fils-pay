@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, test } from "node:test";
 import { Pool } from "pg";
-import { buildTransactionsExportCsv } from "./exportCsv.js";
+import { buildTransactionsExportCsv, streamTransactionsExportCsv } from "./exportCsv.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -192,4 +192,31 @@ test("a reference containing a comma or a quote is CSV-escaped", async () => {
   const dataLine = csv.split("\n")[1]!;
 
   assert.ok(dataLine.includes('"inv-1,""urgent"""'));
+});
+
+test("streamed export keeps every row when several share the timestamp at a page boundary", async () => {
+  const merchantId = await createMerchant();
+  // 5 rows, 3 of them at the same instant, exported with a page size of 2:
+  // paging on occurred_at alone dropped the tied rows after each page.
+  const times = [
+    "2026-07-01T10:00:00Z",
+    "2026-07-01T11:00:00Z",
+    "2026-07-01T11:00:00Z",
+    "2026-07-01T11:00:00Z",
+    "2026-07-01T12:00:00Z",
+  ];
+  const ids: string[] = [];
+  for (const occurredAt of times) {
+    ids.push(await insertTransaction(merchantId, { status: "captured", amountFils: 1000, capturedFils: 1000, reference: null, occurredAt }));
+  }
+
+  let out = "";
+  await streamTransactionsExportCsv(pool, { merchantId }, (chunk) => {
+    out += chunk;
+  }, 2);
+
+  const lines = out.trimEnd().split("\n");
+  assert.equal(lines.length, 1 + times.length, out);
+  const exportedIds = lines.slice(1).map((line) => line.split(",")[0]);
+  assert.deepEqual([...exportedIds].sort(), [...ids].sort());
 });
