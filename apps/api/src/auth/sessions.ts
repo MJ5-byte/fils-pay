@@ -75,6 +75,9 @@ export interface AuthenticatedSessionLookup {
 }
 
 /** Resolves a session token to its user. */
+// Only sessions that passed the OTP step count. The live_sessions view filters
+// revoked/expired but NOT authenticated, so without this check the
+// password-only "pending" cookie was accepted everywhere (OTP skipped).
 export async function lookupSession(
   pool: Pool,
   rawToken: string,
@@ -89,7 +92,8 @@ export async function lookupSession(
     `SELECT s.id AS session_id, s.merchant_user_id, mu.merchant_id, mu.role
        FROM live_sessions s
        JOIN merchant_users mu ON mu.id = s.merchant_user_id
-      WHERE s.token_hash = $1`,
+          WHERE s.token_hash = $1
+        AND s.authenticated = true`,
     [tokenHash],
   );
   const row = result.rows[0];
