@@ -1095,3 +1095,12 @@
 - **Cause:** The balance trigger `check_ledger_group_balance` (migration `0007`) sums each touched group with `WHERE entry_group_id = ...` on every ledger row written, and `entry_group_id` had no index, so every insert read the whole ledger. Lookups by `transaction_id` on `ledger_entries` (refunds, discount adjustments) and `holds` (capture, void) had no index either.
 - **Breaks:** Every capture, refund and adjustment got slower with each row ever written; a capacity run recorded 55,040 sequential scans reading 1.25 billion rows and no index scans.
 - **Fix:** Migration `0081` adds three plain indexes, `ledger_entries(entry_group_id)`, `ledger_entries(transaction_id)` and `holds(transaction_id)`, with `CREATE INDEX IF NOT EXISTS` (additive; not CONCURRENTLY because the migrator runs each file in a transaction). The trigger's lookup moves from a Seq Scan to an Index Scan; plans are in the PR. No query or trigger changed.
+
+### Bug: Dev fallback webhook encryption key is the wrong length
+- **Status:** Fixed
+- **Type:** Deploy, low
+- **Problem:** Without an explicit `WEBHOOK_SECRET_ENCRYPTION_KEY`, `loadConfig` threw "must base64-decode to exactly 32 bytes, got 34", so a fresh local start failed.
+- **Cause:** The hardcoded dev fallback in `apps/api/src/config.ts` was the base64 of a 34 character phrase, not 32 bytes.
+- **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
+- **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
+

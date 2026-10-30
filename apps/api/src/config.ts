@@ -178,7 +178,7 @@ function parseFailClosedBoolEnv(value: string | undefined): boolean {
   return normalized !== "false" && normalized !== "0";
 }
 
-const DEV_FALLBACK_WEBHOOK_KEY_B64 = "dGVzdC1rZXktZm9yLWRldi1vbmx5LW5vdC1mb3ItcHJvZA==";
+const DEV_FALLBACK_WEBHOOK_KEY_B64 = "ZGV2LW9ubHktd2ViaG9vay1lbmNyeXB0aW9uLWtleSE=";
 const DEV_FALLBACK_CARD_FINGERPRINT_KEY_B64 = "ZGV2LW9ubHktY2FyZC1maW5nZXJwcmludC1rZXktMzI=";
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
