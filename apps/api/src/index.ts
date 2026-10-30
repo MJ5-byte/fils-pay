@@ -1,4 +1,5 @@
 import { buildApp } from "./app.js";
+import { connectCache, disconnectCache } from "./cache/redis.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/pool.js";
 import { markDbConnectedOnce } from "./health/state.js";
@@ -13,6 +14,8 @@ async function main(): Promise<void> {
     console.warn("[index] OTP_DEV_EXPOSE=true in production: every login response carries its OTP code");
   }
   const pool = createPool(config);
+  // Connects in the background; the api boots and serves with Redis down.
+  void connectCache(config.redisUrl);
   // One transport per process: the dispatcher's background pass and the
   // merchant-facing "send test event" route both run on this same instance.
   const webhookTransport = createFetchTransport(config);
@@ -48,6 +51,7 @@ async function main(): Promise<void> {
     console.log(`[index] received ${signal}, shutting down`);
     (dispatcher ? dispatcher.stop() : Promise.resolve())
       .then(() => app.close())
+      .then(() => disconnectCache())
       .then(() => pool.end())
       .catch((err: unknown) => {
         console.error("[index] error during shutdown", err);

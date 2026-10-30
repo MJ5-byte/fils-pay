@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { BadRequestError } from "../lib/errors.js";
+import { cacheGetJson, cacheSetJson } from "../cache/redis.js";
 
 const DEFAULT_TOP_LINKS_LIMIT = 10;
 const MIN_TOP_LINKS_LIMIT = 1;
@@ -74,7 +75,9 @@ interface VolumeRow {
 }
 
 interface CursorRow {
+  last_processed_id: string;
   updated_at: Date;
+  updated_at_text: string;
 }
 
 function pad2(n: number): string {
@@ -100,11 +103,33 @@ function serializeVolumePoint(row: VolumeRow): VolumePointDto {
   };
 }
 
-async function readModelAsOf(pool: Pool): Promise<string | null> {
+/**
+ * The rollups' freshness stamp, plus a version of the read model for the
+ * cache. apps/reporting writes merchant_daily_volume and
+ * merchant_payout_trends only inside the transaction that also advances this
+ * cursor row (runConsumerPass), and the admin rebuild truncates them in the
+ * transaction that resets it, so the version changes with every rollup
+ * write: a capture, void or refund event, a batch close or a payout. A
+ * cached rollup is keyed by the version it was read under, and is never
+ * served once the version has moved on.
+ */
+async function readModelVersion(pool: Pool): Promise<{ asOf: string | null; version: string }> {
   const cursorResult = await pool.query<CursorRow>(
-    `SELECT updated_at FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
+    `SELECT last_processed_id, updated_at, updated_at::text AS updated_at_text
+       FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'`,
   );
-  return cursorResult.rows[0]?.updated_at.toISOString() ?? null;
+  const row = cursorResult.rows[0];
+  if (!row) return { asOf: null, version: "none" };
+  return { asOf: row.updated_at.toISOString(), version: `${row.last_processed_id}@${row.updated_at_text}` };
+}
+
+/** Rollup reads only. Short enough that a missed version change still heals on its own. */
+const VOLUMES_CACHE_TTL_SECONDS = 30;
+const PAYOUT_TRENDS_CACHE_TTL_SECONDS = 60;
+
+/** One hash per merchant and endpoint, so no key is ever shared across merchants. */
+export function analyticsCacheKey(merchantId: string, endpoint: "volumes" | "payout-trends"): string {
+  return `filspay:v1:merchant:${merchantId}:analytics:${endpoint}`;
 }
 
 /**
@@ -119,22 +144,23 @@ export async function getVolumes(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
 ): Promise<VolumesResponse> {
-  const [pointsResult, asOf] = await Promise.all([
-    pool.query<VolumeRow>(
-      `SELECT volume_date, captured_count, captured_gross_fils, voided_count, refund_count, refund_gross_fils
-         FROM merchant_daily_volume
-        WHERE merchant_id = $1 AND volume_date >= $2 AND volume_date < $3
-        ORDER BY volume_date ASC`,
-      [input.merchantId, input.from, input.to],
-    ),
-    readModelAsOf(pool),
-  ]);
+  const { asOf, version } = await readModelVersion(pool);
+  const key = analyticsCacheKey(input.merchantId, "volumes");
+  const field = `${input.from}|${input.to}|${version}`;
+  const cached = await cacheGetJson<VolumePointDto[]>(key, field);
+  if (cached) return { points: cached, readModelAsOf: asOf, live: false };
 
-  return {
-    points: pointsResult.rows.map(serializeVolumePoint),
-    readModelAsOf: asOf,
-    live: false,
-  };
+  const pointsResult = await pool.query<VolumeRow>(
+    `SELECT volume_date, captured_count, captured_gross_fils, voided_count, refund_count, refund_gross_fils
+       FROM merchant_daily_volume
+      WHERE merchant_id = $1 AND volume_date >= $2 AND volume_date < $3
+      ORDER BY volume_date ASC`,
+    [input.merchantId, input.from, input.to],
+  );
+  const points = pointsResult.rows.map(serializeVolumePoint);
+  cacheSetJson(key, field, points, VOLUMES_CACHE_TTL_SECONDS);
+
+  return { points, readModelAsOf: asOf, live: false };
 }
 
 export interface PayoutTrendPointDto {
@@ -186,22 +212,23 @@ export async function getPayoutTrends(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
 ): Promise<PayoutTrendsResponse> {
-  const [pointsResult, asOf] = await Promise.all([
-    pool.query<PayoutTrendRow>(
-      `SELECT settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at
-         FROM merchant_payout_trends
-        WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
-        ORDER BY batch_date ASC`,
-      [input.merchantId, input.from, input.to],
-    ),
-    readModelAsOf(pool),
-  ]);
+  const { asOf, version } = await readModelVersion(pool);
+  const key = analyticsCacheKey(input.merchantId, "payout-trends");
+  const field = `${input.from}|${input.to}|${version}`;
+  const cached = await cacheGetJson<PayoutTrendPointDto[]>(key, field);
+  if (cached) return { points: cached, readModelAsOf: asOf, live: false };
 
-  return {
-    points: pointsResult.rows.map(serializePayoutTrendPoint),
-    readModelAsOf: asOf,
-    live: false,
-  };
+  const pointsResult = await pool.query<PayoutTrendRow>(
+    `SELECT settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at
+       FROM merchant_payout_trends
+      WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
+      ORDER BY batch_date ASC`,
+    [input.merchantId, input.from, input.to],
+  );
+  const points = pointsResult.rows.map(serializePayoutTrendPoint);
+  cacheSetJson(key, field, points, PAYOUT_TRENDS_CACHE_TTL_SECONDS);
+
+  return { points, readModelAsOf: asOf, live: false };
 }
 
 export interface TopLinkDto {

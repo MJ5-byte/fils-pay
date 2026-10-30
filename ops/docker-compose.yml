@@ -29,8 +29,9 @@
 # held to 0.5 vCPU and 512 MB total: api and api-2 each get 0.25 vCPU
 # and 256 MB. Each service carries its own `cpus` and
 # `mem_limit` (plain `docker compose up` applies both, no swarm needed);
-# the long-running ones add up to 1.0 vCPU and 1472 MB, which leaves the
-# rest of the 2 GB to the host and the one-off jobs. `web` is the public
+# the long-running ones add up to 1.1 vCPU and 1536 MB (redis's 0.1 vCPU
+# and 64 MB included), which leaves the rest of the 2 GB to the host and the
+# one-off jobs. `web` is the public
 # front door on port 80: it serves apps/web and apps/admin and proxies the
 # api, and it answers 503 at once when the api is at capacity. See
 # ops/README.md, "Hosted box".
@@ -90,6 +91,9 @@ x-api: &api
     DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     # TODO(YA, Jan): give the api its own role before anything is hosted.
     SETTLEMENT_INTERNAL_URL: http://settlement:8091
+    # The dashboard read cache. No secret: redis is reachable only on the
+    # compose network. The api serves from the database while it is down.
+    REDIS_URL: redis://redis:6379
 
 services:
   postgres:
@@ -130,6 +134,26 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+
+  # Read cache for the api, nothing else. No persistence: losing it costs
+  # only cache misses. allkeys-lru evicts the coldest key at the 48 MB cap
+  # instead of refusing writes. No published port: only the compose network
+  # reaches it. The api does not depend_on it, so the api starts and serves
+  # without it.
+  redis:
+    image: redis:7.4.6-alpine
+    restart: unless-stopped
+    logging: *logging
+    # A cap, not a reservation. At 0.05 a throttled redis would push cache
+    # reads to their 50 ms timeout under load.
+    cpus: "0.1"
+    mem_limit: 64m
+    command: ["redis-server", "--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # One-off: applies db/migrations/*.sql, then exits. Re-run any time; the
   # runner tracks what's already applied (db/migrate.ts's own bootstrap

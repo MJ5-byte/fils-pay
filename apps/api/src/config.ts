@@ -79,6 +79,10 @@ export interface Config {
    *  API-latency budget. */
   settlementInternalRequestTimeoutMs: number;
 
+  /** Redis for the dashboard read cache. Unset means no cache: every read
+   *  goes to the database, which is also what happens while Redis is down. */
+  redisUrl: string | undefined;
+
   /** Base URL of apps/web's hosted checkout, used only to build the
    *  convenience `url` field on a created payment link — the API itself
    *  has no other reason to know where apps/web is hosted, and no route
@@ -273,6 +277,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     settlementInternalUrl: env.SETTLEMENT_INTERNAL_URL ?? "http://settlement:8091",
     settlementInternalToken,
     settlementInternalRequestTimeoutMs: parseIntEnv(env.SETTLEMENT_INTERNAL_REQUEST_TIMEOUT_MS, 30_000),
+
+    redisUrl: env.REDIS_URL || undefined,
 
     checkoutBaseUrl: env.CHECKOUT_BASE_URL ?? "http://localhost:5173",
     corsAllowedOrigins: parseCsvEnv(env.CORS_ALLOWED_ORIGINS, nodeEnv === "production" ? [] : ["http://localhost:5173", "http://localhost:5174"]),

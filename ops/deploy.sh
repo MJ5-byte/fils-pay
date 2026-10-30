@@ -18,7 +18,7 @@ cat > "$TARS/$SHA.tar"
 [ -s "$TARS/$SHA.tar" ] || { echo "FAIL empty archive"; exit 1; }
 
 # Build every image while the old containers keep serving, then replace the
-# services one at a time: migrate runs to completion first, api and then
+# services one at a time: migrate runs to completion first, redis comes up, api and then
 # api-2 are recreated and each waited on until its healthcheck passes, so one
 # replica always serves while the other restarts, and web goes last so the front
 # door is only swapped once the api behind it answers. A plain `up --build`
@@ -30,6 +30,10 @@ extract_and_up() {
     $COMPOSE up -d --wait postgres &&
     $COMPOSE up -d --no-deps migrate &&
     [ "$(sudo docker wait "$($COMPOSE ps -aq migrate)")" = 0 ] &&
+    # The cache comes up before the api replicas that use it. Not fatal: the
+    # api serves from the database without it, so a cache that will not start
+    # never blocks or rolls back a deploy.
+    { $COMPOSE up -d --no-deps --wait redis || echo "WARN redis not healthy, the api runs without its cache"; } &&
     $COMPOSE up -d --no-deps --wait --remove-orphans api &&
     # grep reads the whole list: with pipefail, grep -q exiting early can kill
     # compose with SIGPIPE and silently skip api-2.

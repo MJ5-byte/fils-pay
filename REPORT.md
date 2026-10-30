@@ -1492,6 +1492,12 @@
 - **Why it shipped:** A product with no icon looks unfinished in every tab a judge opens.
 - **Change:** Both apps ship the coin as a 48px tab icon, a 16, 32 and 48px `favicon.ico` on ink for search results, an Apple touch icon, 192 and 512px icons, a maskable icon and a web manifest, from new `public/` folders. nginx already serves `/favicon.ico` from the admin build at the site root.
 
+### Improvement: The dashboard's rollup charts are served from a Redis cache that fails open (BHA-67)
+- **Type:** Performance
+- **Before:** Every Overview load ran the volumes and payout-trends range queries on Postgres, the one database the pay path also depends on, even though both read rollup tables that only change when the reporting worker applies an event. Nothing was wrong; the work was repeated.
+- **Why it shipped:** The box is judged under load on 1 vCPU and 2 GB, and a dashboard refresh should not compete with checkouts for the api's 20 database connections. A cache in front of reads that already promise `live: false` takes that work off Postgres without changing what any merchant sees.
+- **Change:** A `redis:7.4.6-alpine` service in `ops/docker-compose.yml` (48 MB LRU, no persistence, 64 MB limit, no published port), brought up by `ops/deploy.sh` before the api replicas and never able to fail a deploy. `apps/api/src/cache/redis.ts` wraps one `ioredis` client with a 50 ms command timeout and no offline queue, so with Redis down or slow every read goes to Postgres as before. `GET /v1/analytics/volumes` (30 s TTL) and `GET /v1/analytics/payout-trends` (60 s TTL) are cached per merchant, under a version taken from `reporting_outbox_cursor`, which the reporting worker advances in the same transaction as every rollup write (capture, void, refund, batch close, payout) and the admin rebuild resets. Any such write therefore moves readers to a fresh entry at once. Nothing on the pay, capture, refund, auth, session, idempotency or balance paths is cached, and `top-links` and `recent-ledger-activity` stay live because they promise `live: true`. Measured locally at 25 concurrent clients: volumes 1,937 to 2,084 requests a second, payout-trends 2,143 to 2,424, p50 down about 1 ms; with Redis stopped every request still answered 200.
+
 ### Improvement: Table filters live in the column headers (BHA-67)
 - **Type:** UX
 - **Before:** Settlement batches, transactions, payment links, webhook deliveries and the admin merchant list put a row of status chips, and on two pages From and To date fields, above the table, away from the column they narrow.
