@@ -309,6 +309,63 @@ test("KYC upload rejects a PNG renamed .pdf for a PDF-only document type", async
   assert.equal(res.json().error, "document_must_be_pdf");
 });
 
+async function uploadPdfAndDownload(emailPrefix: string, filename: string, storedName?: string) {
+  const { merchantId, cookie } = await signupLoginAndVerify(emailPrefix);
+  const { body, contentType } = buildMultipart(
+    { documentType: "owner_id" },
+    {
+      fieldName: "file",
+      filename,
+      contentType: "application/pdf",
+      data: Buffer.from("%PDF-1.4\n%mock minimal pdf for test\n%%EOF"),
+    },
+  );
+  const upload = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/kyc/documents`,
+    headers: { cookie, "content-type": contentType },
+    payload: body,
+  });
+  assert.equal(upload.statusCode, 201, upload.body);
+  const { id } = upload.json() as { id: string };
+  if (storedName !== undefined) {
+    await pool.query(`UPDATE kyc_documents SET file_name = $1 WHERE id = $2`, [storedName, id]);
+  }
+  return app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/kyc/documents/${id}/file`,
+    headers: { cookie },
+  });
+}
+
+test("KYC download of a document with an Arabic filename answers 200 with an RFC 5987 filename*", async () => {
+  const res = await uploadPdfAndDownload("kycarabic", "سجل.pdf");
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(
+    res.headers["content-disposition"],
+    `inline; filename="___.pdf"; filename*=UTF-8''${encodeURIComponent("سجل.pdf")}`,
+  );
+});
+
+test("KYC download cannot be used to inject a header through a filename with quotes and CRLF", async () => {
+  const res = await uploadPdfAndDownload("kycinject", "id.pdf", 'a"b\\c\r\nX-Evil: 1.pdf');
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.headers["x-evil"], undefined);
+  assert.equal(
+    res.headers["content-disposition"],
+    `inline; filename="a_b_c__X-Evil: 1.pdf"; filename*=UTF-8''${encodeURIComponent('a"b\\c\r\nX-Evil: 1.pdf')}`,
+  );
+});
+
+test("KYC download keeps a plain ASCII filename unchanged", async () => {
+  const res = await uploadPdfAndDownload("kycascii", "id card.pdf");
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(
+    res.headers["content-disposition"],
+    `inline; filename="id card.pdf"; filename*=UTF-8''id%20card.pdf`,
+  );
+});
+
 test("API key issuance shows the raw key exactly once; a subsequent list never exposes it", async () => {
   const { merchantId, cookie } = await signupLoginAndVerify("apikey");
 

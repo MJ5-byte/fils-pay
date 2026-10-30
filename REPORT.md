@@ -408,6 +408,13 @@
 - **Breaks:** Table names, SQL and driver text from an internal service reached the admin browser.
 - **Fix:** The body is now logged server-side only. The message keeps the path and status, plus Go's own `{"error":"<code>"}` code when the body is exactly that shape, so the admin UI still shows validation codes. Test added in `settlementClient.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/76.
 
+### Bug: A KYC document with an Arabic filename cannot be downloaded
+- **Status:** Fixed (BHA-64)
+- **Type:** UX, medium
+- **Problem:** Opening or downloading an uploaded KYC document whose filename has non-Latin-1 characters, such as `سجل.pdf`, answered 500.
+- **Cause:** `apps/api/src/routes/kyc.ts:100` (and the thumbnail route at `:117`) put the stored client filename straight into `Content-Disposition`. Node refuses non-Latin-1 characters in a header value (`ERR_INVALID_CHAR`).
+- **Breaks:** Any merchant or reviewer with a non-English filename lost the document. The same bare name also let a quote or CRLF in a stored name reach the header.
+- **Fix:** One `contentDisposition()` helper used by both routes sends `inline; filename="<ASCII fallback>"; filename*=UTF-8''<percent-encoded name>`. Non-ASCII, quotes, backslashes and control characters become `_` in the fallback. Tests added in `app.test.ts` for an Arabic name, a quote and CRLF name, and a plain ASCII name.
 ### Bug: Admin adjustment import history cannot page past the newest 25
 - **Status:** Fixed
 - **Type:** UX, medium
