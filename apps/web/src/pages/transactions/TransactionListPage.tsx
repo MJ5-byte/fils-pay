@@ -1,5 +1,7 @@
 import {
+  ColumnFilter,
   ColumnHead,
+  FilterOptionList,
   IconCalendar,
   IconClock,
   IconCoins,
@@ -17,7 +19,7 @@ import { StatusBadge } from "../../components/StatusBadge.js";
 import { EmptyState } from "../../components/EmptyState.js";
 import { IconSearch } from "../../components/icons.js";
 import { dash, dateTime, dayStartIso } from "../../format.js";
-import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
+import { pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
 import { DatePicker } from "../../components/DatePicker.js";
 
@@ -132,37 +134,6 @@ export function TransactionListPage() {
               />
             </label>
           </div>
-          <label>
-            From
-            <DatePicker value={from} onChange={setFrom} />
-          </label>
-          <label>
-            {/* Exclusive, because the endpoint's own predicate is
-              `occurred_at < to`, labelled rather than quietly shifted by a
-              day here, which would make this page and the API disagree about
-              what a filter means. */}
-            To (exclusive)
-            <DatePicker value={to} onChange={setTo} />
-          </label>
-        </div>
-
-        <div className="fp-filter-block">
-          <span className="dash-field-label">Status</span>
-          <div className="dash-chips">
-            {STATUSES.map((status) => (
-              <label
-                key={status}
-                className={classNames("dash-chip", statuses.includes(status) && "dash-chip-on")}
-              >
-                <input
-                  type="checkbox"
-                  checked={statuses.includes(status)}
-                  onChange={() => toggleStatus(status)}
-                />
-                <StatusBadge status={status} />
-              </label>
-            ))}
-          </div>
         </div>
 
         {error ? <p className="dash-error">{error}</p> : null}
@@ -171,9 +142,32 @@ export function TransactionListPage() {
           <table className="dash-table">
             <thead>
               <tr>
-                <th><ColumnHead icon={IconCalendar}>Occurred</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconCalendar} label="Occurred" active={from !== "" || to !== ""}>
+                    <label>
+                      From
+                      <DatePicker value={from} onChange={setFrom} />
+                    </label>
+                    <label>
+                      {/* Exclusive, because the endpoint's own predicate is
+                        `occurred_at < to`, labelled rather than quietly shifted by a
+                        day here, which would make this page and the API disagree about
+                        what a filter means. */}
+                      To (exclusive)
+                      <DatePicker value={to} onChange={setTo} />
+                    </label>
+                  </ColumnFilter>
+                </th>
                 <th><ColumnHead icon={IconHash}>Reference</ColumnHead></th>
-                <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconClock} label="Status" active={statuses.length > 0}>
+                    <FilterOptionList
+                      options={STATUSES.map((status) => ({ value: status, label: <StatusBadge status={status} /> }))}
+                      selected={statuses}
+                      onToggle={toggleStatus}
+                    />
+                  </ColumnFilter>
+                </th>
                 <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Authorized</ColumnHead></th>
                 <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Captured</ColumnHead></th>
                 <th><ColumnHead icon={IconHash}>Acquirer Reference</ColumnHead></th>

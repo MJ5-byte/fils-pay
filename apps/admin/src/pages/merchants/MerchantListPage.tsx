@@ -1,5 +1,7 @@
 import {
+  ColumnFilter,
   ColumnHead,
+  FilterOptionList,
   EmptyState,
   IconCalendar,
   IconClock,
@@ -141,24 +143,6 @@ export function MerchantListPage() {
           <button className="dash-button dash-button-primary" type="submit"><IconSearch /> Search</button>
         </form>
 
-        <div className="dash-toolbar">
-          <div>
-            <span className="dash-field-label">Onboarding status</span>
-            <div className="dash-chips">
-              {ONBOARDING_STATUSES.map((status) => (
-                <label key={status} className={`dash-chip${statuses.includes(status) ? " dash-chip-on" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={statuses.includes(status)}
-                    onChange={() => toggleStatus(status)}
-                  />
-                  <StatusBadge status={status} />
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-
         {error ? <p className="dash-error">{error}</p> : null}
         {bulkNotice ? <p className="dash-notice">{bulkNotice}</p> : null}
 
@@ -191,7 +175,15 @@ export function MerchantListPage() {
                 </th>
                 <th><ColumnHead icon={IconStore}>Merchant</ColumnHead></th>
                 <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
-                <th><ColumnHead icon={IconUser}>Onboarding</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconUser} label="Onboarding" active={statuses.length > 0}>
+                    <FilterOptionList
+                      options={ONBOARDING_STATUSES.map((status) => ({ value: status, label: <StatusBadge status={status} /> }))}
+                      selected={statuses}
+                      onToggle={toggleStatus}
+                    />
+                  </ColumnFilter>
+                </th>
                 <th><ColumnHead icon={IconShield}>KYC</ColumnHead></th>
                 <th className="dash-num"><ColumnHead icon={IconPercent} align="right">MDR</ColumnHead></th>
                 <th><ColumnHead icon={IconLive}>Mode</ColumnHead></th>

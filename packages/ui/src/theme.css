@@ -178,6 +178,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--fp-brand); outli
 .dash-form label, .dash-toolbar label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 500; color: var(--fp-ink-2); }
 .dash-toolbar, .dash-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 0; border: 0; margin: 24px 0; }
 .dash-toolbar-grow { flex: 1 1 240px; min-width: 0; }
+.fp-toolbar-end { justify-content: flex-end; }
 .dash-toolbar input:not([type="checkbox"]):not([type="radio"]) { width: 100%; }
 .dash-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .dash-chip, .dash-button.dash-chip, .dash-toolbar label.dash-chip, .dash-form label.dash-chip { position: relative; display: inline-flex; flex-direction: row; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border: 1px solid var(--fp-rule); border-radius: 0; color: var(--fp-ink-2); cursor: pointer; }
@@ -208,6 +209,17 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--fp-brand); outli
 .fp-column-head { display: flex; align-items: center; gap: 8px; font: 500 12px/1.55 var(--fp-mono); letter-spacing: .04em; text-transform: none; color: var(--fp-ink-2); }
 .fp-column-head-right { justify-content: flex-end; }
 .fp-column-head-center { justify-content: center; }
+/* A filterable column's title is the button that opens its filter. The funnel stays in the brand colour, never muted, so the header reads as something you can press. */
+.fp-column-filter { width: auto; min-height: 0; height: auto; margin: 0 -6px; padding: 4px 6px; border: 0; border-radius: var(--fp-r); background: transparent; box-shadow: none; cursor: pointer; }
+.fp-column-filter:hover, .fp-column-filter[aria-expanded="true"] { background: color-mix(in srgb, var(--fp-ink) 7%, transparent); color: var(--fp-ink); }
+.fp-column-filter:focus-visible { outline: 2px solid var(--fp-brand); outline-offset: 2px; }
+.fp-column-filter-funnel { position: relative; display: inline-flex; color: var(--fp-brand); }
+.fp-column-filter-funnel[data-active]::after { content: ""; position: absolute; top: -3px; right: -4px; width: 7px; height: 7px; border-radius: 50%; background: var(--fp-brand); box-shadow: 0 0 0 2px var(--fp-surface-2); }
+.fp-column-filter-pop { position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 12px; width: max-content; min-width: 208px; max-width: calc(100vw - 16px); max-height: calc(100vh - 96px); overflow-y: auto; padding: 12px; border: 1px solid var(--fp-rule); border-radius: var(--fp-r); background: var(--fp-surface); color: var(--fp-ink); box-shadow: var(--fp-shadow-pop); font: 400 14px/1.5 var(--fp-body); text-transform: none; letter-spacing: normal; }
+.fp-column-filter-pop > label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 500; color: var(--fp-ink-2); }
+.fp-filter-options { display: flex; flex-direction: column; gap: 2px; }
+.fp-filter-option { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 8px; cursor: pointer; }
+.fp-filter-option:hover { background: color-mix(in srgb, var(--fp-ink) 6%, transparent); }
 .dash-amount { display: inline-block; white-space: nowrap; color: var(--fp-ink); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; font-weight: 600; }
 .dash-ccy { color: var(--fp-muted); font-family: var(--fp-body); font-size: max(10px, .6em); font-weight: 500; margin-right: 4px; }
 .fp-money-fils { font-size: .8em; color: var(--fp-ink-2); }

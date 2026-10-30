@@ -1,5 +1,7 @@
 import {
+  ColumnFilter,
   ColumnHead,
+  FilterOptionList,
   IconCalendar,
   IconCheck,
   IconClock,
@@ -18,7 +20,6 @@ import { StatusBadge } from "../../components/StatusBadge.js";
 import { EmptyState } from "../../components/EmptyState.js";
 import { IconSettlement } from "../../components/icons.js";
 import { dateTime } from "../../format.js";
-import { classNames } from "../../utils/helpers.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
 import { DatePicker } from "../../components/DatePicker.js";
 
@@ -101,44 +102,33 @@ export function SettlementBatchListPage() {
       <PageHeader title="Settlement batches" lede={<> Daily payouts to your account, with the gross, fee and net on each. </>} />
 
       <div className="fp-list-card">
-        <div className="dash-toolbar">
-          <label>
-            From
-            <DatePicker value={from} onChange={setFrom} />
-          </label>
-          <label>
-            To (exclusive)
-            <DatePicker value={to} onChange={setTo} />
-          </label>
-        </div>
-
-        <div className="fp-filter-block">
-          <span className="dash-field-label">Status</span>
-          <div className="dash-chips">
-            {STATUSES.map((status) => (
-              <label
-                key={status}
-                className={classNames("dash-chip", statuses.includes(status) && "dash-chip-on")}
-              >
-                <input
-                  type="checkbox"
-                  checked={statuses.includes(status)}
-                  onChange={() => toggleStatus(status)}
-                />
-                <StatusBadge status={status} />
-              </label>
-            ))}
-          </div>
-        </div>
-
         {error ? <p className="dash-error">{error}</p> : null}
 
         <div className="dash-table-wrap">
           <table className="dash-table">
             <thead>
               <tr>
-                <th><ColumnHead icon={IconCalendar}>Batch Date</ColumnHead></th>
-                <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconCalendar} label="Batch Date" active={from !== "" || to !== ""}>
+                    <label>
+                      From
+                      <DatePicker value={from} onChange={setFrom} />
+                    </label>
+                    <label>
+                      To (exclusive)
+                      <DatePicker value={to} onChange={setTo} />
+                    </label>
+                  </ColumnFilter>
+                </th>
+                <th>
+                  <ColumnFilter icon={IconClock} label="Status" active={statuses.length > 0}>
+                    <FilterOptionList
+                      options={STATUSES.map((status) => ({ value: status, label: <StatusBadge status={status} /> }))}
+                      selected={statuses}
+                      onToggle={toggleStatus}
+                    />
+                  </ColumnFilter>
+                </th>
                 <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Gross</ColumnHead></th>
                 <th className="dash-num"><ColumnHead icon={IconPercent} align="right">Fee</ColumnHead></th>
                 <th className="dash-num"><ColumnHead icon={IconWallet} align="right">Net Payout</ColumnHead></th>

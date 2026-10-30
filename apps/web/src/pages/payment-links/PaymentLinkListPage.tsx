@@ -1,5 +1,7 @@
 import {
+  ColumnFilter,
   ColumnHead,
+  FilterOptionList,
   IconBan,
   IconCalendar,
   IconCheck,
@@ -22,7 +24,6 @@ import { StatusBadge } from "../../components/StatusBadge.js";
 import { EmptyState } from "../../components/EmptyState.js";
 import { IconLinks, IconPlus } from "../../components/icons.js";
 import { dash, dateTime } from "../../format.js";
-import { classNames } from "../../utils/helpers.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 
 /** The stored statuses plus expired, including reserved. The merchant-facing
@@ -102,25 +103,7 @@ export function PaymentLinkListPage() {
     <section className="fp-page fp-stagger">
       <PageHeader title="Payment links" lede={<> Reusable checkout links you can share, track and settle. </>} />
       <div className="fp-list-card">
-        <div className="dash-toolbar">
-          <div>
-            <span className="dash-field-label">Status</span>
-            <div className="dash-chips">
-              {STATUSES.map((status) => (
-                <label
-                  key={status}
-                  className={classNames("dash-chip", statuses.includes(status) && "dash-chip-on")}
-                >
-                  <input
-                    type="checkbox"
-                    checked={statuses.includes(status)}
-                    onChange={() => toggleStatus(status)}
-                  />
-                  <StatusBadge status={status} />
-                </label>
-              ))}
-            </div>
-          </div>
+        <div className="dash-toolbar fp-toolbar-end">
           <RequireRole allow={["owner", "finance"]}>
             <Link className="dash-button dash-button-primary" to="/dashboard/payment-links/new">
               <IconPlus /> New payment link
@@ -137,7 +120,15 @@ export function PaymentLinkListPage() {
                 <th><ColumnHead icon={IconHash}>Reference</ColumnHead></th>
                 <th><ColumnHead icon={IconDoc}>Description</ColumnHead></th>
                 <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Amount</ColumnHead></th>
-                <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconClock} label="Status" active={statuses.length > 0}>
+                    <FilterOptionList
+                      options={STATUSES.map((status) => ({ value: status, label: <StatusBadge status={status} /> }))}
+                      selected={statuses}
+                      onToggle={toggleStatus}
+                    />
+                  </ColumnFilter>
+                </th>
                 <th><ColumnHead icon={IconCalendar}>Expires</ColumnHead></th>
                 <th><ColumnHead icon={IconCheck}>Paid</ColumnHead></th>
                 <th><ColumnHead icon={IconBan}>Canceled</ColumnHead></th>

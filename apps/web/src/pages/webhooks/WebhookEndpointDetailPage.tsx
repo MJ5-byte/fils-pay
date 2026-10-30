@@ -1,5 +1,7 @@
 import {
+  ColumnFilter,
   ColumnHead,
+  FilterOptionList,
   IconActivity,
   IconCalendar,
   IconClock,
@@ -19,7 +21,6 @@ import { StatusBadge } from "../../components/StatusBadge.js";
 import { EmptyState } from "../../components/EmptyState.js";
 import { IconArrowLeft, IconReplay, IconWebhooks } from "../../components/icons.js";
 import { dash, dateTime } from "../../format.js";
-import { classNames } from "../../utils/helpers.js";
 import type { WebhookDeliveryDto, WebhookDeliveryStatus, WebhookEndpointDto } from "../../types.js";
 
 /** The stored enum value as a human label, underscore gone and Title Cased. */
@@ -160,25 +161,6 @@ export function WebhookEndpointDetailPage() {
       <div className="fp-list-card">
         <div className="dash-card-head"><h2 className="dash-card-title">Delivery log</h2></div>
 
-        <div className="fp-filter-block">
-          <span className="dash-field-label">Status</span>
-          <div className="dash-chips">
-            {DELIVERY_STATUSES.map((status) => (
-              <label
-                key={status}
-                className={classNames("dash-chip", statuses.includes(status) && "dash-chip-on")}
-              >
-                <input
-                  type="checkbox"
-                  checked={statuses.includes(status)}
-                  onChange={() => toggleStatus(status)}
-                />
-                <StatusBadge status={status} />
-              </label>
-            ))}
-          </div>
-        </div>
-
         {error ? <p className="dash-error">{error}</p> : null}
 
         <div className="dash-table-wrap">
@@ -187,7 +169,15 @@ export function WebhookEndpointDetailPage() {
               <tr>
                 <th><ColumnHead icon={IconCalendar}>Created</ColumnHead></th>
                 <th><ColumnHead icon={IconActivity}>Event</ColumnHead></th>
-                <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                <th>
+                  <ColumnFilter icon={IconClock} label="Status" active={statuses.length > 0}>
+                    <FilterOptionList
+                      options={DELIVERY_STATUSES.map((status) => ({ value: status, label: <StatusBadge status={status} /> }))}
+                      selected={statuses}
+                      onToggle={toggleStatus}
+                    />
+                  </ColumnFilter>
+                </th>
                 <th className="dash-num"><ColumnHead icon={IconHash} align="right">Attempts</ColumnHead></th>
                 <th><ColumnHead icon={IconDoc}>Response</ColumnHead></th>
                 <th><ColumnHead icon={IconClock}>Last Attempt</ColumnHead></th>

@@ -1491,3 +1491,9 @@
 - **Before:** Browser tabs, bookmarks and home screens showed a blank default icon.
 - **Why it shipped:** A product with no icon looks unfinished in every tab a judge opens.
 - **Change:** Both apps ship the coin as a 48px tab icon, a 16, 32 and 48px `favicon.ico` on ink for search results, an Apple touch icon, 192 and 512px icons, a maskable icon and a web manifest, from new `public/` folders. nginx already serves `/favicon.ico` from the admin build at the site root.
+
+### Improvement: Table filters live in the column headers (BHA-67)
+- **Type:** UX
+- **Before:** Settlement batches, transactions, payment links, webhook deliveries and the admin merchant list put a row of status chips, and on two pages From and To date fields, above the table, away from the column they narrow.
+- **Why it shipped:** The design system puts filters on the column they restrict, and the chip rows pushed the rows a merchant came for below the fold on a phone.
+- **Change:** A shared `ColumnFilter` in `@filspay/ui` turns a column title into a button with a brand red funnel that opens a small popover, with a dot while the filter is on. The Status column holds the same multi-select statuses as badges, and the date column holds the same two date pickers, "To (exclusive)" included. State, query parameters and results are unchanged; search stays top left. The popover closes on Escape or an outside click, hands focus back to the column title and fits a 390px screen.

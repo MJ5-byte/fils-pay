@@ -26,6 +26,7 @@ export * from "./Skeleton.js";
 export * from "./Tooltip.js";
 export * from "./PageHeader.js";
 export * from "./ColumnHead.js";
+export * from "./ColumnFilter.js";
 export * from "./CountUp.js";
 export * from "./Sparkline.js";
 export * from "./useNavigationDrawer.js";
