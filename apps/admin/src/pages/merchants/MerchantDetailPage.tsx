@@ -46,6 +46,7 @@ export function MerchantDetailPage() {
   const [impersonationUrl, setImpersonationUrl] = useState<string | null>(null);
 
   const [creditAmountBhd, setCreditAmountBhd] = useState("");
+  const [creditAmountError, setCreditAmountError] = useState<string | null>(null);
   const [creditReason, setCreditReason] = useState<CreditReasonCode>("goodwill");
   const [creditMemo, setCreditMemo] = useState("");
   const [creditReverseFee, setCreditReverseFee] = useState(false);
@@ -146,13 +147,25 @@ export function MerchantDetailPage() {
   async function handleIssueCredit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (!id) return;
+    // BD in, integer fils out, via the platform's own string-based parser,
+    // never parseFloat, which cannot represent the third decimal exactly.
+    // Checked before any request so a typo is answered at the field.
+    let baseAmountFils: ReturnType<typeof parseBhdToFils>;
+    try {
+      baseAmountFils = parseBhdToFils(creditAmountBhd.trim());
+    } catch {
+      setCreditAmountError("Enter an amount in BHD with up to 3 decimals.");
+      return;
+    }
+    if (baseAmountFils <= 0) {
+      setCreditAmountError("Enter an amount greater than 0 BHD.");
+      return;
+    }
+    setCreditAmountError(null);
     setBusy(true);
     setActionError(null);
     setNotice(null);
     try {
-      // BD in, integer fils out, via the platform's own string-based parser —
-      // never parseFloat, which cannot represent the third decimal exactly.
-      const baseAmountFils = parseBhdToFils(creditAmountBhd);
       const record = await issueCredit(id, {
         baseAmountFils,
         reasonCode: creditReason,
@@ -172,7 +185,7 @@ export function MerchantDetailPage() {
       setCreditReverseFee(false);
       await load();
     } catch (err) {
-      setActionError(err instanceof RangeError ? err.message : describeError(err));
+      setActionError(describeError(err));
     } finally {
       setBusy(false);
     }
@@ -381,6 +394,7 @@ export function MerchantDetailPage() {
               onChange={(e) => setCreditAmountBhd(e.target.value)}
             />
           </label>
+          {creditAmountError ? <p className="admin-error">{creditAmountError}</p> : null}
           <label>
             Reason
             <select

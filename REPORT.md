@@ -1186,6 +1186,14 @@
 - **Breaks:** During any outage, signed-in merchants and operators were told to log in again, which fails too, with nothing saying the server was the problem. A crash on a page put internals on screen.
 - **Fix:** Only a 401, the one answer `/me` gives for a missing or expired session, now means signed out. A network error or another status sets a new `unavailable` status, and both route guards show "The server could not be reached, so your session could not be checked." with a Retry button. Each app gets one small class component error boundary in a pathless root route, which shows "Something went wrong on this page." and a reload link. Reproduced with the dev servers pointed at a closed port and at a stub answering 500: both apps landed on login before the change and show the retry message after; with the stub answering 401, Retry lands on login. No test added, since a break here shows on screen.
 
+### Bug: Dashboard errors show raw API codes (BHA-238)
+- **Status:** Fixed
+- **Type:** UX, medium
+- **Problem:** Some failures showed code text instead of a sentence. Over-refunding read "amountFils is more than is still refundable", a bad webhook URL read `invalid_url`, and an admin credit of 1.23456 BD showed `parseBhdToFils: invalid BHD amount "1.23456"` in the banner at the top of the page.
+- **Cause:** `describeError` in both apps fell back to the API's developer message, or to the bare code, for any code missing from its small login-only copy table. The admin credit form also put the parser's exception text into the page banner.
+- **Breaks:** Merchants and operators could not tell what to fix, and the copy exposed internal field and function names.
+- **Fix:** Both `api/client.ts` files map the codes these pages hit to plain sentences, and they no longer show any message that looks like a code or names a field or function. In those cases a fallback based on the HTTP status is shown instead. The credit form checks the amount before sending and shows "Enter an amount in BHD with up to 3 decimals." inside the form, or "Enter an amount greater than 0 BHD." for zero or a negative amount. CSV import errors keep the row number the server names, and the header error says which columns it needs. One test of the web mapping added.
+
 ### Bug: Checkout pays with any card number
 - **Status:** Fixed
 - **Type:** Security, medium
