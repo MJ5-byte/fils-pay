@@ -41,11 +41,11 @@ export async function getPublicPaymentLink(
     `SELECT pl.token, pl.amount_fils, pl.currency, pl.reference, pl.description,
             pl.status, pl.expires_at, pl.reserved_at, m.display_name AS merchant_display_name,
             ak.key_prefix AS merchant_public_key,
-            ak.key_hash AS integration_id
+            NULL::text AS integration_id
        FROM payment_links pl
        JOIN merchants m ON m.id = pl.merchant_id
        LEFT JOIN LATERAL (
-         SELECT key_prefix, key_hash
+         SELECT key_prefix
            FROM api_keys
           WHERE merchant_id = pl.merchant_id AND revoked_at IS NULL
           ORDER BY created_at DESC

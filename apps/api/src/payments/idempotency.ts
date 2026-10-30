@@ -133,7 +133,7 @@ export async function claimIdempotencyKey(
   // the time this SELECT runs, the winner's row (or its absence, if it
   // rolled back) is visible under read-committed.
   const existingResult = await client.query<IdempotencyKeyDbRow>(
-    `SELECT * FROM idempotency_keys WHERE merchant_id = $1 AND endpoint = $2 AND key = $3`,
+    `SELECT * FROM idempotency_keys WHERE merchant_id = $1 AND endpoint = $2 AND key = $3 FOR UPDATE`,
     [input.merchantId, input.endpoint, input.key],
   );
   const existing = existingResult.rows[0];

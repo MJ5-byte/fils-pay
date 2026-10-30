@@ -15,6 +15,8 @@ import { recordKycReview } from "../onboarding/review.js";
 import { authorizeTransaction } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
 import { toFils } from "@filspay/money";
+import { sha256Hex } from "../lib/crypto.js";
+import { hashRequest } from "../payments/idempotency.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -309,10 +311,11 @@ test(
       reference: string | null;
     }>(
       `UPDATE payment_links
-          SET status = 'reserved', reserved_at = now() - interval '2 minutes'
+          SET status = 'reserved', reserved_at = now() - interval '2 minutes',
+              reservation_id = $2, payment_key_hash = $3, payment_request_hash = $4
         WHERE token = $1
         RETURNING id, merchant_id, amount_fils, reference`,
-      [link.token],
+      [link.token, randomUUID(), sha256Hex(idempotencyKey), hashRequest({ card: APPROVED_CARD })],
     );
     const row = claimed.rows[0]!;
 

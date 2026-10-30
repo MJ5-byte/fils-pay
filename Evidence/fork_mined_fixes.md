@@ -2,7 +2,7 @@
 
 Execution date: 2026-10-30. Starting HEAD `c389b26`; branch `speedup/fork-mined-fixes`.
 No merges or cherry-picks. Public reference objects fetched for read-only inspection.
-The supplied report remains unmodified. Batches 2–8 are pending until recorded below.
+The supplied report remains unmodified. Batches 3–8 are pending until recorded below.
 Per user steering, use focused regression tests plus one relevant suite per batch;
 repeat only to resolve failures or verify further changes.
 
@@ -84,7 +84,8 @@ Confirmed: Math.random drives OTP and payment-link token generation.
 ### Local root cause
 Security-sensitive helpers call noncryptographic PRNG.
 ### References inspected
-The focused auth references and local issue were inspected; the report's thrzkr 5c3fa2d contains no random-helper hunk.
+The focused auth references and local issue were inspected; thrzkr 5c3fa2d contains no random-helper hunk.
+sama-elsawaf's random.ts at 980278c was also inspected: the same crypto.randomInt-per-character design.
 ### Implementation adopted
 Use node:crypto.randomInt independently per character; uniform decimal/alphabet sampling without modulo bias.
 Existing payment-link generator inherits secure 132-bit token entropy without format change.
@@ -193,3 +194,94 @@ Known failures: broad run has 11 refund null-reason failures (Batch 3), one webh
 four reporting poison-event failures (Batch 6). Its one impersonation error-code mismatch was resolved;
 all relevant 114 tests pass afterward. Baseline source regression confirms actual auth defects independently.
 Recommended next batch: Batch 2 payment links.
+
+## Batch 2 — expiry, reservation ownership, crash recovery and idempotency (BUG-005/006)
+
+### Local status before
+Confirmed. Client submittedAt bypasses expiry; any payer can reclaim a timed-out reservation;
+finalization/release identify only status, not claim ownership; crash retry can create another charge.
+### Local root cause
+Reservation state has no durable payer/request binding and timeout is treated as proof that no charge is in flight.
+### References inspected
+- [AliProgrammin/handover-fixes 35712b93bf088c1831b6ef492bb0a49f55920be5](https://github.com/AliProgrammin/fils-pay/commit/35712b93bf088c1831b6ef492bb0a49f55920be5): resume original authorized transaction via persisted idempotency.
+- [NooraBumjaid/hackathon/fixes 3278e35a05e490cb91fa380723e245303501e24a](https://github.com/NooraBumjaid/fils-pay/commit/3278e35a05e490cb91fa380723e245303501e24a): reservation UUID and attempt identity.
+- [sama-elsawaf/main 2ba122ec1b514929275a67f16832f69f1b9a4d72](https://github.com/sama-elsawaf/fils-pay/commit/2ba122ec1b514929275a67f16832f69f1b9a4d72): capture-failure cleanup.
+### Implementation adopted
+Atomic claim stores reservation UUID plus hashes of payer idempotency key and card request.
+Only that request may resume after timeout; persisted authorize/capture idempotency recovers both
+the authorize-before-capture and capture-before-finalize crash windows, including before a transaction could be bound.
+Finalize checks durable payer/request ownership. Release checks reservation UUID. Same-key paid replay
+returns identical response; changed card under same key is rejected. Expiry uses database now() only.
+Public status stays processing for reserved links; cancellation remains active-only and atomically races claim.
+Existing failed idempotency rows are locked before retry transition to serialize parallel retries.
+### Local files changed
+paymentLinks/pay.ts; status.ts; payments/idempotency.ts; db/migrations/0074_payment_link_claims.sql;
+paymentLinks/pay.test.ts; status.test.ts; routes/paymentLinks.test.ts; paymentLinks/forkBatch2.new.test.ts.
+### Regression test / commands / result
+7 new DB-backed scenarios: spoofed expiry; delayed capture beyond lease with second payer and cancellation;
+crash after authorize; crash after committed capture plus discount/replay/request mismatch;
+decline hold cleanup; cross-tenant cancellation; public hash leak.
+`node --import tsx --test apps/api/src/paymentLinks/forkBatch2.new.test.ts`: 7/7 pass.
+Same test on archived pre-batch HEAD `85c5fee`: 0/7 pass (`fork-batch2-before.txt`).
+Relevant payment-link/status/idempotency/transaction suites: 37/37 pass (`fork-batch2-subsystem.txt`).
+`npm run typecheck --workspace=@filspay/api`: pass. Migration 0074 applies (`fork-batch2-migrate.txt`).
+### Differences from reference
+Payer identity is persisted before authorize, closing the authorize-before-bind gap.
+No different-key stale reclaim, no long payment-link DB lock or extra connection across external calls.
+Unknown transport results remain bound, rather than being assumed declined and opening the link to another payer.
+Original test fixtures now populate durable ownership to represent a real crash in the new schema;
+old tests asserting client-clock expiry or publicly reclaimable stale reservations now assert the corrected contract.
+### Remaining risk
+Legacy reserved links have no provable owner; migration leaves them processing for operator reconciliation.
+The original payer needs its original key/card request. A retry waits the configured reservation timeout.
+Crash during an external processor call before its enclosing DB commit remains a broader processor
+reconciliation/idempotency problem; this batch proves recovery between committed phases, as requested.
+
+## Batch 2 — cleanup, fee parity, tenant cancellation and public DTO (BUG-018/022/023)
+
+### Local status before
+Confirmed. Failed capture leaves active hold; link captures omit negotiated discount;
+cancel is unscoped by merchant; public DTO contains latest live API-key hash.
+### Local root cause
+Payment-link path omits normal capture's post-processing and cleanup, and helper queries lack tenant/data boundaries.
+### References inspected
+2ba122ec (above); [sama-elsawaf/main 67489f2c8fd16c5db048f06ac292435efc895b95](https://github.com/sama-elsawaf/fils-pay/commit/67489f2c8fd16c5db048f06ac292435efc895b95) discount parity;
+Noora's reservation/claim implementation cross-check above. Cancellation/public DTO corrections use independently verified local queries.
+### Implementation adopted
+Definitive capture decline voids transaction/releases local hold before freeing claim; system actor accepted by void helper.
+Successful capture invokes existing idempotent integer discount adjustment before finalization.
+Cancel UPDATE and explanatory lookup both take authenticated merchant ID. Public integration field is null,
+and query no longer selects API-key hash (retains public key prefix for compatibility).
+### Local files changed
+paymentLinks/pay.ts; cancel.ts; read.ts; routes/paymentLinks.ts; payments/void.ts.
+### Regression test / commands / result
+Same seven-test regression and 37-test suite above. Fee ledger checked at 225 fils for 10,000 gross,
+250-bps MDR and 1,000-bps fee discount; recovery does not duplicate discount. Real PostgreSQL double-entry constraints enforced.
+### Differences from reference
+Processor interface supports only local simulator hold release, not actual network authorization reversal.
+Transport ambiguity is retained for same-key recovery rather than blindly voiding an uncertain capture.
+### Remaining risk
+Fee formula parity with settlement is addressed in Batch 5; this batch deliberately uses existing negotiated-discount architecture.
+
+## BATCH 2 RESULT
+
+Issues investigated: all nine Batch 2 candidates; related cancellation tenant scope and public key-hash leakage.
+Issues reproduced: seven regression scenarios fail pre-batch source.
+Issues already fixed: cancellation-vs-claim uses conditional active-only UPDATE; retained and tested.
+Issues not reproducible: none claimed.
+Fixes applied: server-clock expiry; durable payer/request claims; ownership-checked finalize/release;
+same-key crash recovery/replay; decline cleanup; discount parity; scoped cancellation; public hash removal.
+Reference repositories inspected: AliProgrammin/handover-fixes 35712b9; NooraBumjaid/hackathon/fixes 3278e35;
+sama-elsawaf/main 2ba122ec and 67489f2.
+Files changed: listed above; also app.test.ts's verified-cookie helper from Batch 1 is included in this commit
+(it was tested but accidentally omitted from the preceding staged file list).
+Migrations added: 0074_payment_link_claims.sql.
+Regression tests added: paymentLinks/forkBatch2.new.test.ts, seven cases; existing expiry/status/crash fixture corrected.
+Commands run: npm run migrate; focused/original-source regression; relevant 37-test suite; API typecheck.
+Focused test result: 7/7 pass; pre-batch 0/7 pass.
+Full TS result: API typecheck passes; no repeated full suite per user steering.
+Go result: unchanged; baseline passes.
+Docker/runtime result: actual PostgreSQL concurrency/hold/ledger/crash boundaries exercised; Docker unavailable.
+Evidence updated: this file; fork-batch2-*.txt.
+Known failures: refund/reporting/webhook failures from Batch 1 broad run remain for later batches.
+Recommended next batch: Batch 3 refunds / FP-300.

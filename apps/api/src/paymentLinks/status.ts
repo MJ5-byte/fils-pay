@@ -5,9 +5,8 @@
  * two endpoints can never disagree about what state a link is "really" in.
  *
  * Deliberately narrower than the stored `payment_links.status` enum: a
- * customer-facing checkout page never needs to distinguish a live 'active'
- * link from one whose reservation has already self-expired back to
- * claimable — both are simply 'active' from the outside. A merchant-facing
+ * customer-facing checkout page must keep a reserved link 'processing',
+ * including after timeout: only the original payer may resume. A merchant-facing
  * list (query.ts) uses the raw stored status instead, since a dashboard
  * operator does benefit from seeing "a payment is currently in flight" as
  * its own filterable state.
@@ -35,7 +34,6 @@ export function derivePublicStatus(
   }
 
   // row.status === 'reserved'
-  const reservedAtMs = row.reservedAt?.getTime() ?? 0;
-  const stillReserved = reservedAtMs > Date.now() - reservationTimeoutSeconds * 1000;
-  return stillReserved ? "processing" : "active";
+  // Timeout never makes a reservation available to a different payer.
+  return "processing";
 }
