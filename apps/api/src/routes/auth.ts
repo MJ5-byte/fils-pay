@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Pool, PoolClient } from "pg";
 import { verifyPassword } from "../auth/passwords.js";
+import { clearLoginFailures, reserveLoginAttempt } from "../auth/loginLimit.js";
 import { issueChallenge, verifyOtpCode } from "../auth/otp.js";
 import { requireSession } from "../auth/middleware.js";
 import { exposesOtpCode, sendOtpCode } from "../auth/notifier.js";
@@ -84,6 +85,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       throw new BadRequestError("invalid_request", "merchantId must be a valid id");
     }
 
+    await reserveLoginAttempt(app.db, reply, "merchant", `${merchantId.toLowerCase()}:${email}`);
+
     const userResult = await app.db.query<MerchantUserRow>(
       `SELECT mu.id, mu.merchant_id, mu.email, mu.role, mu.password_hash
          FROM merchant_users mu
@@ -101,6 +104,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
     }
+    await clearLoginFailures(app.db, "merchant", `${merchantId.toLowerCase()}:${email}`);
 
     const recipient = await findOtpRecipient(app.db, user.merchant_id, email) ?? user;
     if (await hasTooManyRecentOtpFailures(app.db, recipient.id)) {

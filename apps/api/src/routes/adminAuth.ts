@@ -5,6 +5,7 @@ import { verifyPassword } from "../adminAuth/passwords.js";
 import { issueAdminChallenge, verifyOtpCode } from "../adminAuth/otp.js";
 import { sendAdminOtpCode } from "../adminAuth/notifier.js";
 import { exposesOtpCode } from "../auth/notifier.js";
+import { clearLoginFailures, reserveLoginAttempt } from "../auth/loginLimit.js";
 import { requireAdminSession } from "../adminAuth/middleware.js";
 import {
   createPendingAdminSession,
@@ -79,6 +80,8 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new BadRequestError("invalid_request", "email and password are required");
     }
 
+    await reserveLoginAttempt(app.db, reply, "admin", email);
+
     const userResult = await app.db.query<AdminUserRow>(
       `SELECT id, email, role, password_hash FROM admin_users WHERE email = $1 AND status = 'active'`,
       [email],
@@ -92,6 +95,7 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
     }
+    await clearLoginFailures(app.db, "admin", email);
     if (await hasTooManyRecentOtpFailures(app.db, user.id)) {
       throw new TooManyRequestsError("too_many_attempts");
     }

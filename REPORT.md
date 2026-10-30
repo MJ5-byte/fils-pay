@@ -1090,6 +1090,14 @@
 - **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
 - **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.
 
+### Bug: Login accepts unlimited password guesses
+- **Status:** Fixed
+- **Type:** Security, high
+- **Problem:** Merchant and admin login answered every wrong password with the same 401 forever, so anyone could keep guessing one account's password, and each guess burned an Argon2 hash on the server.
+- **Cause:** `POST /v1/auth/login` (`routes/auth.ts`) and the admin `POST /login` (`routes/adminAuth.ts`) had no attempt limit on the password step; the only budget, the OTP failure count, is checked after a correct password.
+- **Breaks:** A password brute force against any merchant or admin account, and a CPU exhaustion vector on both login routes.
+- **Fix:** New `auth/loginLimit.ts`, used by both routes, allows 5 failed passwords per account in a sliding 15 minute window, then answers 429 `too_many_login_attempts` with a `Retry-After` header until the oldest of those failures ages out. It is keyed on the identifier the caller typed (merchant id plus email, or admin email), so an unknown account is counted and answered the same as a real one, and it runs before the user lookup and the hash, so a locked attempt costs no Argon2. Each attempt is reserved under a Postgres advisory lock, so parallel guesses cannot get past the limit, and a correct password clears the count. State lives in the new additive table `login_failures` (migration `0082`), the same DB-backed windowed count the OTP budget already uses, so it holds across restarts and API instances. The OTP step keeps its existing limit. Both login pages show one sentence for the new code. Test added in `auth.test.ts`. The lock is per account, so someone who knows an account's login can keep it locked for 15 minutes at a time; accepted for now, with nginx's per-address limit in front.
+
 ### Improvement: The settlement batch page drops a bar that measured nothing
 - **Type:** UX
 - **Before:** A closed batch page showed an unlabelled blue bar under the title. It was gross as a percent of a fixed 1,000 BHD, so it read as payout progress on a batch that is closed but not paid.

@@ -70,6 +70,7 @@ const ERROR_COPY: Record<string, string> = {
   invalid_credentials: "Those details do not match an account. Check them and try again.",
   invalid_code: "That code is wrong or has expired. Check it and try again.",
   too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
+  too_many_login_attempts: "Too many failed sign-in attempts. Wait 15 minutes and try again.",
   resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
   refund_exceeds_refundable: "That's more than is left to refund on this payment.",
   refund_amount_invalid: "Enter a refund amount above zero.",

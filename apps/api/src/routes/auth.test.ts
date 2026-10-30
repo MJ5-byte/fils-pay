@@ -246,3 +246,54 @@ test("in production the login code is in the response only for an allowlisted em
     await prodApp.close();
   }
 });
+
+test("five wrong passwords lock one account's login for a cooldown, and a correct login before that clears the count", async () => {
+  const emailA = `password-limit-a-${randomUUID()}@auth.test`;
+  const password = "password-login-limit";
+  const merchantA = await createMerchantWithOwner("password-limit-a", emailA, password);
+  const login = (merchantId: string, email: string, suppliedPassword: string) =>
+    app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password: suppliedPassword } });
+
+  for (let round = 0; round < 2; round++) {
+    for (let i = 0; i < 4; i++) {
+      const wrong = await login(merchantA, emailA, "wrong-password");
+      assert.equal(wrong.statusCode, 401, "wrong passwords below the limit must return invalid credentials");
+    }
+    const correct = await login(merchantA, emailA, password);
+    assert.equal(correct.statusCode, 200, "a correct password before the limit must clear previous failures");
+  }
+
+  for (let i = 0; i < 5; i++) {
+    const wrong = await login(merchantA, emailA, "wrong-password");
+    assert.equal(wrong.statusCode, 401, "the first five wrong passwords must return invalid credentials");
+  }
+  const locked = await login(merchantA, emailA, password);
+  assert.equal(locked.statusCode, 429, "even the right password must be refused while locked");
+  assert.equal(locked.json().error, "too_many_login_attempts", "password lockout must use its own error code");
+  const uppercaseLocked = await login(merchantA.toUpperCase(), emailA, password);
+  assert.equal(uppercaseLocked.statusCode, 429, "changing the merchant id's case must not bypass the lockout");
+  assert.equal(uppercaseLocked.json().error, "too_many_login_attempts", "UUID case variants must share the lockout code");
+  const retryAfter = Number(locked.headers["retry-after"]);
+  assert.ok(Number.isInteger(retryAfter) && retryAfter >= 1 && retryAfter <= 900, "lockout must retain a Retry-After of 1 to 900 seconds");
+
+  const emailB = `password-limit-b-${randomUUID()}@auth.test`;
+  const merchantB = await createMerchantWithOwner("password-limit-b", emailB, password);
+  const other = await login(merchantB, emailB, password);
+  assert.equal(other.statusCode, 200, "a different account must be unaffected by the lockout");
+
+  const unknownMerchant = randomUUID();
+  const unknownEmail = `password-limit-unknown-${randomUUID()}@auth.test`;
+  for (let i = 0; i < 5; i++) {
+    const wrong = await login(unknownMerchant, unknownEmail, "wrong-password");
+    assert.equal(wrong.statusCode, 401, "unknown accounts must have the same initial failure responses");
+  }
+  const unknownLocked = await login(unknownMerchant, unknownEmail, "wrong-password");
+  assert.equal(unknownLocked.statusCode, 429, "unknown accounts must have the same lockout threshold");
+  assert.equal(unknownLocked.json().error, "too_many_login_attempts", "unknown accounts must have the same lockout code");
+  const unknownRetryAfter = Number(unknownLocked.headers["retry-after"]);
+  assert.ok(Number.isInteger(unknownRetryAfter) && unknownRetryAfter >= 1 && unknownRetryAfter <= 900, "unknown accounts must retain the same Retry-After range");
+
+  const longEmail = `${Array.from({ length: 128 }, () => randomUUID()).join("")}@auth.test`;
+  const longUnknown = await login(randomUUID(), longEmail, "wrong-password");
+  assert.equal(longUnknown.statusCode, 401, "a long unknown email must return invalid credentials without an index error");
+});
