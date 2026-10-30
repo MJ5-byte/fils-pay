@@ -354,7 +354,7 @@
 - **Problem:** A refunded sale was still paid out to the merchant in full: the daily settlement batch counted the capture and never subtracted the refund, so the batch's net payout stopped matching the merchant's ledger by the refunded amount less the reversed fee.
 - **Cause:** `CloseBatch` in `apps/settlement/internal/settlement/batch.go:148-158` selected only `captured` and `partially_captured` transaction events. Nothing in settlement ever read the `refunds` table, even though migration 0042 gave it a `settlement_batch_id` column and an unbatched index for exactly this claim.
 - **Breaks:** Once `POST /v1/refunds` is live, every refund is money returned to the customer and also paid to the merchant, and reconciliation shows an unexplained gap.
-- **Fix:** `CloseBatch` now claims the merchant's unbatched succeeded refunds dated before the end of its business day, oldest first, under the same row lock and batch id as the capture events. A refund that would push the batch's net below zero stays unclaimed and carries to the next batch that can absorb it, because a payout cannot collect money back; `PayoutBatch` and the balance cache now refuse a negative payout instead of marking it paid and writing it off. It takes the refunded amount out of gross and the fee recorded in `fee_reversed_fils` out of fee, so net = captures - fees - refunds + reversed fees in integer fils and still equals gross - fee. A refund made after its sale's batch was paid comes off a later batch, from the day the refund happened, the same day its ledger legs are dated. A paid batch is never reopened. `RecalculateMDR` now subtracts those reversals from its recomputed fee, so it no longer posts a false adjustment on a batch with refunds. Tests added in `batch_test.go` and `recalculate_mdr_test.go`. PR: https://github.com/SilentYsf/fils-pay/pull/50
+- **Fix:** `CloseBatch` now claims the merchant's unbatched succeeded refunds dated before the end of its business day, oldest first, under the same row lock and batch id as the capture events. A refund that would push the batch's net below zero stays unclaimed and carries to the next batch that can absorb it, because a payout cannot collect money back; `PayoutBatch` and the balance cache now refuse a negative payout instead of marking it paid and writing it off. It takes the refunded amount out of gross and the fee recorded in `fee_reversed_fils` out of fee, so net = captures - fees - refunds + reversed fees in integer fils and still equals gross - fee. A refund made after its sale's batch was paid comes off a later batch, from the day the refund happened, the same day its ledger legs are dated. A paid batch is never reopened. `RecalculateMDR` now subtracts those reversals from its recomputed fee, so it no longer posts a false adjustment on a batch with refunds. Tests added in `batch_test.go` and `recalculate_mdr_test.go`. PR: https://github.com/SilentYsf/fils-pay/pull/50 See the Feature entry "Merchants can refund a payment".
 ### Bug: KYC PDF-only check trusts the filename, not the file bytes
 - **Status:** Fixed
 - **Type:** Security, medium
@@ -400,8 +400,8 @@
 - **Breaks:** On a host where those ranges route (carrier-grade NAT and metadata on some clouds, IPv6 networks with NAT64), a merchant could make the server POST to internal services and read 2000 characters of the answer through test-send. Merchants could also save an endpoint that could never receive a delivery, with no error.
 - **Fix:** Added 100.64.0.0/10, the NAT64 prefixes 64:ff9b::/96 and 64:ff9b:1::/48, and ::/96 (which also covers :: and ::1) to the transport blocklist, and made `validateWebhookUrl` strip a trailing dot and resolve non-IP hostnames with `node:dns`, rejecting any that resolve to a blocked address. The send-time check on the resolved address is unchanged, so DNS rebinding after registration is still blocked, and redirects are still never followed. No new dependency. Tests added. PR: https://github.com/SilentYsf/fils-pay/pull/57
 
-### Bug: Bad input on payment-link and transaction routes crashes with 500 or is silently ignored
-- **Status:** Fixed (BHA-89, BHA-90, BHA-92, BHA-94, BHA-88)
+### Bug: Bad input on payment-link and transaction routes crashes with 500 or is silently ignored (BHA-89, BHA-90, BHA-92, BHA-94, BHA-88)
+- **Status:** Fixed
 - **Type:** Data, medium
 - **Problem:** Creating a payment link with amount 0, listing links with `limit=abc` or a crafted cursor, and cancelling a link with a non-UUID id answered 500. A garbage cursor on the transaction list silently returned page one, so a client with a corrupted cursor looped over the first page.
 - **Cause:** `routes/paymentLinks.ts` and `routes/transactions.ts` passed raw input down. `toFils` allows 0, so the insert hit the database check; `Number.parseInt("abc")` gave NaN for `LIMIT`; a cursor with a bad date or id reached a `::timestamptz` / uuid cast; `decodeCursor` in the two query modules turns any malformed cursor into `null`, which means page one.
@@ -422,13 +422,17 @@
 - **Cause:** The routes passed raw input to Postgres or to `bahrainLocalMidnightUtc` (`settlement/query.ts`, which throws RangeError). `Number.parseInt("abc")` gave NaN as a `LIMIT`; a malformed uuid or timestamp failed the cast; `routes/reporting.ts` read only the `filter` JSON and never looked at top-level `from`/`to`.
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
+### Feature: Merchants can refund a payment
+- **What:** A merchant owner or finance user can refund a captured payment in full or in part, from the dashboard or the API. The customer is paid back by the acquirer, the platform fee is reversed in proportion, the refund comes off the merchant's next payout, and the merchant's webhook endpoints are told.
+- **How it works:** `POST /v1/refunds` (PR #61, BHA-31) takes the merchant from the session or API key, requires an `Idempotency-Key`, answers 404 for another merchant's transaction, caps the total at captured minus refunded, and reverses the fee cumulatively so uneven partial refunds never reverse more than was charged. `CloseBatch` (PR #50) subtracts the day's succeeded refunds from the batch and carries a refund larger than the day's sales forward to the next batch. The transaction page has a Refund drawer (PR #69) that parses BHD into integer fils and reuses one key on a retry. `processRefund` enqueues a `refund.succeeded` event, which every active webhook endpoint receives signed (PR #73). The bugs this work exposed are the entries "Refunds pay out twice and can exceed the charge", "Refunds could not be made, and the drafted refund path refunded other merchants' payments and reversed too much fee", "Refunds never come off the merchant's payout" and "The dashboard had no way to refund a payment".
+- **How to try:** Capture a payment, open it under Transactions in the merchant app, press Refund, enter an amount and confirm; the page shows the refunded total. Or `POST /v1/refunds` with `transactionId`, an optional `amountFils` and an `Idempotency-Key` header. Register a webhook endpoint first to see `refund.succeeded`; close that day's batch to see the refund taken off the payout.
 ### Bug: Refunds could not be made, and the drafted refund path refunded other merchants' payments and reversed too much fee
 - **Status:** Fixed
 - **Type:** Money, critical
 - **Problem:** `POST /v1/refunds` answered 501, so no merchant could refund a payment. Wired as drafted, its helpers would have let a merchant refund another merchant's payment. Every refund sent without a reason would also have failed after the acquirer had already paid it out. Three partial refunds of 300, 300 and 400 fils would have reversed 26 fils of a 25 fils fee, and a merchant with a negotiated discount would have had the full fee reversed although part of it was already returned.
 - **Cause:** `apps/api/src/routes/refunds.ts:23-25` was a stub. Its drafted handler made a new idempotency key on every call and spread the request body over `merchantId`. `apps/api/src/refunds/initiateMerchantRefund.ts:62-73` looked the transaction up by id only and passed the owner on as the merchant. `apps/api/src/payments/processRefund.ts:162` inserted `reason ?? null`, which migration 0070 rejects. `processRefund.ts:144` rounded each partial refund's fee on its own (`calculateRefundFee`) against the gross MDR credit (`:111-117`), which ignores the discount debit that `discountAdjustment.ts:81` posts.
 - **Breaks:** Refunds, the missing feature in the brief (FP-300). Without the fix, refunds could not be made at all. Wired as drafted, a merchant could refund any merchant's payment, the platform would lose fee fils on uneven partial refunds, and discounted merchants would get their discount back twice.
-- **Fix:** The route now requires merchant auth and an owner or finance session (API keys pass, as for capture). It takes the merchant from the session or key, never from the body, and requires the client's `Idempotency-Key`; a retry with the same key replays the first answer. It rejects a zero, negative or fractional amount with 422, and a bad `transactionId` or `reason` (not a string, over 500 characters, or containing a NUL) with 400, before anything is claimed. `initiateMerchantRefund` and the locked select in `processRefund` both filter on `merchant_id`, so another merchant's transaction answers 404. A missing reason is stored as `unspecified`. The fee reversal is now cumulative: fee(total refunded after this refund) minus what earlier refunds already reversed, computed on the ledger's net platform fee for the transaction, so the discount is never reversed twice. 300, 300 and 400 fils now reverse 8, 7 and 10, which is exactly 25, and the reversal can never exceed the fee charged. `packages/money` is unchanged, and there is no migration. Tests added. PR: https://github.com/SilentYsf/fils-pay/pull/61
+- **Fix:** The route now requires merchant auth and an owner or finance session (API keys pass, as for capture). It takes the merchant from the session or key, never from the body, and requires the client's `Idempotency-Key`; a retry with the same key replays the first answer. It rejects a zero, negative or fractional amount with 422, and a bad `transactionId` or `reason` (not a string, over 500 characters, or containing a NUL) with 400, before anything is claimed. `initiateMerchantRefund` and the locked select in `processRefund` both filter on `merchant_id`, so another merchant's transaction answers 404. A missing reason is stored as `unspecified`. The fee reversal is now cumulative: fee(total refunded after this refund) minus what earlier refunds already reversed, computed on the ledger's net platform fee for the transaction, so the discount is never reversed twice. 300, 300 and 400 fils now reverse 8, 7 and 10, which is exactly 25, and the reversal can never exceed the fee charged. `packages/money` is unchanged, and there is no migration. Tests added. PR: https://github.com/SilentYsf/fils-pay/pull/61 See the Feature entry "Merchants can refund a payment".
 
 ### Feature: Merchants get a `refund.succeeded` webhook
 - **What:** When a refund succeeds, every active webhook endpoint of the merchant receives a signed `refund.succeeded` event with the refund's amount, the fee reversed and the transaction's new total and status.
@@ -441,7 +445,7 @@
 - **Problem:** A merchant owner or finance user could not refund from the transaction page: there was no Refund button, no refunded amount and no refund error text. The parked form would also have refunded twice on a retry.
 - **Cause:** `apps/web/src/pages/transactions/RefundDrawer.tsx` was commented out and imported nowhere. Its draft called `/v1/merchants/:id/refunds`, a route that does not exist, took amounts in fils, and made a new `Idempotency-Key` on every click. The API's refund refusals first answered `{ ok: false, code }` instead of `{ error, message }` (fixed in #61), and `apps/web/src/api/client.ts` read only `error`, so such a failure showed a blank banner.
 - **Breaks:** Refunds (the brief's FP-300) were unusable from the UI. Typing 4.75 BHD in a fils box would have refunded 4.75 fils, and a retry after a lost response would have sent a second refund under a new key.
-- **Fix:** The drawer now calls `POST /v1/refunds`. It parses BHD with `parseBhdToFils` (3 decimals, integer fils), shows the API error text, and reuses one idempotency key when the same amount is retried after no answer came back. It is hidden from `support` and when nothing is refundable. The detail page shows the refunded total, summed from the refund events the timeline already returns, so there is no new endpoint. The client now reads `code` when `error` is absent. Tests added in `dashboard.test.ts`. The admin `refunds_enabled` toggle was not wired: no admin endpoint writes that column. PR: see this PR.
+- **Fix:** The drawer now calls `POST /v1/refunds`. It parses BHD with `parseBhdToFils` (3 decimals, integer fils), shows the API error text, and reuses one idempotency key when the same amount is retried after no answer came back. It is hidden from `support` and when nothing is refundable. The detail page shows the refunded total, summed from the refund events the timeline already returns, so there is no new endpoint. The client now reads `code` when `error` is absent. Tests added in `dashboard.test.ts`. The admin `refunds_enabled` toggle was not wired: no admin endpoint writes that column. PR: see this PR. See the Feature entry "Merchants can refund a payment".
 ### Bug: Settlement daemon only catches up the most recent day
 - **Status:** Fixed
 - **Type:** Money, medium
@@ -457,31 +461,31 @@
 - **Cause:** `balances.ApplyPayout` in `apps/settlement/internal/balances/cache.go:41-47` was a bare `UPDATE ... WHERE merchant_id = $1`, which silently matches 0 rows when the row does not exist. Both `PayoutBatch` and `PayoutSplitBatch` route through it, and nothing checked the row count. On the daily path the close runs first, and `ApplyBatchClose` (`cache.go:25-34`) created the missing row from that day's net alone, ignoring every batch already closed and unpaid.
 - **Breaks:** The cached balance drifts from the ledger for every merchant whose batches were closed before the cache existed, until someone runs a rebuild. On the daily `run-batch` path it goes negative: closing an empty day creates the row at 0, and paying a 15.000 BD batch then leaves the cache at minus that amount while another 6.000 BD batch is still closed and unpaid.
 - **Fix:** Both cache functions in `balances/cache.go` are now one `INSERT ... SELECT ... ON CONFLICT DO UPDATE` in the caller's transaction, with the same rule for a missing row: start from the net of the merchant's closed, unpaid batches. An existing row still moves by the delta as before. `ApplyBatchClose` counts the batch being closed once, through the sum, because `CloseBatch` has already marked it closed. `ApplyPayout` leaves out the batch being paid, because `PayoutSplitBatch` marks it paid only after the cache update. A plain upsert of the delta was rejected because it ignores the batches the cache never saw. Seeding from the ledger was rejected because the ledger already holds captures that are not closed yet, so their close would add them a second time (ADR-0007 records the same double count for the rebuild). Three tests were added, each failing without the fix. The payout test checks the cache is 0 after the payout and equals the ledger after the next close. The close-first test closes an empty day and then pays a batch, and checks the cache equals the closed, unpaid total. The split-parent test pins the paid batch's exclusion.
-### Bug: Concurrent retries of a failed idempotency key both move money
-- **Status:** Fixed (BHA-146)
+### Bug: Concurrent retries of a failed idempotency key both move money (BHA-146)
+- **Status:** Fixed
 - **Type:** Concurrency, high
 - **Problem:** Two retries of the same request fired at once, after an earlier attempt left the idempotency key in `failed`, both run the capture, refund or authorize money operation, so the money moves twice.
 - **Cause:** In `apps/api/src/payments/idempotency.ts`, the read of the existing `failed` row took no row lock and the UPDATE back to `in_progress` matched on `id` alone. Under READ COMMITTED both retries read `failed` before either updated, so both passed the guard and both executed; the UPDATE could even overwrite a claim another retry had already marked `completed`.
 - **Breaks:** A client retry during a failed attempt could capture, refund or authorize the same amount twice, over-charging or over-crediting with no sign it ran twice.
 - **Fix:** The existing-row read now takes `FOR UPDATE`. The second retry blocks on the row lock until the first retry's transaction commits, then reads the committed status: `completed` replays the stored result, `failed` means it is the single retry that proceeds. One row lock, no check-then-act (ADR-0002). This is the shared claim path every money endpoint routes through. Concurrency test added (`idempotencyClaim.test.ts`): two parallel retries of a failed key leave exactly one proceeding and the other replaying.
 
-### Bug: Capture discount credited twice on a zero-rebate replay
-- **Status:** Fixed (BHA-145)
+### Bug: Capture discount credited twice on a zero-rebate replay (BHA-145)
+- **Status:** Fixed
 - **Type:** Money, high
 - **Problem:** For a merchant with a negotiated discount, once any capture's rebate rounded down to zero fils, replaying a later successful capture credited that later capture's discount to the merchant a second time.
 - **Cause:** `applyCaptureDiscountAdjustment` in `apps/api/src/payments/discountAdjustment.ts` guarded against double-posting by comparing the count of adjustment ledger credits to the count of capture events, assuming one adjustment per capture. A capture whose rebate rounds to zero writes no ledger row (`ledger_entries` has `CHECK (amount_fils > 0)`), so the adjustment tally stayed permanently below the capture-event tally and the guard never tripped; a replay of a later, non-zero capture then posted its discount again.
 - **Breaks:** Merchant payable rose above the ledger's truth by the discount share of a fee per affected transaction, and settlement pays it out.
 - **Fix:** The guard now counts only the capture events whose rebate actually rounds above zero, computed with the same `applyRateFils` rounding used to post, and compares that to the adjustments already posted. A zero-rebate capture no longer leaves the guard short, so each capture's discount posts exactly once regardless of rounding. Integer fils throughout (ADR-0001). Regression test added in `discountAdjustment.test.ts`: a zero-rebate capture followed by a non-zero one, replayed, credits once.
-### Bug: Reconciliation prices pending captures with float math
-- **Status:** Fixed (BHA-107)
+### Bug: Reconciliation prices pending captures with float math (BHA-107)
+- **Status:** Fixed
 - **Type:** Money, medium
 - **Problem:** `GET /v1/settlement/reconciliation` reports a spurious non-zero gap (`explained: false`) on correctly settled books whenever a pending (unbatched) capture rounds differently under float than under the integer fee math the capture actually used. A 20-fil capture at 250 bps is a clean example: the gap comes out as 1 fil.
 - **Cause:** `fees/estimate.ts` priced the pending fee with JS float basis points (`amountFils * mdrBps / 10_000`, then `Math.round`), violating ADR-0001's integer half-to-even rule and disagreeing with `applyRateFils`, the primitive `payments/capture.ts` charges the real fee with. 20 x 250 / 10000 is exactly 0.5 fil: banker's rounding (and so the ledger) gives 0, the old `Math.round` gave 1.
 - **Breaks:** Finance sees a reconciliation that does not explain to zero on books that are in fact correct, eroding trust in the one report meant to prove the ledger and the settlement agree.
 - **Fix:** `estimateFeeFils` now prices through the same integer `applyRateFils` path as capture (gross fee, then the discount reversal, each banker's-rounded independently), so no float ever touches a money value. `settlement/query.ts` feeds it the resolved rate. Test added: an unbatched 20-fil capture now reconciles to a zero gap.
 
-### Bug: Reconciliation ignores the tier bonus and dated fee schedules
-- **Status:** Fixed (BHA-108)
+### Bug: Reconciliation ignores the tier bonus and dated fee schedules (BHA-108)
+- **Status:** Fixed
 - **Type:** Money, medium
 - **Problem:** `GET /v1/settlement/reconciliation` prices pending captures off the merchant's flat current `mdr_bps` and `negotiated_discount_bps`, so a merchant on a dated fee schedule or the volume tier shows a false reconciliation gap even though every capture was priced correctly.
 - **Cause:** `settlement/query.ts` read `merchants.mdr_bps` directly, trusting a comment that a `0046` trigger keeps it in sync with `fee_schedules`. No such trigger exists, and even if it did the column holds only the current rate, not the rate in force when each past capture was taken. The capture path (`capture.ts`) instead resolves the effective-dated schedule (`getEffectiveMdrBps`) net of the platform volume-tier bonus (`getVolumeTierBonusBps`).
@@ -530,37 +534,37 @@
 - **Cause:** The shared error handler in `apps/api/src/plugins/errorHandler.ts` mapped Fastify's request-parsing errors (`FST_ERR_CTP_INVALID_JSON_BODY`, `FST_ERR_CTP_INVALID_MEDIA_TYPE`, `FST_ERR_CTP_BODY_TOO_LARGE` and the like) to the catch-all 500 branch. Those errors already carry the correct 4xx `statusCode`, but the handler never read it.
 - **Breaks:** Integrators could not tell a request they could fix from a server fault, and every monitoring 500 hid a plain client mistake.
 - **Fix:** In the shared handler, a Fastify framework error (`FST_` code) carrying a 4xx `statusCode` now answers that status with a clean machine-readable code (`unsupported_media_type`, `payload_too_large`, else `bad_request`) and Fastify's own static message. Genuine server faults, including the handful of `FST_` codes that are 5xx, still answer 500 with no stack trace, SQL or internals. One route is unchanged; the one shared place every route routes through now classifies client errors correctly. Test added (`plugins/errorHandler.test.ts`): a malformed JSON body returns 400 and an unsupported content type returns 415, neither leaking internals.
-### Bug: Login crashes on a non-UUID merchant id
-- **Status:** Fixed (BHA-75)
+### Bug: Login crashes on a non-UUID merchant id (BHA-75)
+- **Status:** Fixed
 - **Type:** UX, low
 - **Problem:** POST /v1/auth/login with a merchantId that is not UUID-shaped answered 500 instead of a clean 4xx, on an unauthenticated endpoint.
 - **Cause:** `routes/auth.ts` passed `merchantId` straight into the login query, where `merchant_id` is a uuid column; a non-uuid value raised Postgres 22P02 (invalid_text_representation), which surfaced as a 500.
 - **Breaks:** An unauthenticated endpoint leaked a server error and could not tell bad input from a real failure; every malformed login probe produced an internal error.
 - **Fix:** Validate `merchantId` against the repo's shared `UUID_RE` at the route boundary, right after the required-fields check, and answer 400 `invalid_request` before the query, the same shape BHA-91 used for the other id routes. The generic `invalid_credentials` path for a well-formed but unknown merchant is unchanged, so nothing new is disclosed. Test added in `app.test.ts`.
 
-### Bug: Listing API keys has no row limit
-- **Status:** Fixed (BHA-78)
+### Bug: Listing API keys has no row limit (BHA-78)
+- **Status:** Fixed
 - **Type:** Performance, low
 - **Problem:** GET /v1/merchants/:merchantId/api-keys ran a SELECT with no LIMIT, so the response grew without bound as a merchant's key count grew.
 - **Cause:** `listApiKeys` in `apps/api/src/apiKeys/issue.ts` selected every row for the merchant ordered by created_at, with no LIMIT and no way for the caller to cap the page.
 - **Breaks:** A merchant with many keys loaded an arbitrarily large response in a single call.
 - **Fix:** `listApiKeys` now clamps a page size the same way every other list query in the repo does (`Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT))`, default 25, max 100) and adds `LIMIT $2`; the route accepts an optional `?limit=` and rejects a non-numeric value with 400, matching BHA-91. The query already selected only the display columns, never key_hash. Test added in `app.test.ts`.
-### Bug: Authorize, API key delete and business profile routes crash with 500 on bad input, and profile update builds SQL from request keys
-- **Status:** Fixed (BHA-79, BHA-77, BHA-99, BHA-100, BHA-101)
+### Bug: Authorize, API key delete and business profile routes crash with 500 on bad input, and profile update builds SQL from request keys (BHA-79, BHA-77, BHA-99, BHA-100, BHA-101)
+- **Status:** Fixed
 - **Type:** Data, medium
 - **Problem:** Authorizing with a negative, fractional, NaN or string amount answered 500, and an amount of 0 went through to the acquirer. Deleting an API key with a non-UUID id, signing up with an unknown business type, and updating the business profile with a null, wrongly typed field or a three-letter country all answered 500. A profile update with an unknown key also answered 500.
 - **Cause:** `routes/transactions.ts` passed `amountFils` to `toFils`, which throws RangeError on bad numbers and allows 0. `routes/apiKeys.ts` sent any id to a `uuid` comparison. `routes/businessProfile.ts` checked only that signup fields were present, so the database CHECK, NOT NULL and CHAR(2) constraints failed. `updateBusinessProfile` looked up each request key in `PATCHABLE_COLUMNS` and put the result into the `SET` clause, so an unknown key produced broken SQL instead of being refused.
 - **Breaks:** Merchants got internal errors instead of an answer they can act on, a zero-amount authorization could reach the acquirer, and the update query's shape depended on the request body.
 - **Fix:** Authorize checks the amount is a positive safe integer before any acquirer call (400 `invalid_amount`). Revoke answers 404 `api_key_not_found` for a non-UUID id, using the repo's `UUID_RE`. `assertValidBusinessProfile` in `onboarding/businessProfile.ts` is shared by signup and update: keys outside `PATCHABLE_COLUMNS` give 400 `unknown_field`, bad values give 400 `invalid_business_profile`, and no input is echoed. Signup now also requires an uppercase two-letter country, and treats a null country as omitted. Tests added in `app.test.ts` and `transactions.test.ts`, including that the acquirer is never called.
-### Bug: The transaction date filter and the Run batch default use the UTC day, not the Bahrain business day
-- **Status:** Fixed (BHA-139, BHA-142)
+### Bug: The transaction date filter and the Run batch default use the UTC day, not the Bahrain business day (BHA-139, BHA-142)
+- **Status:** Fixed
 - **Type:** Data, medium
 - **Problem:** Filtering the merchant transaction list to one day dropped that day's payments made between 00:00 and 03:00 Bahrain time and showed the previous day's 00:00 to 03:00 instead. Between 00:00 and 03:00 Bahrain time the admin Run batch form defaulted to the day before yesterday.
 - **Cause:** `dayStartIso` in `apps/web/src/format.ts:35` turned the picked date into UTC midnight (`T00:00:00.000Z`), and a comment above it falsely said it had been switched to Bahrain time. `yesterdayIso` in `apps/admin/src/pages/settlement/SettlementPage.tsx:19` subtracted a day in the browser's zone and then read the date in UTC with `toISOString()`. ADR-0003 keys every daily window on the Asia/Bahrain business day, which starts at 21:00 UTC.
 - **Breaks:** A merchant checking one day's payments against that day's settlement batch got a list three hours off, so the two never matched. Near midnight the admin could close the wrong day's batch by accepting the default.
 - **Fix:** `dayStartIso` now parses the date at `+03:00`, the same parse apps/api's `bahrainLocalMidnightUtc` uses. The Run batch default moved to `apps/admin/src/pages/settlement/businessDate.ts` and takes yesterday from the Bahrain calendar date, the same technique as apps/api's `todayBahrainDateString`, whatever the browser's zone. The web test that asserted UTC midnight now asserts 21:00Z on the previous day. A new admin test pins both sides of 21:00Z with a fixed clock, and admin gained the same `tsx --test` script the web app has. On a local run, the 27 Aug filter now includes a payment made at 01:03 Bahrain time (22:03Z on 26 Aug) that the old filter left out.
-### Bug: Settlement can close a business day before it ends, and that day's later captures are never paid
-- **Status:** Fixed (BHA-148)
+### Bug: Settlement can close a business day before it ends, and that day's later captures are never paid (BHA-148)
+- **Status:** Fixed
 - **Type:** Money, high
 - **Problem:** Running the batch for today (or a future date) from the admin Run batch form, the `run-batch` CLI or the internal endpoint closed and paid that day straight away. Captures made later the same day were never settled: every rerun answered "already closed".
 - **Cause:** `CloseBatch` in `apps/settlement/internal/settlement/batch.go:60` closed any date it was given and never checked that the Asia/Bahrain business day was over. Only the daemon picks a finished day (`internal/scheduler/daemon.go:106`); the CLI (`cmd/settlement/main.go:104`), the internal endpoint (`internal/internalapi/server.go:222`) and the admin route behind it (`apps/api/src/routes/admin.ts:118`) accept any date. Once the batch is closed, a later capture of that day falls outside every other day's window (`BusinessDayWindow`), so no batch ever picks it up.
@@ -568,38 +572,38 @@
 - **Fix:** `CloseBatch` now returns `ErrBusinessDayNotOver` when the day's Bahrain midnight has not passed, before it opens a transaction or creates a batch row, so all three callers are covered in one place. The clock is a package variable so the test can fix it. https://github.com/SilentYsf/fils-pay/pull/75
 - **Test added:** `TestCloseBatch_RefusesBusinessDayThatHasNotEnded` in `batch_test.go` fixes the clock at 10:00 Bahrain time and checks that today and tomorrow are refused with no batch row and no event claimed, that yesterday still closes, and that today closes with its capture once Bahrain midnight passes. It fails without the guard.
 
-### Bug: The night the platform crosses the volume tier, settlement pays merchants more than the ledger owes them
-- **Status:** Fixed (BHA-147)
+### Bug: The night the platform crosses the volume tier, settlement pays merchants more than the ledger owes them (BHA-147)
+- **Status:** Fixed
 - **Type:** Money, medium
 - **Problem:** When the platform's lifetime volume crossed the 2,000,000 BD tier between a capture and its batch close, the batch charged 15 bps less fee than the capture had journaled. The merchant's net payout came out larger than the `merchant_payable` the ledger held for those captures (300 fils over on 200 BD of captures at 250 bps in the test).
 - **Cause:** Capture journals its fee with the tier read at capture time (`apps/api/src/payments/capture.ts:171,199`) and stores it in `transaction_events.metadata.feeFils` (`:261`). `CloseBatch` ignored that and read the tier again at close (`apps/settlement/internal/settlement/batch.go:148-153`), then charged every event at the new rate (`:220-224`). An earlier merchant's close in the same nightly pass can push the counter over the threshold (`:237`), so every later batch that night is priced lower than its ledger.
 - **Breaks:** `PayoutBatch` pays the difference out of platform cash, above the recorded liability, once per threshold crossing, and the paid batch no longer reconciles with the ledger.
 - **Fix:** `CloseBatch` now charges each capture the fee journaled at capture (`metadata.feeFils`). It then subtracts the negotiated-discount rebates `discountAdjustment.ts` actually credited on each transaction that business day, summed from the ledger in one query per batch, instead of recomputing them. A rebate that never posted (a failed adjustment call, a seeded capture whose fee is already net of the discount) or a discount rate changed since capture can no longer make the payout differ from `merchant_payable`. Events with no journaled fee, or a value that is not a whole number of fils, keep the old computation. https://github.com/SilentYsf/fils-pay/pull/91
 - **Test added:** `TestCloseBatch_PaysTheFeeJournaledAtCapture` in `batch_test.go` journals a full capture and a two-part capture at 250 bps, moves `platform_stats` to the threshold, closes the day, and checks the net payout equals the ledger's `merchant_payable`: with no discount, with a discount rebated after capture, and with a discount already folded into the journaled fee as the seed writes it, and with a two-part capture whose first rebate never posted. Without the fix it overpays by 300 fils (no discount) and 263 fils (rebated discount).
-### Bug: Settlement never pays out manual merchant credits
-- **Status:** Fixed (BHA-149)
+### Bug: Settlement never pays out manual merchant credits (BHA-149)
+- **Status:** Fixed
 - **Type:** Money, high
 - **Problem:** A goodwill, dispute or correction credit that an admin posted to a merchant showed up in the merchant's balance, but no payout ever included it. The merchant never received the money.
 - **Cause:** `postCreditToLedger` in `apps/api/src/admin/credits.ts:154-190` journals the credit onto `merchant_payable` and adds it to the balance cache. A batch payout is the only thing that ever pays `merchant_payable` out, and it pays `net_payout_fils`, which `CloseBatch` in `apps/settlement/internal/settlement/batch.go:160-170` built from capture events alone (`event_type IN ('captured','partially_captured')`). Nothing in settlement read the credits.
 - **Breaks:** Every posted credit stayed owed on the ledger forever, so merchants were underpaid by the full credit amount and their dashboard balance never came back to zero.
 - **Fix:** `CloseBatch` now claims the merchant's posted credits that were posted before the end of its business day and are not yet paid, adds them to the batch's gross with no fee (so net = gross - fee still holds, and `RecalculateMDR` keeps them), and stamps each credit's `merchant_payable` ledger legs with the batch id under `FOR UPDATE` in the same transaction, the same claim capture events get. No schema change: `ledger_entries.settlement_batch_id` already existed. A rerun is a no-op and a later batch skips stamped legs, so each credit is paid exactly once; a credit that missed its own day's close is picked up by the next one. Split parents pay it out through their children like the rest of their net. The platform volume tier still counts card captures only, and the balance cache adds only the captures' net at close because the credit entered it when it posted. One thing to know: a batch's `gross_fils` now includes the credits it pays. https://github.com/SilentYsf/fils-pay/pull/90
 - **Test added:** `TestCloseBatch_PaysPostedManualCreditsExactlyOnce` in `batch_test.go` posts a backdated credit, a credit with an MDR reversal and a credit posted after the day ended, then checks the day's payout carries the first two, a rerun pays nothing new, the next day pays only the late one, a third day pays 0, and the balance cache and the `merchant_payable` ledger both end at 0. It fails without the fix (the payout is short by 2218 fils).
-### Bug: Refunds have no unique reference, so a retry double-posts
-- **Status:** Fixed (BHA-123)
+### Bug: Refunds have no unique reference, so a retry under a new key double-posts (BHA-123)
+- **Status:** Found
 - **Type:** Money, medium
-- **Problem:** A retried or re-posted refund (the same logical refund sent again with a new idempotency key, or re-imported) created a second refund row and reversed the fee a second time, moving the money twice.
-- **Cause:** The acquirer simulator (`apps/api/src/acquirer/simulator.ts`) echoed the transaction's authorization reference back as the refund's reference, so every refund of one transaction stored the same `acquirer_reference`, and 0042 left that column without a UNIQUE constraint. `processRefund` then inserted a plain row with no guard, so two attempts both wrote.
-- **Breaks:** Any duplicate refund attempt paid the merchant twice and reversed the platform fee twice for one refund.
-- **Fix:** The acquirer now issues its own reference per refund (distinct refunds of one transaction get distinct references, a genuine retry the same one). A new additive migration adds `UNIQUE (acquirer_reference)` on refunds, and the insert is atomic: `ON CONFLICT (acquirer_reference) DO NOTHING`, returning the first refund unchanged on a conflict so a duplicate moves no money again. The insert also stops passing an explicit NULL `reason`, which the applied `chk_refunds_reason_not_null` constraint rejects; this let the refund insert succeed and turned the 11 pre-existing refund-insert test failures green. Red/green test added (`payments/refundUniqueReference.new.test.ts`): a second refund carrying the same acquirer reference posts once and returns the first refund. Schema change, needs human sign-off (rule 3).
-### Bug: The webhook dispatcher double-delivers when more than one replica runs
-- **Status:** Fixed (BHA-135)
+- **Problem:** The same logical refund sent again under a new `Idempotency-Key` (a client that lost its key, or a re-import) creates a second refund row and reverses the fee a second time, so the money moves twice. The same refund retried under the same key, or two refunds sent at once, are safe.
+- **Cause:** Refunds carry no reference that tells a repeat from a second, valid partial refund. The acquirer simulator (`apps/api/src/acquirer/simulator.ts`) echoes the transaction's authorization reference, so every refund of one transaction shares one `acquirer_reference`, and `0042_refunds.sql` leaves that column without a UNIQUE constraint. `processRefund` (`apps/api/src/payments/processRefund.ts`) therefore has nothing to match a repeat against.
+- **Breaks:** A client that resends a refund under a fresh key pays the merchant's customer twice, up to the captured amount, and reverses the platform fee twice.
+- **Fix:** None stands. PR #70 added a per-refund `acqr_<uuid>` reference and a `UNIQUE (acquirer_reference)` migration (0075), and this entry first said Fixed. PR #97 reverted all of it: partial refunds of one transaction legitimately share an authorization reference, so the constraint cannot hold for valid data, and migrate stopped at 0075 on any database that held a partial refund. A fresh-key retry also got a fresh `acqr_<uuid>`, so it never hit the constraint. What stands on `main` is narrower: `processRefund` claims the client's idempotency key first, so the same key replays the first answer (#61, with the stable acquirer key from #104 covering a retry after a database rollback); the `FOR UPDATE` row lock serialises concurrent refunds (see "Refunds pay out twice and can exceed the charge"); and the cap of captured minus refunded, backed by the `refunded_fils <= captured_fils` CHECK from migration 0079, bounds any double post. A second refund under a new key within that cap is still accepted, because it cannot be told from a legitimate partial refund without a client-supplied reference. Closing that needs a schema or API change and waits for a human.
+### Bug: The webhook dispatcher double-delivers when more than one replica runs (BHA-135)
+- **Status:** Fixed
 - **Type:** Concurrency, high
 - **Problem:** With more than one api replica running the in-process webhook dispatcher, both replicas selected the same due delivery and both POSTed it, so the merchant received each webhook twice.
 - **Cause:** Step B's due-delivery SELECT in `webhooks/dispatcher.ts` (`attemptDueDeliveries`) picked every `pending` row whose `next_attempt_at` had passed with no atomic claim, and the HTTP send happens outside any transaction. Two passes read the same row before either marked it, so both sent. The comments above it ("only ever run ONE api replica", "staging ran 2 replicas, never saw a dup, so it's fine") asserted safety the code never had.
 - **Breaks:** Receivers got duplicate `transaction.captured`, `transaction.voided` and `settlement.paid` deliveries, and the `settlement.paid` pre-delivery effect (payout disbursement) could run twice.
 - **Fix:** Each delivery is now claimed before it is sent, with a conditional UPDATE that leases the row by pushing `next_attempt_at` past the send window. The row lock serialises two replicas, so exactly one wins each row and the rest skip it. No schema change: the status CHECK constraint has no `sending` value, and `next_attempt_at` already means "not eligible until". A normal attempt still overwrites `next_attempt_at` with the real backoff or sets a terminal status, so the lease only covers the crash-recovery window. Test added: two overlapping dispatch passes deliver one due event exactly once.
-### Bug: Transaction authorize crashes with a 500 on an empty or malformed card object
-- **Status:** Fixed (BHA-80)
+### Bug: Transaction authorize crashes with a 500 on an empty or malformed card object (BHA-80)
+- **Status:** Fixed
 - **Type:** UX, low
 - **Problem:** Authorizing with `card: {}`, a missing field, or a wrongly typed field answered 500 instead of a clean 400. BHA-79 already guarded the amount; the card shape was still unchecked.
 - **Cause:** `routes/transactions.ts` only checked that `card` was present (`!card`), so an empty object passed. `authorizeTransaction` then handed it to the simulator, where `magicOutcomeForPan(req.card.pan)` called `pan.endsWith(...)` on `undefined` and threw a TypeError, surfacing as an unhandled 500.
@@ -612,16 +616,16 @@
 - **Cause:** `parseBalanceAdjustmentBody` in `apps/api/src/routes/adminBalanceAdjustments.ts:29` only checked `Number.isInteger`, which is true for unsafe integers. `toFils` on the next lines then threw a `RangeError`, and nothing turned that into a client error.
 - **Breaks:** A bad amount from the admin form or an API client looked like a server failure and filled the error log. No balance changed.
 - **Fix:** The check now uses `Number.isSafeInteger`, the same test the credit-request and transaction-capture amount checks use, so the route's existing 400 `invalid_request` answers. Test added in `adminBalanceAdjustments.test.ts` that posts the raw JSON text for both signs.
-### Bug: A NUL byte in a webhook receiver's response stops its delivery from ever being recorded
-- **Status:** Fixed (BHA-152)
+### Bug: A NUL byte in a webhook receiver's response stops its delivery from ever being recorded (BHA-152)
+- **Status:** Fixed
 - **Type:** Concurrency, medium
 - **Problem:** A receiver that answered with a body containing a NUL character (any status code) made its delivery retry on every dispatcher pass forever: the attempt count and status never changed, so the delivery never reached `exhausted`, and the webhook log showed no attempt.
 - **Cause:** `attemptOneDelivery` (`apps/api/src/webhooks/dispatcher.ts:180`) passed the raw receiver body into `response_body_excerpt`, and Postgres TEXT rejects NUL. The query threw before the UPDATE applied, and the per-row catch in `attemptDueDeliveries` leaves the row untouched.
 - **Breaks:** A receiver controls whether its own delivery ever progresses or backs off, and it adds a failing query to every pass, with an error log line each time.
 - **Fix:** One `replaceAll` strips NUL from the body before the three UPDATEs that share it; the 2000-character cap is unchanged. PR: https://github.com/SilentYsf/fils-pay/pull/72. Tests added in `dispatcher.test.ts` for a 200 and a 500 response, which also check that another endpoint is still delivered.
 
-### Bug: Admin audit rows for settlement re-run, balance rebuild and MDR recalculation say "succeeded" before the action has run
-- **Status:** Fixed (BHA-153)
+### Bug: Admin audit rows for settlement re-run, balance rebuild and MDR recalculation say "succeeded" before the action has run (BHA-153)
+- **Status:** Fixed
 - **Type:** Data, medium
 - **Problem:** The audit log showed `outcome = succeeded` for an admin action whose outcome was not known yet. If the API crashed or restarted during the call, or the follow-up update failed, the row stayed `succeeded` for an action that may never have finished.
 - **Cause:** The three cross-process routes in `apps/api/src/routes/admin.ts` (`/settlement/run-batch`, `/balances/rebuild`, `/merchants/:id/mdr-recalculation`) commit their audit row before the HTTP call and left `outcome` at the column default `succeeded`; `insertAdminAuditLog` (`apps/api/src/adminAudit/log.ts:83`) applies that default.
@@ -635,8 +639,8 @@
 - **Breaks:** Table names, SQL and driver text from an internal service reached the admin browser.
 - **Fix:** The body is now logged server-side only. The message keeps the path and status, plus Go's own `{"error":"<code>"}` code when the body is exactly that shape, so the admin UI still shows validation codes. Test added in `settlementClient.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/76.
 
-### Bug: CSV balance import reads a thousands comma as a column break
-- **Status:** Fixed (BHA-58)
+### Bug: CSV balance import reads a thousands comma as a column break (BHA-58)
+- **Status:** Fixed
 - **Type:** Money, high
 - **Problem:** The row `m1,1,250.500,fix` in the adjustment import posted 1 BD with the reason "250.500" instead of failing, so a finance user who typed 1,250.500 moved the wrong amount.
 - **Cause:** `parseAdjustmentCsv` (`apps/api/src/admin/adjustmentCsvParsing.ts`) split every line on each comma with no quote handling and never compared the row's column count to the header, so the extra cell silently became the reason.
@@ -650,8 +654,8 @@
 - **Breaks:** Merchants were signed out mid-work, and the server-side session TTL setting had no effect on how long a login really lasted.
 - **Fix:** `/otp/verify` now re-sets the same cookie with `sessionTtlHours * 3600` after a successful verify, mirroring the admin flow. Test added in `routes/auth.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/81.
 
-### Bug: A KYC document with an Arabic filename cannot be downloaded
-- **Status:** Fixed (BHA-64)
+### Bug: A KYC document with an Arabic filename cannot be downloaded (BHA-64)
+- **Status:** Fixed
 - **Type:** UX, medium
 - **Problem:** Opening or downloading an uploaded KYC document whose filename has non-Latin-1 characters, such as `سجل.pdf`, answered 500.
 - **Cause:** `apps/api/src/routes/kyc.ts:100` (and the thumbnail route at `:117`) put the stored client filename straight into `Content-Disposition`. Node refuses non-Latin-1 characters in a header value (`ERR_INVALID_CHAR`).
@@ -672,8 +676,8 @@
 - **Breaks:** Expired links that hold a stale reservation give buyers a misleading retry prompt rather than a clear expired state, so a dead link looks like a transient glitch.
 - **Fix:** The expiry check now runs before the `reserved` branch and independently of the stored status, after the `paid` and `canceled` checks, so any link past its expiry answers `410 payment_link_expired` whether it is still `active` or holds an uncleaned reservation. Backend only; the checkout page (`apps/web`) is owned by an in-flight redesign and its copy was left untouched. Test added.
 
-### Bug: Recent ledger activity double-counts the boundary day
-- **Status:** Fixed (BHA-103)
+### Bug: Recent ledger activity double-counts the boundary day (BHA-103)
+- **Status:** Fixed
 - **Type:** Data, medium
 - **Problem:** The recent ledger activity widget counted a transaction on the boundary business day in two adjacent date windows at once, so the same activity showed up twice when the dashboard sat two windows side by side.
 - **Cause:** `getRecentLedgerActivity` (`apps/api/src/analytics/query.ts:306`) matched the day with `BETWEEN $2::date AND $3::date`, inclusive on both ends, while `to` is exclusive everywhere else (`parseDateRange`, `getVolumes`, `getTopLinks` all use `< $3`). The boundary day was the `to` day of one window and the `from` day of the next, so both windows claimed it.
@@ -700,8 +704,8 @@
 - **Claim:** The ticket reported that a non-numeric `limit` on the transactions list returned a 500.
 - **Checked:** On current `main`, `GET /v1/transactions?limit=abc` returns 400 `invalid_limit`; `parseLimit` in `routes/transactions.ts` rejects any value that is not `^\d+$` or is below 1 before the query runs. Reproduced against a local DB: 400, not 500.
 - **Why it is not a bug now:** The crash is already guarded, so this PR adds no code for it. A value above the cap is clamped to 100 by the documented `MAX_LIMIT` guard in `query.ts`, which is existing intended behaviour and is left alone.
-### Bug: Scheme export amount overflows on a large capture
-- **Status:** Fixed (BHA-158)
+### Bug: Scheme export amount overflows on a large capture (BHA-158)
+- **Status:** Fixed
 - **Type:** Data, medium
 - **Problem:** Closing a settlement batch that holds a large capture (BD value past eight integer digits, e.g. 100,000,000.00 BD) failed outright: the whole CloseBatch transaction aborted with a numeric field overflow, so the batch never closed.
 - **Cause:** CloseBatch wrote a second, denormalised copy of the line amount into `scheme_export_lines.amount`, a `NUMERIC(10,2)` column (migration 0050), via `SchemeAmountBD`, a `float64(grossFils)/1000.0`. Fils are `BIGINT` everywhere (ADR-0001), and a large fils value does not fit `NUMERIC(10,2)`, so Postgres rejected the insert. The durable record, `amount_fils` (`BIGINT`), never overflows, and the export reader already preferred that column via COALESCE.
@@ -766,6 +770,7 @@
 - **Cause:** `listBatchTransactions` read `transactions.captured_fils`, the running lifetime total, while CloseBatch builds each line from the capture events it stamps with that batch's `settlement_batch_id`.
 - **Breaks:** Historical batch detail rewrote itself after the fact, so a merchant or finance reviewer reconciling a closed batch saw a false mismatch.
 - **Fix:** Captured is now the sum of that transaction's capture events stamped with this batch, the same deltas CloseBatch used. The column already existed, so no schema change. Test added: capture 4.000 BD, close the batch, capture 3.000 BD more, and the batch still shows 4.000 BD. The seed now stamps its ready-made closed batches on their capture events too, so freshly seeded demo batches show their real Captured figure.
+- **Seed:** The seed now stamps its ready-made closed batches on their capture events too, so freshly seeded demo batches show their real Captured figure. PR: https://github.com/SilentYsf/fils-pay/pull/101
 
 ### Bug: A database error after the acquirer approves a refund or capture moves the money again on retry (BHA-170)
 - **Status:** Fixed
@@ -833,13 +838,11 @@
 - **Breaks:** Any ledger total or audit built from this list was short without warning.
 - **Fix:** The query now orders by `(occurred_at, id) DESC`, filters on a keyset cursor and returns `nextCursor`, the same pattern as `reporting/transactionsReportQuery.ts`. The route accepts `?cursor=`, and a bad cursor answers 400 instead of restarting at page one. Test added in `recentLedgerActivityBoundary.new.test.ts` (206 rows over two pages, plus a bad cursor). No web page calls this endpoint yet, so there is no client to update.
 
-### Bug: Settlement batch progress bar does float math on money
-- **Status:** Fixed
-- **Type:** Money, low
-- **Problem:** The progress bar on a closed batch took its width from a float computed from the gross amount.
-- **Cause:** `SettlementBatchDetailPage.tsx` did `parseFloat((grossFils / 10000).toFixed(2))`, which rounds a fils amount through a decimal float.
-- **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
-- **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
+### Improvement: The settlement batch progress bar takes its width from integer fils
+- **Type:** UX
+- **Before:** The progress bar on a closed batch took its width from `parseFloat((grossFils / 10000).toFixed(2))` in `SettlementBatchDetailPage.tsx`, which rounds a fils amount through a decimal float. The bar width could be off by a fraction of a percent at most; no money was stored, sent or shown wrongly.
+- **Why it shipped:** ADR-0001 keeps money in integer fils until display, and this was the one place on the page that left that rule. The fix is one expression, so it was cheaper to align it than to leave a float on a money value for the next reader to copy.
+- **Change:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
 
 ### Bug: MDR recalculation pays back discount rebates that were never posted
 - **Status:** Fixed
