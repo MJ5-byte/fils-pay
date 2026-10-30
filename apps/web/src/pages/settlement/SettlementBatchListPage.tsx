@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listSettlementBatches } from "../../api/settlement.js";
 import { describeError } from "../../api/client.js";
@@ -28,8 +28,17 @@ export function SettlementBatchListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped on every filter change (below). `load` captures the epoch at
+  // dispatch and drops its result if a newer filter has since superseded it,
+  // so a slow response for an old filter can't append wrong-filter rows or
+  // clobber the current filter's cursor. Same "capture in the closure, guard
+  // before setState" shape as SettlementBatchDetailPage's `cancelled` flag,
+  // widened to also cover the imperative Load more path.
+  const requestEpoch = useRef(0);
+
   const load = useCallback(
     async (cursor: string | null) => {
+      const epoch = requestEpoch.current;
       setLoading(true);
       setError(null);
       try {
@@ -40,18 +49,21 @@ export function SettlementBatchListPage() {
           limit: PAGE_SIZE,
           cursor: cursor ?? undefined,
         });
+        if (epoch !== requestEpoch.current) return;
         setBatches((previous) => (cursor ? [...previous, ...result.batches] : result.batches));
         setNextCursor(result.nextCursor);
       } catch (err) {
+        if (epoch !== requestEpoch.current) return;
         setError(describeError(err));
       } finally {
-        setLoading(false);
+        if (epoch === requestEpoch.current) setLoading(false);
       }
     },
     [from, to, statuses],
   );
 
   useEffect(() => {
+    requestEpoch.current += 1;
     void load(null);
   }, [load]);
 
