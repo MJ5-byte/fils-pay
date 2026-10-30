@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { verifyPassword } from "../auth/passwords.js";
 import { issueChallenge, verifyOtpCode } from "../auth/otp.js";
 import { requireSession } from "../auth/middleware.js";
+import { lookupImpersonationGrant } from "../admin/impersonation.js";
 import { sendOtpCode } from "../auth/notifier.js";
 import {
   createPendingSession,
@@ -252,10 +253,42 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     reply.code(200).send(responseBody);
   });
 
+
+  
   app.get(
     "/me",
-    { preHandler: requireSession },
-    async (request: FastifyRequest) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // "View as merchant": no merchant login, but a live admin grant. Show that
+      // merchant as the read-only "support" role so the dashboard can open.
+      // A real merchant login, if present, always wins (handled below).
+      const grantToken = request.cookies[app.config.impersonationCookieName];
+      if (!request.cookies[app.config.cookieName] && grantToken) {
+        const grant = await lookupImpersonationGrant(app.db, grantToken);
+        const merchant = grant
+          ? (
+              await app.db.query<{ display_name: string; onboarding_status: string }>(
+                `SELECT display_name, onboarding_status FROM merchants WHERE id = $1`,
+                [grant.merchantId],
+              )
+            ).rows[0]
+          : undefined;
+        if (grant && merchant) {
+          return {
+            merchantUserId: grant.adminUserId,
+            email: "admin (view only)",
+            role: grant.merchantRole,
+            merchant: {
+              id: grant.merchantId,
+              displayName: merchant.display_name,
+              onboardingStatus: merchant.onboarding_status,
+            },
+          };
+        }
+      }
+
+      // Everyone else: the original check, only a real merchant login gets through.
+      await requireSession.call(app, request, reply, () => {});
+
       const auth = request.auth;
       if (!auth) {
         throw new UnauthorizedError("unauthenticated");
