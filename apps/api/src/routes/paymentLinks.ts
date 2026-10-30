@@ -8,7 +8,7 @@ import { createPaymentLink } from "../paymentLinks/create.js";
 import { getPublicPaymentLink } from "../paymentLinks/read.js";
 import { payPaymentLink } from "../paymentLinks/pay.js";
 import { cancelPaymentLink } from "../paymentLinks/cancel.js";
-import { listPaymentLinks } from "../paymentLinks/query.js";
+import { getMerchantPaymentLink, listPaymentLinks } from "../paymentLinks/query.js";
 import { assertValidCard } from "../payments/authorize.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
@@ -158,6 +158,22 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
         throw new NotFoundError("payment_link_not_found");
       }
       throw new ConflictError("not_cancelable", `status: ${result.status}`);
+    },
+  );
+
+  app.get<{ Params: MerchantLinkIdParams }>(
+    "/:merchantId/payment-links/:id",
+    { preHandler: requireMerchantAuth },
+    async (request) => {
+      assertOwnMerchant(request);
+      if (!UUID_RE.test(request.params.id)) {
+        throw new BadRequestError("invalid_id", "id must be a UUID");
+      }
+      const link = await getMerchantPaymentLink(app.db, app.config, request.params.merchantId, request.params.id);
+      if (!link) {
+        throw new NotFoundError("payment_link_not_found");
+      }
+      return link;
     },
   );
 

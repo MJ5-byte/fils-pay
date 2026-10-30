@@ -835,3 +835,39 @@ test("list still accepts the nextCursor it issued", async () => {
   assert.equal(second.json().paymentLinks.length, 1);
   assert.notEqual(second.json().paymentLinks[0].id, first.paymentLinks[0].id);
 });
+
+test("a merchant can read and page past 100 links, including the oldest one by id (BHA-55)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("old-link");
+  const oldest = (await createLink(rawKey, merchantId, { reference: "oldest" })) as { id: string };
+  await pool.query(
+    `INSERT INTO payment_links (merchant_id, token, amount_fils, expires_at, created_by_type, created_by_id, created_at)
+     SELECT merchant_id, 'bha55-' || gen_random_uuid(), amount_fils, expires_at, created_by_type, created_by_id,
+            created_at + make_interval(secs => g)
+       FROM payment_links, generate_series(1, 104) g WHERE id = $1`,
+    [oldest.id],
+  );
+  const url = `/v1/merchants/${merchantId}/payment-links`;
+  const seen: string[] = [];
+  let cursor = "";
+  do {
+    const res = await app.inject({ method: "GET", url: `${url}?limit=100${cursor}`, headers: authHeader(rawKey) });
+    const page = res.json() as { paymentLinks: Array<{ id: string }>; nextCursor: string | null };
+    seen.push(...page.paymentLinks.map((l) => l.id));
+    cursor = page.nextCursor ? `&cursor=${page.nextCursor}` : "";
+  } while (cursor);
+  assert.equal(seen.length, 105);
+  assert.equal(new Set(seen).size, 105);
+  assert.equal(seen[104], oldest.id);
+
+  const one = await app.inject({ method: "GET", url: `${url}/${oldest.id}`, headers: authHeader(rawKey) });
+  assert.equal(one.statusCode, 200, one.body);
+  assert.equal(one.json().reference, "oldest");
+
+  const other = await createApprovedMerchantWithApiKey("old-link-other");
+  const foreign = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${other.merchantId}/payment-links/${oldest.id}`,
+    headers: authHeader(other.rawKey),
+  });
+  assert.equal(foreign.statusCode, 404, foreign.body);
+});

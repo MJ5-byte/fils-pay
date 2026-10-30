@@ -84,3 +84,18 @@ export async function listPaymentLinks(
 
   return { paymentLinks, nextCursor };
 }
+
+/** One of a merchant's own links by id, whatever its age; null when it is not theirs. */
+export async function getMerchantPaymentLink(
+  pool: Pool,
+  config: { checkoutBaseUrl: string },
+  merchantId: string,
+  id: string,
+): Promise<PaymentLinkDto | null> {
+  const result = await pool.query<PaymentLinkRow>(
+    "SELECT * FROM payment_links WHERE id = $1 AND merchant_id = $2",
+    [id, merchantId],
+  );
+  const row = result.rows[0];
+  return row ? serializePaymentLink(row, config.checkoutBaseUrl) : null;
+}

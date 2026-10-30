@@ -911,3 +911,10 @@
 - **Cause:** `CreditsPage` passed every failure to `describeError`, which prints the API's `message` or else its raw `code`, and the API raises this one as a bare code (`creditApproval.ts:13`).
 - **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
 - **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
+### Bug: A payment link older than the newest 100 cannot be opened or canceled
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** The payment links list pages correctly, but clicking a link older than the merchant's newest 100 opened "Payment link not found". A merchant with an old active link could not see its details or cancel it.
+- **Cause:** The API had no merchant-scoped single-link read, so `PaymentLinkDetailPage` fetched the newest 100 links (the list's maximum page) and searched them for the id.
+- **Breaks:** An old active link stayed payable and the merchant had no way to cancel it from the dashboard. It was first filed as an improvement because the page admitted its limit; a listed link that cannot be opened is a wrong outcome a user hits, so it is a bug.
+- **Fix:** New `GET /v1/merchants/:merchantId/payment-links/:id` (own merchant only, 404 for anyone else's link) and the detail page calls it. Test added: 105 links, two pages with no duplicates or gaps, the oldest opens by id, another merchant gets 404. Red (404) before, green after. The list pager itself needed no change.
