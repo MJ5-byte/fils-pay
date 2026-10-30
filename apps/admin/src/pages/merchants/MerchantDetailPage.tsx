@@ -210,8 +210,10 @@ export function MerchantDetailPage() {
       // Opened in a second tab on purpose: this tab keeps showing the
       // impersonation banner and its exit action, which is the whole point
       // of the banner existing.
-      const opened = window.open(WEB_BASE_URL, "_blank", "noopener");
-      if (!opened) setImpersonationUrl(WEB_BASE_URL);
+      
+      const dashboardUrl = `${WEB_BASE_URL}/dashboard`;
+      const opened = window.open(dashboardUrl, "_blank", "noopener");
+      if (!opened) setImpersonationUrl(dashboardUrl);
     } catch (err) {
       setActionError(describeError(err));
     } finally {
