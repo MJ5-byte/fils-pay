@@ -1,4 +1,4 @@
-import { formatTime } from "@filspay/ui";
+import { CoinLogin, CoinLoginMessage, formatTime } from "@filspay/ui";
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { login, verifyOtp } from "../../api/auth.js";
@@ -17,9 +17,8 @@ type Step = { kind: "credentials" } | { kind: "otp"; challenge: AdminLoginRespon
  * The API answers a single generic `invalid_credentials`, and this screen
  * shows one generic sentence for it rather than guessing at something more specific.
  *
- * It wears the same split-face auth screen as the merchant dashboard (the one
- * shared design system), marked as the staff console so the two are never
- * mistaken for one another.
+ * It wears the merchant dashboard's coin login (one design used twice),
+ * titled for the console so the two are never mistaken for one another.
  */
 export function LoginPage() {
   const { status, refresh } = useAdminAuth();
@@ -74,89 +73,78 @@ export function LoginPage() {
   }
 
   return (
-    <div className="dash-auth">
-      <main className="dash-auth-form">
-        <div className="dash-auth-form-inner">
-          <div className="dash-auth-logo"><span className="dash-wordmark">FILSPAY</span></div>
-          <p className="fp-eyebrow">Admin console</p>
-          <h1 className="fp-auth-heading">{step.kind === "credentials" ? "Sign in" : "Verify it's you"}</h1>
-          <p className="dash-lede" style={{ marginBottom: "var(--fp-5)" }}>
-            {step.kind === "credentials"
-              ? "Internal operations console."
-              : "Enter the one-time code to finish signing in."}
+    <CoinLogin eyebrow="FilsPay" heading={step.kind === "credentials" ? "Admin console" : "Verify it's you"}>
+      {step.kind === "credentials" ? (
+        <form onSubmit={(e) => void handleCredentials(e)} className="dash-form">
+          <label>
+            Email
+            <input
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <div className="fp-coin-last">
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            <CoinLoginMessage error={error} />
+          </div>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+            {submitting ? "Signing in" : "Continue"}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={(e) => void handleOtp(e)} className="dash-form">
+          <p>
+            Code sent to <strong>{email}</strong>, valid until {formatTime(step.challenge.otpExpiresAt)}.
           </p>
-
-          {error ? <p className="dash-error">{error}</p> : null}
-
-          {step.kind === "credentials" ? (
-            <form onSubmit={(e) => void handleCredentials(e)} className="dash-form">
-              <label>
-                Email
-                <input
-                  type="email"
-                  autoComplete="username"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </label>
-              <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
-                {submitting ? "Signing in" : "Continue"}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={(e) => void handleOtp(e)} className="dash-form">
-              <p>
-                A one-time code was issued for <strong>{email}</strong>. It expires at{" "}
-                {formatTime(step.challenge.otpExpiresAt)}.
-              </p>
-              {step.challenge.devOtpCode ? (
-                <p className="dash-muted">
-                  Development code: <code>{step.challenge.devOtpCode}</code>
-                </p>
-              ) : null}
-              <label>
-                One-time code
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  required
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                />
-              </label>
-              <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
-                {submitting ? "Verifying" : "Verify"}
-              </button>
-              <div className="dash-actions" style={{ margin: 0 }}>
-                <button
-                  type="button"
-                  className="dash-button-ghost"
-                  onClick={() => {
-                    setStep({ kind: "credentials" });
-                    setCode("");
-                    setError(null);
-                  }}
-                >
-                  Start over
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      </main>
-      <aside className="fp-auth-material" role="img" aria-label="Macro photograph of coin edges" />
-    </div>
+          {step.challenge.devOtpCode ? (
+            <p className="dash-muted">
+              Development code: <code>{step.challenge.devOtpCode}</code>
+            </p>
+          ) : null}
+          <div className="fp-coin-last">
+            <label>
+              One-time code
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                required
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+            </label>
+            <CoinLoginMessage error={error} />
+          </div>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+            {submitting ? "Verifying" : "Verify"}
+          </button>
+          <div className="dash-actions" style={{ margin: 0 }}>
+            <button
+              type="button"
+              className="dash-button-ghost"
+              onClick={() => {
+                setStep({ kind: "credentials" });
+                setCode("");
+                setError(null);
+              }}
+            >
+              Start over
+            </button>
+          </div>
+        </form>
+      )}
+    </CoinLogin>
   );
 }

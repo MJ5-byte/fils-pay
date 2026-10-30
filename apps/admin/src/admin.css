@@ -6,6 +6,7 @@
    wordmark, the paused-screens notice, and the persistent
    impersonation banner. */
 @import "../../../packages/ui/src/theme.css";
+@import "../../../packages/ui/src/coin-login.css";
 
 .admin-frame { min-height: 100dvh; }
 .admin-eyebrow { color: var(--fp-brand-ink); font: 500 12px/1.55 var(--fp-mono); letter-spacing: .16em; text-transform: uppercase; }
