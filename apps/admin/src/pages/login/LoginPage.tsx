@@ -14,7 +14,7 @@ type Step =
  * and issues an OTP challenge; the OTP step is what actually authenticates
  * it. Neither step is told which half of a bad credential pair was wrong —
  * the API answers a single generic `invalid_credentials`, and this screen
- * repeats it verbatim rather than guessing at something more specific.
+ * shows one generic sentence for it rather than guessing at something more specific.
  */
 export function LoginPage() {
   const { status, refresh } = useAdminAuth();

@@ -17,7 +17,7 @@ type Step = { kind: "credentials" } | { kind: "otp"; challenge: DashboardLoginRe
  * creates a *pending* session and issues an OTP challenge; the OTP step is
  * what actually authenticates it. Neither step is told which credential was
  * wrong — the API answers a single generic `invalid_credentials`, and this
- * screen repeats it verbatim rather than guessing at something more specific.
+ * screen shows one generic sentence for it rather than guessing at something more specific.
  *
  * The Merchant ID field is a raw pasted UUID. This is a genuine rough edge,
  * not a preference: `merchant_users.email` is unique per merchant rather than

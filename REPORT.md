@@ -1026,6 +1026,11 @@
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
 
+### Improvement: A wrong login password reads as a sentence
+- **Type:** UX
+- **Before:** A wrong merchant id, email or password on the merchant or admin login showed the bare banner `invalid_credentials`, the most common login failure.
+- **Why it shipped:** BHA-196 already gave the other login codes a sentence through the same `describeError` map; this one was left raw.
+- **Change:** One entry in the error copy map in `apps/web/src/api/client.ts` and `apps/admin/src/api/client.ts`: "Those details do not match an account. Check them and try again." It still never says which field was wrong, the point of the generic code. The two login page comments that said the code is shown verbatim are corrected.
 ### Bug: Refunds never reach the merchant's daily volume
 - **Status:** Fixed
 - **Type:** Data, medium

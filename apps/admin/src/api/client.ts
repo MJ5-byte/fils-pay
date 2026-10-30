@@ -62,6 +62,7 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
 
 /** Plain-language copy for the error codes the API answers with. */
 const ERROR_COPY: Record<string, string> = {
+  invalid_credentials: "Those details do not match an account. Check them and try again.",
   invalid_code: "That code is wrong or has expired. Check it and try again.",
   too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
   resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
