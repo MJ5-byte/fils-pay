@@ -833,6 +833,14 @@
 - **Cause:** `SettlementBatchDetailPage.tsx` did `parseFloat((grossFils / 10000).toFixed(2))`, which rounds a fils amount through a decimal float.
 - **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
 - **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
+
+### Bug: Our totals are always a few fils under the scheme statement
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** Finance found the ledger and the scheme statement never agreed: every batch, the card scheme clearing account held a few fils more than the scheme file sent.
+- **Cause:** The scheme file carries two decimals, so `CloseBatch` truncates each line to 10 fils (`apps/settlement/internal/settlement/batch.go:428`), but nothing journalled the 0 to 9 fils it dropped, although ADR-0002 says CloseBatch posts them and `docs/HANDOVER.md:20-21` admits the posting was never written.
+- **Breaks:** Reconciliation between the ledger, the batch and the scheme statement never closes, and the gap grows with every capture.
+- **Fix:** `CloseBatch` now posts, per export line with a residue and in the same transaction, `card_scheme_clearing` credit and `scheme_rounding_residue` debit for gross minus the truncated amount (`batch.go:441-455`), as ADR-0002 specifies. Finance must stop booking residue by hand from the deploy date. PR: https://github.com/SilentYsf/fils-pay/pull/111. Test added: `TestCloseBatch_JournalsSchemeRoundingResidue`.
 ### Bug: A refund that races the capture discount over-credits the merchant
 - **Status:** Fixed
 - **Type:** Money, low

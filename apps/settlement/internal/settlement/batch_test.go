@@ -412,6 +412,88 @@ func TestCloseBatch_SchemeExportLineTruncation(t *testing.T) {
 	}
 }
 
+// TestCloseBatch_JournalsSchemeRoundingResidue checks ADR-0002: for each
+// scheme export line, CloseBatch posts the 0-9 fils the truncation drops as
+// a balanced group (card_scheme_clearing credit, scheme_rounding_residue
+// debit), so card_scheme_clearing ends equal to the scheme file total. A line
+// with no residue posts nothing, and a re-close posts nothing again.
+func TestCloseBatch_JournalsSchemeRoundingResidue(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	businessDate := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+
+	txnSeven, _ := insertCaptureEvent(t, pool, merchantID, mdrBps, 4747, start.Add(time.Hour))
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 4750, start.Add(2*time.Hour))
+	txnNine, _ := insertCaptureEvent(t, pool, merchantID, mdrBps, 10009, start.Add(3*time.Hour))
+
+	result, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+
+	residueByTxn := map[uuid.UUID]int64{}
+	rows, err := pool.Query(ctx, `
+		SELECT d.transaction_id, d.amount_fils, c.amount_fils
+		  FROM ledger_entries d
+		  JOIN ledger_entries c ON c.entry_group_id = d.entry_group_id
+		                       AND c.account_id = 'card_scheme_clearing' AND c.direction = 'credit'
+		 WHERE d.settlement_batch_id = $1
+		   AND d.account_id = 'scheme_rounding_residue' AND d.direction = 'debit'
+	`, result.BatchID)
+	if err != nil {
+		t.Fatalf("query residue legs: %v", err)
+	}
+	for rows.Next() {
+		var txnID uuid.UUID
+		var debit, credit int64
+		if err := rows.Scan(&txnID, &debit, &credit); err != nil {
+			t.Fatalf("scan residue legs: %v", err)
+		}
+		if debit != credit {
+			t.Errorf("residue group for %s: debit %d, clearing credit %d, want equal", txnID, debit, credit)
+		}
+		residueByTxn[txnID] += debit
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate residue legs: %v", err)
+	}
+	rows.Close()
+
+	want := map[uuid.UUID]int64{txnSeven: 7, txnNine: 9}
+	if len(residueByTxn) != len(want) || residueByTxn[txnSeven] != 7 || residueByTxn[txnNine] != 9 {
+		t.Errorf("residue posted per transaction = %v, want %v (none for the 4750 line)", residueByTxn, want)
+	}
+
+	var clearingNet, exported int64
+	err = pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE -amount_fils END), 0)
+		  FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'card_scheme_clearing'
+	`, merchantID).Scan(&clearingNet)
+	if err != nil {
+		t.Fatalf("sum card_scheme_clearing: %v", err)
+	}
+	err = pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_fils), 0) FROM scheme_export_lines WHERE settlement_batch_id = $1
+	`, result.BatchID).Scan(&exported)
+	if err != nil {
+		t.Fatalf("sum scheme_export_lines: %v", err)
+	}
+	if clearingNet != exported {
+		t.Errorf("card_scheme_clearing net = %d fils, scheme file total = %d fils, want equal", clearingNet, exported)
+	}
+
+	if _, err := CloseBatch(ctx, pool, merchantID, businessDate); err != nil {
+		t.Fatalf("re-close: %v", err)
+	}
+	legs := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE settlement_batch_id = $1 AND account_id = 'scheme_rounding_residue'`, result.BatchID)
+	if legs != 2 {
+		t.Errorf("scheme_rounding_residue legs after re-close = %d, want 2", legs)
+	}
+}
+
 // TestCloseAndPayout_MerchantBalancesIncremental verifies
 // merchant_balances is maintained incrementally through close+payout: it
 // gains net_payout_fils at close, then loses the same amount at payout,
