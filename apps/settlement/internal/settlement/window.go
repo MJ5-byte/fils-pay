@@ -34,6 +34,14 @@ func mustLoadLocation(name string) *time.Location {
 	return loc
 }
 
+// BusinessDayLocation is Asia/Bahrain, the zone a business day is defined
+// in. Callers must convert "now" into it before asking which business day
+// it is: BusinessDayWindow reads the calendar date of whatever zone it is
+// given.
+func BusinessDayLocation() *time.Location {
+	return businessDayLocation
+}
+
 // BusinessDayWindow returns the [start, end) UTC instants bounding the
 // given calendar date's Asia/Bahrain business day, i.e. Asia/Bahrain
 // 00:00:00 on `date` through Asia/Bahrain 00:00:00 on `date`+1.

@@ -75,8 +75,17 @@ function hoursFromNow(hours: number): Date {
 
 // ------------------------------------------------------------------ tests
 
-// theres no test for a NOT promoted session — am
-// MK: covered in routes/auth.test.ts
+test("lookupSession returns null for a pending (pre-OTP) session", async () => {
+  const merchantUserId = await createMerchantUser("pending");
+  const rawToken = await insertSession({
+    merchantUserId,
+    authenticated: false,
+    expiresAt: hoursFromNow(12),
+  });
+
+  assert.equal(await lookupSession(pool, rawToken), null, "a password-only session must grant nothing until OTP");
+});
+
 test("lookupSession finds an active, promoted session", async () => {
   const merchantUserId = await createMerchantUser("active");
   const rawToken = await insertSession({

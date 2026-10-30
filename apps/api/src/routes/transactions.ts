@@ -43,12 +43,12 @@ interface ListTransactionsQuery {
 }
 
 /**
- * Reads the Idempotency-Key header. Required on authorize and capture;
- * void is naturally idempotent and does not call this. Keys are scoped per
- * merchant + endpoint (see payments/idempotency.ts), so the same key may be
- * reused across endpoints without colliding.
+ * Reads the Idempotency-Key header. Required on authorize, capture and
+ * refunds; void is naturally idempotent and does not call this. Keys are
+ * scoped per merchant + endpoint (see payments/idempotency.ts), so the same
+ * key may be reused across endpoints without colliding.
  */
-function getIdempotencyKey(request: FastifyRequest): string {
+export function getIdempotencyKey(request: FastifyRequest): string {
   const header = request.headers["idempotency-key"];
   const key = Array.isArray(header) ? header[0] : header;
   if (!key) {

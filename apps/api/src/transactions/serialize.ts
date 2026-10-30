@@ -6,6 +6,7 @@ export interface TransactionRow {
   status: string;
   amount_fils: string | number;
   captured_fils: string | number;
+  refunded_fils: string | number;
   currency: string;
   reference: string | null;
   acquirer_reference: string;
@@ -15,8 +16,9 @@ export interface TransactionRow {
 
 /**
  * Public transaction shape. `amountFils` is the authorized amount and
- * `capturedFils` the cumulative captured amount; the refundable balance is
- * derived by the client as capturedFils - refundedFils.
+ * `capturedFils` the cumulative captured amount, `refundedFils` the
+ * cumulative refunded amount; the refundable balance is
+ * capturedFils - refundedFils.
  */
 export interface TransactionDto {
   id: string;
@@ -24,6 +26,7 @@ export interface TransactionDto {
   status: string;
   amountFils: number;
   capturedFils: number;
+  refundedFils: number;
   currency: string;
   reference: string | null;
   acquirerReference: string;
@@ -34,7 +37,6 @@ export interface TransactionDto {
 /** The single place a `transactions` row is turned into its camelCase,
  *  JSON-serializable API shape — used by authorize/capture/void and the
  *  read endpoints alike, so the response shape can't drift between them. */
-// TODO(am): add refundedFils once 0043 is applied everywhere
 export function serializeTransaction(row: TransactionRow): TransactionDto {
   return {
     id: row.id,
@@ -42,6 +44,7 @@ export function serializeTransaction(row: TransactionRow): TransactionDto {
     status: row.status,
     amountFils: Number(row.amount_fils),
     capturedFils: Number(row.captured_fils),
+    refundedFils: Number(row.refunded_fils),
     currency: row.currency,
     reference: row.reference,
     acquirerReference: row.acquirer_reference,
