@@ -116,12 +116,18 @@ test("a transient capture error (502) is not voided, so a same-key retry still p
     refund: async () => ({ outcome: "approved", acquirerReference: "acq_test", latencyMs: 0 }),
   };
 
-  // A capture 502 keeps the reservation, so the retry must find it stale to
-  // reclaim it. Backdating reserved_at would change the reservation key.
-  const config = { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey };
+  // Stage the reservation two minutes stale before the first pay, since the claim keeps
+  // an existing reserved_at, so the next pay reclaims it with the real timeout despite clock wobble.
+  const config = { paymentLinkReservationTimeoutSeconds: 60, cardFingerprintKey };
   const card = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
   const idempotencyKey = randomUUID();
 
+  await pool.query(
+    `UPDATE payment_links
+        SET status = 'reserved', reserved_at = now() - interval '2 minutes'
+      WHERE token = $1`,
+    [token],
+  );
   const first = await payPaymentLink(pool, stubAcquirer, config, { token, card, idempotencyKey });
   assert.equal(first.statusCode, 502);
 

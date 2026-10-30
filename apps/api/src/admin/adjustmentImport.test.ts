@@ -309,6 +309,21 @@ test("listAdjustmentImports returns newest first and paginates", async () => {
     rows: [{ merchantId, amount: "2.00" }],
   });
 
+  // The list spans all imports and the database clock can step backwards, so make these newest.
+  // GREATEST leaves their timestamps alone when the clock behaved.
+  await pool.query(
+    `UPDATE adjustment_imports
+        SET created_at = GREATEST(created_at, (SELECT max(created_at) FROM adjustment_imports WHERE id <> ALL($2::uuid[])) + interval '1 microsecond')
+      WHERE id = $1`,
+    [first.importId, [first.importId, second.importId]],
+  );
+  await pool.query(
+    `UPDATE adjustment_imports
+        SET created_at = GREATEST(created_at, (SELECT max(created_at) FROM adjustment_imports WHERE id <> $1) + interval '1 microsecond')
+      WHERE id = $1`,
+    [second.importId],
+  );
+
   const page = await listAdjustmentImports(pool, { limit: 1 });
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]!.id, second.importId);

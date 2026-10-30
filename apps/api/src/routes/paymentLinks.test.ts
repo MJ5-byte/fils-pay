@@ -25,8 +25,8 @@ if (!databaseUrl) {
 }
 
 // Deterministic, fast, always-approved acquirer for these tests (except via
-// magic PANs), and a short reservation timeout so the self-heal tests don't
-// need to sleep for a full 60s.
+// magic PANs). The self-heal tests stage reserved_at two minutes old instead
+// of sleeping out the 60s reservation timeout.
 const config = loadConfig({
   DATABASE_URL: databaseUrl,
   NODE_ENV: "test",
@@ -508,6 +508,14 @@ test(
 test("a stale reservation reclaimed by a second pay is captured once: both requests answer the one transaction the link records", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("stale-concurrent-pay");
   const link = await createLink(rawKey, merchantId, { amountFils: 3_300 });
+  // Two minutes stale makes reclaim independent of the database clock moving forward
+  // between the two pays.
+  await pool.query(
+    `UPDATE payment_links
+        SET status = 'reserved', reserved_at = now() - interval '2 minutes'
+      WHERE token = $1`,
+    [link.token],
+  );
   let captureCalls = 0;
   let signalCaptureEntered: () => void = () => assert.fail("captureEntered is not initialized");
   const captureEntered = new Promise<void>((resolve) => {
@@ -527,7 +535,7 @@ test("a stale reservation reclaimed by a second pay is captured once: both reque
     },
   };
 
-  const pA = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
+  const pA = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: config.paymentLinkReservationTimeoutSeconds, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
@@ -553,7 +561,7 @@ test("a stale reservation reclaimed by a second pay is captured once: both reque
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
-  const pB = payPaymentLink(bPool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
+  const pB = payPaymentLink(bPool, acquirer, { paymentLinkReservationTimeoutSeconds: config.paymentLinkReservationTimeoutSeconds, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
@@ -633,6 +641,14 @@ test("a different-card reclaim is rejected 409 processing and only the first car
 test("an authorize 502 does not release a reservation a sibling has already authorized", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("authorize-error-sibling-wins");
   const link = await createLink(rawKey, merchantId, { amountFils: 3_300 });
+  // Two minutes stale makes reclaim independent of the database clock moving forward
+  // between the two pays.
+  await pool.query(
+    `UPDATE payment_links
+        SET status = 'reserved', reserved_at = now() - interval '2 minutes'
+      WHERE token = $1`,
+    [link.token],
+  );
 
   let authCalls = 0;
   let signalAEntered: () => void = () => assert.fail("aEntered is not initialized");
@@ -694,14 +710,14 @@ test("an authorize 502 does not release a reservation a sibling has already auth
     },
   });
 
-  const pA = payPaymentLink(aPool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
+  const pA = payPaymentLink(aPool, acquirer, { paymentLinkReservationTimeoutSeconds: config.paymentLinkReservationTimeoutSeconds, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
   });
   await aEntered;
 
-  const pB = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: 0, cardFingerprintKey: config.cardFingerprintKey }, {
+  const pB = payPaymentLink(pool, acquirer, { paymentLinkReservationTimeoutSeconds: config.paymentLinkReservationTimeoutSeconds, cardFingerprintKey: config.cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
