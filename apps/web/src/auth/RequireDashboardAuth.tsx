@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useState } from "react";
+import { SessionCheck } from "@filspay/ui";
 import type { ReactNode } from "react";
 import { useDashboardAuth } from "./DashboardAuthContext.js";
 
@@ -20,11 +21,7 @@ export function RequireDashboardAuth({ children }: { children: ReactNode }) {
   const [retrying, setRetrying] = useState(false);
 
   if (status === "loading") {
-    return (
-      <main className="dash-centered">
-        <p>Checking your session...</p>
-      </main>
-    );
+    return <SessionCheck />;
   }
 
   if (status === "unavailable") {

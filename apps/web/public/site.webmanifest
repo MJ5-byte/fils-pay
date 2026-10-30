@@ -1,0 +1,13 @@
+{
+  "name": "FilsPay",
+  "short_name": "FilsPay",
+  "display": "standalone",
+  "start_url": "/dashboard",
+  "icons": [
+    { "src": "icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "icon-512-maskable.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ],
+  "theme_color": "#151414",
+  "background_color": "#151414"
+}

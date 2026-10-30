@@ -3,6 +3,7 @@ import {
   IconLinks,
   PageHeader,
   Skeleton,
+  Tooltip,
 } from "@filspay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -12,7 +13,7 @@ import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { Money } from "../../components/Money.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
-import { IconArrowLeft, IconCopy } from "../../components/icons.js";
+import { IconArrowLeft, IconCheck, IconCopy } from "../../components/icons.js";
 import { dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto } from "../../types.js";
 
@@ -31,6 +32,14 @@ export function PaymentLinkDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // The check mark is a confirmation, not a state: it goes back to the copy
+  // icon so the button reads as ready to copy again.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
 
   const load = useCallback(async () => {
     if (!merchantId || !id) return;
@@ -151,12 +160,23 @@ export function PaymentLinkDetailPage() {
             <dd>
               {/* Linked to, never duplicated, /pay/:token is the one checkout
               implementation, and there is no preview of it embedded here. */}
-              <a href={link.url} target="_blank" rel="noreferrer">
-                {link.url}
-              </a>{" "}
-              <button type="button" className="dash-button" onClick={() => void handleCopy(link.url)}>
-                <IconCopy /> {copied ? "Copied" : "Copy link"}
-              </button>
+              <span className="fp-copy-row">
+                <a href={link.url} target="_blank" rel="noreferrer">
+                  {link.url}
+                </a>
+                <Tooltip label={copied ? "Copied" : "Copy link"}>
+                  <button
+                    type="button"
+                    className="fp-copy-button"
+                    aria-label="Copy link"
+                    data-copied={copied}
+                    onClick={() => void handleCopy(link.url)}
+                  >
+                    {copied ? <IconCheck /> : <IconCopy />}
+                  </button>
+                </Tooltip>
+                <span className="fp-visually-hidden" role="status">{copied ? "Link copied" : ""}</span>
+              </span>
             </dd></div>
         </dl>
       </div>

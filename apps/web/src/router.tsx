@@ -1,4 +1,5 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, isRouteErrorResponse, Navigate, Outlet, useRouteError } from "react-router-dom";
+import { CrashPage, NotFoundPage } from "@filspay/ui";
 import type { RouteObject } from "react-router-dom";
 import { CheckoutPage } from "./pages/checkout/CheckoutPage.js";
 import { DashboardAuthProvider } from "./auth/DashboardAuthContext.js";
@@ -19,6 +20,21 @@ import { SettlementBatchListPage } from "./pages/settlement/SettlementBatchListP
 import { SettlementBatchDetailPage } from "./pages/settlement/SettlementBatchDetailPage.js";
 import { ReconciliationPage } from "./pages/settlement/ReconciliationPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
+
+function NotFound() {
+  return <NotFoundPage homeHref="/dashboard" homeLabel="Back to dashboard" />;
+}
+
+/**
+ * The root's error element: a loader or router error (an unknown URL included)
+ * gets the designed face, never React Router's default, which prints the raw
+ * error. Render errors inside a page are caught first by AppErrorBoundary.
+ */
+function RouteError() {
+  const error = useRouteError();
+  if (isRouteErrorResponse(error) && error.status === 404) return <NotFound />;
+  return <CrashPage />;
+}
 
 // MK: /refunds route removed until FP-212
 const routes: RouteObject[] = [
@@ -107,6 +123,10 @@ const routes: RouteObject[] = [
       },
     ],
   },
+
+  // Outside the session provider, so a mistyped URL answers at once without
+  // asking the API who is signed in.
+  { path: "*", element: <NotFound /> },
 ];
 
 // One pathless root so a render error anywhere, /pay/:token included, lands
@@ -118,6 +138,7 @@ export const router = createBrowserRouter([
         <Outlet />
       </AppErrorBoundary>
     ),
+    errorElement: <RouteError />,
     children: routes,
   },
 ]);

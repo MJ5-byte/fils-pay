@@ -559,3 +559,78 @@ h3 { font-size: 20px; font-weight: 400; }
 
 /* On a phone a table already scrolls inside its own box, so each cell keeps one line instead of stacking a reference over three. */
 @media (max-width: 600px) { .dash-table td { white-space: nowrap; } }
+
+/* Text only a screen reader needs. */
+.fp-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* The 404 and crash faces: the sign-in's coin on the same hard ink and red
+   diagonal, its silver carrying the code and the way back. The coin is 91.8%
+   of its image and the silver about 60% of the coin, so the stack is placed in
+   fractions of the coin's diameter and always lands on the silver. */
+.fp-status-face {
+  --fp-coin-d: min(86dvh, 92vw, 760px);
+  min-height: 100dvh; display: grid; grid-template-areas: "coin"; place-items: center; overflow: hidden;
+  background: linear-gradient(to top right, var(--fp-dark) 50%, var(--fp-brand) 50%);
+}
+.fp-status-coin, .fp-status-copy { grid-area: coin; width: var(--fp-coin-d); height: var(--fp-coin-d); }
+.fp-status-coin { position: relative; background: url("./assets/fils-coin-1000.webp") center / contain no-repeat; }
+.fp-status-mark { position: absolute; left: 0; right: 0; bottom: 45.5%; display: flex; flex-direction: column; align-items: center; }
+.fp-status-mark > .fp-eyebrow { color: var(--fp-ink); }
+.fp-status-code { margin: 0; font: 400 calc(var(--fp-coin-d) * 0.19) / .9 var(--fp-display); letter-spacing: .02em; color: var(--fp-ink); }
+/* Lit like the render, from the top left, so the type reads as struck into the silver. */
+.fp-status-mark > *, .fp-status-title { text-shadow: 1px 1px 0 rgb(255 252 246 / .6); }
+.fp-status-copy { position: relative; display: flex; flex-direction: column; align-items: center; gap: 20px; padding-top: calc(var(--fp-coin-d) * 0.565); box-sizing: border-box; }
+.fp-status-title { margin: 0; max-width: calc(var(--fp-coin-d) * 0.5); text-align: center; color: var(--fp-ink); font-size: clamp(18px, calc(var(--fp-coin-d) * 0.03), 24px); line-height: 1.15; }
+.fp-status-title-solo { font-size: clamp(24px, calc(var(--fp-coin-d) * 0.055), 40px); }
+.fp-status-copy > .dash-button-primary { min-height: 48px; padding: 12px 28px; }
+.fp-status-copy > .dash-button-primary:focus-visible { outline: 2px solid var(--fp-dark); outline-offset: 3px; }
+/* Phones and short windows: the coin keeps the code on its silver, and the
+   line and button stack under it on the ink, where light text reads at 15:1.
+   As on the sign-in, the diagonal runs only across the coin, red above it and
+   ink below. */
+@media (max-width: 600px), (max-height: 560px) {
+  .fp-status-face {
+    --fp-coin-d: min(calc(100vw - 32px), 50dvh);
+    --fp-top: clamp(24px, calc((100dvh - var(--fp-coin-d) - 160px) / 2), 120px);
+    --fp-band-top: calc(var(--fp-top) + var(--fp-coin-d) * 0.041);
+    grid-template-areas: none; place-items: start center; align-content: start; row-gap: 28px; padding: var(--fp-top) 16px 40px;
+    background:
+      linear-gradient(to top right, var(--fp-dark) 50%, var(--fp-brand) 50%) 0 var(--fp-band-top) / 100% calc(var(--fp-coin-d) * 0.918) no-repeat,
+      linear-gradient(var(--fp-brand), var(--fp-brand)) 0 0 / 100% calc(var(--fp-band-top) + 1px) no-repeat,
+      var(--fp-dark);
+  }
+  .fp-status-coin, .fp-status-copy { grid-area: auto; }
+  .fp-status-mark { bottom: auto; top: 50%; transform: translateY(-50%); }
+  .fp-status-code { font-size: calc(var(--fp-coin-d) * 0.24); }
+  .fp-status-copy { width: min(100%, 360px); height: auto; padding-top: 0; }
+  .fp-status-title, .fp-status-title-solo { max-width: none; color: var(--fp-light); text-shadow: none; font-size: 24px; }
+  .fp-status-copy > .dash-button-primary { width: 100%; }
+  .fp-status-copy > .dash-button-primary:focus-visible { outline-color: var(--fp-light); }
+}
+
+/* The session check: nothing for the first 400ms, so the usual quick answer
+   and redirect never flash, then the coin turning on its edge, on the page's
+   own background. */
+.fp-session-check { min-height: 100dvh; display: grid; place-items: center; }
+.fp-session-coin {
+  width: 44px; height: 44px; opacity: 0;
+  background: url("./assets/fils-coin-mark.webp") center / contain no-repeat;
+  animation: fp-session-in 240ms var(--fp-ease) 400ms forwards, fp-session-turn 1.4s linear 400ms infinite;
+}
+@keyframes fp-session-in { to { opacity: 1; } }
+@keyframes fp-session-turn { to { transform: rotateY(360deg); } }
+@media (prefers-reduced-motion: reduce) { .fp-session-coin { animation: fp-session-in 240ms var(--fp-ease) 400ms forwards; } }
+
+/* A copy control that sits on the line it copies: just the icon, no box, so
+   it never paints a light fill on an ink panel. The hit area is 44px; the
+   negative block margin keeps it from growing the line. */
+.fp-copy-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.fp-copy-row > a { min-width: 0; }
+.fp-copy-button {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; margin: -12px 0; padding: 0;
+  border: 0; border-radius: var(--fp-r); background: none; color: var(--fp-ink-2); cursor: pointer;
+  transition: color 150ms var(--fp-ease);
+}
+.fp-copy-button svg { width: 18px; height: 18px; }
+.fp-copy-button:hover, .fp-copy-button:focus-visible, .fp-copy-button[data-copied="true"] { color: var(--fp-brand-ink); }
+.fp-copy-button:focus-visible { outline: 2px solid var(--fp-brand-ink); outline-offset: -6px; }

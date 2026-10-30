@@ -1,4 +1,5 @@
-import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import { createBrowserRouter, isRouteErrorResponse, Navigate, Outlet, useRouteError } from "react-router-dom";
+import { CrashPage, NotFoundPage } from "@filspay/ui";
 import type { RouteObject } from "react-router-dom";
 import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { AdminLayout } from "./components/AdminLayout.js";
@@ -11,6 +12,21 @@ import { MerchantListPage } from "./pages/merchants/MerchantListPage.js";
 import { MerchantDetailPage } from "./pages/merchants/MerchantDetailPage.js";
 import { SettlementPage } from "./pages/settlement/SettlementPage.js";
 import { WebhookReplayPage } from "./pages/webhooks/WebhookReplayPage.js";
+
+function NotFound() {
+  return <NotFoundPage homeHref="/" homeLabel="Back to home" />;
+}
+
+/**
+ * The root's error element: a loader or router error (an unknown URL included)
+ * gets the designed face, never React Router's default, which prints the raw
+ * error. Render errors inside a page are caught first by AppErrorBoundary.
+ */
+function RouteError() {
+  const error = useRouteError();
+  if (isRouteErrorResponse(error) && error.status === 404) return <NotFound />;
+  return <CrashPage />;
+}
 
 // MK: /v2 routes live behind VITE_ADMIN_V2 — see the admin v2 doc
 const routes: RouteObject[] = [
@@ -36,6 +52,9 @@ const routes: RouteObject[] = [
       { path: "/webhooks/:merchantId", element: <WebhookReplayPage /> },
     ],
   },
+
+  // Outside the guard, so a mistyped URL answers at once without a session check.
+  { path: "*", element: <NotFound /> },
 ];
 
 // One pathless root so a render error on any page lands on the same short
@@ -47,6 +66,7 @@ export const router = createBrowserRouter([
         <Outlet />
       </AppErrorBoundary>
     ),
+    errorElement: <RouteError />,
     children: routes,
   },
 ]);

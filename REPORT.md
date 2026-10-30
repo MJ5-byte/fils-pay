@@ -1465,3 +1465,29 @@
 - **Before:** In a 400-user read-only ramp on the live box, the static login page slowed from 126 to 514 ms as load rose, because the `web` container (nginx and the built apps) was capped at 0.1 CPU. Sign-in was also capped at 10 requests a minute per address, so a room of people behind one shared address would see "too many requests" after about five sign-ins.
 - **Why it shipped:** Judges test the live box together, likely from one event network, and the brief scores how many users we can carry. Nothing was broken, but these two caps were the first limits that load reached.
 - **Change:** `ops/docker-compose.yml` raises the `web` cap from 0.1 to 0.25 CPU; the api replicas keep their 0.5 CPU between them. `ops/nginx.conf` raises the sign-in zone from 10 to 30 requests a minute with a burst of 30. Password guessing stays bounded by the per-account lockout and each OTP challenge's attempt limit.
+
+### Bug: The payment link's Copy link button turned unreadable on hover (BHA-67)
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** On a payment link's detail page, hovering Copy link turned the button into a light box whose label almost disappeared.
+- **Cause:** The ink detail panel remaps `--fp-ink` to the light colour, and the shared `.dash-button:hover` fills with `--fp-ink` under `--fp-page` text, so both ended up light.
+- **Breaks:** The one action on that line looked broken the moment a merchant reached for it.
+- **Fix:** The button is now a copy icon on the link's own line, with no box: it turns brand red on hover and focus, shows a check for a moment once copied, keeps a 44px hit area, and is labelled for screen readers. The copy logic is unchanged.
+
+### Improvement: A designed 404 and crash page in both apps (BHA-67)
+- **Type:** UX
+- **Before:** An unknown URL showed React Router's default "Unexpected Application Error! 404 Not Found" in bare heading type, cut off at the left edge.
+- **Why it shipped:** Judges open the live site and try URLs; the default screen looked broken and printed router internals.
+- **Change:** Both routers get a `*` route and a root `errorElement` that render one shared face from `@filspay/ui`: the sign-in's coin on the ink and red diagonal, "404", "This page doesn't exist." and a button home. Any other error shows "Something went wrong" with a reload button and never the error text.
+
+### Improvement: The session check no longer flashes text (BHA-67)
+- **Type:** UX
+- **Before:** Opening the site root showed bare "Checking your session..." text for about 400 ms before the redirect to sign in.
+- **Why it shipped:** It is the very first thing anyone sees on the live URL.
+- **Change:** Both route guards show a shared `SessionCheck`: nothing for the first 400 ms, then a small turning coin on the page's own background, with a hidden status line for screen readers. The auth logic is unchanged.
+
+### Improvement: FilsPay has a favicon (BHA-67)
+- **Type:** UX
+- **Before:** Browser tabs, bookmarks and home screens showed a blank default icon.
+- **Why it shipped:** A product with no icon looks unfinished in every tab a judge opens.
+- **Change:** Both apps ship the coin as a 48px tab icon, a 16, 32 and 48px `favicon.ico` on ink for search results, an Apple touch icon, 192 and 512px icons, a maskable icon and a web manifest, from new `public/` folders. nginx already serves `/favicon.ico` from the admin build at the site root.
