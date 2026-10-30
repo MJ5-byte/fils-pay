@@ -421,6 +421,13 @@
 - **Breaks:** A merchant checking one day's payments against that day's settlement batch got a list three hours off, so the two never matched. Near midnight the admin could close the wrong day's batch by accepting the default.
 - **Fix:** `dayStartIso` now parses the date at `+03:00`, the same parse apps/api's `bahrainLocalMidnightUtc` uses. The Run batch default moved to `apps/admin/src/pages/settlement/businessDate.ts` and takes yesterday from the Bahrain calendar date, the same technique as apps/api's `todayBahrainDateString`, whatever the browser's zone. The web test that asserted UTC midnight now asserts 21:00Z on the previous day. A new admin test pins both sides of 21:00Z with a fixed clock, and admin gained the same `tsx --test` script the web app has. On a local run, the 27 Aug filter now includes a payment made at 01:03 Bahrain time (22:03Z on 26 Aug) that the old filter left out.
 
+### Bug: The webhook dispatcher double-delivers when more than one replica runs
+- **Status:** Fixed (BHA-135)
+- **Type:** Concurrency, high
+- **Problem:** With more than one api replica running the in-process webhook dispatcher, both replicas selected the same due delivery and both POSTed it, so the merchant received each webhook twice.
+- **Cause:** Step B's due-delivery SELECT in `webhooks/dispatcher.ts` (`attemptDueDeliveries`) picked every `pending` row whose `next_attempt_at` had passed with no atomic claim, and the HTTP send happens outside any transaction. Two passes read the same row before either marked it, so both sent. The comments above it ("only ever run ONE api replica", "staging ran 2 replicas, never saw a dup, so it's fine") asserted safety the code never had.
+- **Breaks:** Receivers got duplicate `transaction.captured`, `transaction.voided` and `settlement.paid` deliveries, and the `settlement.paid` pre-delivery effect (payout disbursement) could run twice.
+- **Fix:** Each delivery is now claimed before it is sent, with a conditional UPDATE that leases the row by pushing `next_attempt_at` past the send window. The row lock serialises two replicas, so exactly one wins each row and the rest skip it. No schema change: the status CHECK constraint has no `sending` value, and `next_attempt_at` already means "not eligible until". A normal attempt still overwrites `next_attempt_at` with the real backoff or sets a terminal status, so the lease only covers the crash-recovery window. Test added: two overlapping dispatch passes deliver one due event exactly once.
 ### Bug: Transaction authorize crashes with a 500 on an empty or malformed card object
 - **Status:** Fixed (BHA-80)
 - **Type:** UX, low
