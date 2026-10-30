@@ -1134,6 +1134,14 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: A capture can report a 500 after the money moved
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** When a merchant with a negotiated discount captured a payment and the discount rebate step failed, the API answered 500 although the capture had already committed.
+- **Cause:** The capture route runs the discount adjustment in a second transaction after the capture commits, and let its error escape the handler in `apps/api/src/routes/transactions.ts`.
+- **Breaks:** A merchant who sees a 500 believes the capture failed and may capture again with a new key, which on a partial capture takes the money a second time.
+- **Fix:** The route now catches and logs an adjustment failure and returns the committed capture, the same shape the payment link path already uses. Test added. The rebate itself is still not posted until the merchant replays with the same key or makes a later partial capture on the same transaction; no job retries it and settlement keeps the shortfall, so a merchant who never retries stays overcharged by the discount share of that fee. That gap is tracked separately (BHA-235).
+
 ### Bug: A slow CSV export download buffers the whole history in memory
 - **Status:** Fixed
 - **Type:** Performance, high

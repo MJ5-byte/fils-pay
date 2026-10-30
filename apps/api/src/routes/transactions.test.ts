@@ -239,6 +239,55 @@ test("capture with a reused idempotency key and identical body replays without a
   assert.ok(Number(countAfterFirst.rows[0]!.c) > 0);
 });
 
+test("capture still returns 200 when the discount adjustment fails after the capture commits, and a same-key replay applies it", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("discount-adjustment-retry");
+  await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchantId]);
+  const txn = await authorize(rawKey, 10_000);
+  const key = randomUUID();
+  const suffix = randomUUID().replace(/-/g, "");
+  const fn = `bha224_fail_${suffix}`;
+  await pool.query(
+    `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+     BEGIN
+       IF NEW.transaction_id = '${txn.id}' AND NEW.description = 'capture: negotiated discount adjustment' THEN
+         RAISE EXCEPTION 'injected discount adjustment failure';
+       END IF;
+       RETURN NEW;
+     END $$`,
+  );
+  try {
+    await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON ledger_entries FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+
+    const first = await capture(rawKey, txn.id, {}, key);
+    assert.equal(first.statusCode, 200, first.body);
+    assert.equal(first.json().status, "captured");
+
+    const beforeReplay = await pool.query<{ c: number }>(
+      `SELECT COUNT(*)::int AS c FROM ledger_entries
+        WHERE transaction_id = $1 AND description = 'capture: negotiated discount adjustment'`,
+      [txn.id],
+    );
+    assert.equal(beforeReplay.rows[0]!.c, 0);
+
+    await pool.query(`DROP TRIGGER ${fn} ON ledger_entries`);
+
+    const replay = await capture(rawKey, txn.id, {}, key);
+    assert.equal(replay.statusCode, 200, replay.body);
+    assert.deepEqual(replay.json(), first.json());
+
+    const afterReplay = await pool.query<{ c: number }>(
+      `SELECT COUNT(*)::int AS c FROM ledger_entries
+        WHERE transaction_id = $1 AND description = 'capture: negotiated discount adjustment'
+          AND account_id = 'platform_fee_revenue' AND direction = 'debit'`,
+      [txn.id],
+    );
+    assert.equal(afterReplay.rows[0]!.c, 1);
+  } finally {
+    await pool.query(`DROP TRIGGER IF EXISTS ${fn} ON ledger_entries`);
+    await pool.query(`DROP FUNCTION ${fn}()`);
+  }
+});
+
 // FH: should also cover same key + same body on a DIFFERENT transaction -> 422 (API.md). Claude says
 // that case can't happen because keys are per transaction
 test("capture with a reused idempotency key but a different body is rejected as a conflict", async () => {

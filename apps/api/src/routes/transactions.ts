@@ -167,14 +167,20 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         idempotencyKey,
         actor: requireMerchantWriterActor(request.merchantAuth!),
       });
-      // discount applied after capture commits, separate txn. on a replayed 200 this runs again
-      // but the count guard makes it a no-op — MK 2026-06
-      // am: and if this throws, the capture is committed but the discount never lands? retry = replay = ...
+      // Capture committed: an adjustment failure must not invite a second capture; a same-key replay re-runs the idempotent adjustment.
       if (result.statusCode === 200) {
-        await applyCaptureDiscountAdjustment(app.db, {
-          merchantId: request.merchantAuth!.merchantId,
-          transactionId: request.params.id,
-        });
+        try {
+          await applyCaptureDiscountAdjustment(app.db, {
+            merchantId: request.merchantAuth!.merchantId,
+            transactionId: request.params.id,
+          });
+        } catch (error) {
+          console.error(
+            `capture route: negotiated discount adjustment failed for merchant ${request.merchantAuth!.merchantId} ` +
+              `(transaction ${request.params.id}) after a successful capture. The discount rebate is not posted; investigate`,
+            error,
+          );
+        }
       }
       reply.code(result.statusCode).send(result.body);
     },
