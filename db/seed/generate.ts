@@ -608,6 +608,18 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         );
         settlementBatchCount += 1;
 
+        // Each line's capture event, stamped with this batch the way
+        // CloseBatch stamps the events it settles: the batch detail sums
+        // stamped events, so without these a line shows Captured 0.
+        for (const txn of settledTxns) {
+          await client.query(
+            `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, occurred_at, settlement_batch_id)
+             VALUES ($1, 'captured', $2, 'system', $3, $4)`,
+            [txn.id, txn.capturedFils, txn.occurredAt, closedBatchId],
+          );
+          transactionEventCount += 1;
+        }
+
         for (const line of schemeLineParams) {
           await client.query(
             `INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
