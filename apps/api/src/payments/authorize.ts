@@ -5,10 +5,33 @@ import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js
 import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRequest } from "./idempotency.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
-import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
+import { BadRequestError, ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 
 // YA: part of the idempotency scope, never rename it
 const ENDPOINT = "transactions.authorize";
+
+/**
+ * Validates the card shape at the acquirer boundary. Every authorize caller
+ * (POST /v1/transactions and the public payment-link pay flow) hands the
+ * acquirer a client-supplied card; without this, a missing or wrong-typed
+ * field (e.g. `card: {}`) reaches `pan.endsWith(...)` in the simulator and
+ * crashes with an unhandled 500 instead of a clean 400.
+ */
+function assertValidCard(card: unknown): asserts card is SimulatedCardInput {
+  if (card === null || typeof card !== "object") {
+    throw new BadRequestError("invalid_request", "card is required and must be an object");
+  }
+  const { pan, expiryMonth, expiryYear, cvv } = card as Record<string, unknown>;
+  if (typeof pan !== "string" || pan.length === 0) {
+    throw new BadRequestError("invalid_request", "card.pan is required and must be a string");
+  }
+  if (typeof expiryMonth !== "number" || typeof expiryYear !== "number") {
+    throw new BadRequestError("invalid_request", "card.expiryMonth and card.expiryYear are required and must be numbers");
+  }
+  if (typeof cvv !== "string" || cvv.length === 0) {
+    throw new BadRequestError("invalid_request", "card.cvv is required and must be a string");
+  }
+}
 
 export interface AuthorizeInput {
   merchantId: string;
@@ -47,6 +70,7 @@ export async function authorizeTransaction(
   acquirer: AcquirerSimulator,
   input: AuthorizeInput,
 ): Promise<AuthorizeResult> {
+  assertValidCard(input.card);
   const actor = input.actor ?? { type: "system" as const, id: null };
   const requestHash = hashRequest({
     amountFils: input.amountFils,

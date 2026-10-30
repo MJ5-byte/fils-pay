@@ -378,6 +378,13 @@
 - **Breaks:** A merchant checking one day's payments against that day's settlement batch got a list three hours off, so the two never matched. Near midnight the admin could close the wrong day's batch by accepting the default.
 - **Fix:** `dayStartIso` now parses the date at `+03:00`, the same parse apps/api's `bahrainLocalMidnightUtc` uses. The Run batch default moved to `apps/admin/src/pages/settlement/businessDate.ts` and takes yesterday from the Bahrain calendar date, the same technique as apps/api's `todayBahrainDateString`, whatever the browser's zone. The web test that asserted UTC midnight now asserts 21:00Z on the previous day. A new admin test pins both sides of 21:00Z with a fixed clock, and admin gained the same `tsx --test` script the web app has. On a local run, the 27 Aug filter now includes a payment made at 01:03 Bahrain time (22:03Z on 26 Aug) that the old filter left out.
 
+### Bug: Transaction authorize crashes with a 500 on an empty or malformed card object
+- **Status:** Fixed (BHA-80)
+- **Type:** UX, low
+- **Problem:** Authorizing with `card: {}`, a missing field, or a wrongly typed field answered 500 instead of a clean 400. BHA-79 already guarded the amount; the card shape was still unchecked.
+- **Cause:** `routes/transactions.ts` only checked that `card` was present (`!card`), so an empty object passed. `authorizeTransaction` then handed it to the simulator, where `magicOutcomeForPan(req.card.pan)` called `pan.endsWith(...)` on `undefined` and threw a TypeError, surfacing as an unhandled 500.
+- **Breaks:** Malformed card input produced a server error instead of an actionable 400, on both the authorize endpoint and the public payment-link pay flow (the two callers that route through `authorizeTransaction`).
+- **Fix:** `authorizeTransaction` validates the card shape at the acquirer boundary before any dereference, idempotency claim or DB transaction: a missing or wrong-typed `pan`, `expiryMonth`, `expiryYear` or `cvv` gives 400 `invalid_request`, matching the house validation style. The response carries only the error code and message, no stack, SQL or internals. Test added in `transactions.test.ts`: seven malformed cards each answer 400 and the acquirer is never called.
 ### Bug: Balance adjustment with an oversized amount answers 500
 - **Status:** Fixed
 - **Type:** Data, low

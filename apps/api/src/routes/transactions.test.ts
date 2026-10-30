@@ -424,3 +424,39 @@ test("authorize rejects a zero, negative, fractional, NaN or non-number amount w
     app.acquirer.authorize = original;
   }
 });
+
+test("authorize rejects an empty or malformed card with 400 before the acquirer is called, never a 500 (BHA-80)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("authorize-bad-card");
+  const original = app.acquirer.authorize;
+  let acquirerCalls = 0;
+  app.acquirer.authorize = (req) => {
+    acquirerCalls += 1;
+    return original.call(app.acquirer, req);
+  };
+  try {
+    const malformedCards = [
+      {},
+      { expiryMonth: 12, expiryYear: 2030, cvv: "123" }, // pan missing
+      { pan: 4242424242424242, expiryMonth: 12, expiryYear: 2030, cvv: "123" }, // pan not a string
+      { pan: "4242424242424242", expiryYear: 2030, cvv: "123" }, // expiryMonth missing
+      { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030 }, // cvv missing
+      null,
+      "4242424242424242",
+    ];
+    for (const card of malformedCards) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v1/transactions",
+        headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+        payload: { amountFils: 1_000, card },
+      });
+      assert.equal(res.statusCode, 400, `${JSON.stringify(card)}: ${res.body}`);
+      assert.equal(res.json().error, "invalid_request", res.body);
+      // The error response must not leak internals (stack trace, SQL, pg detail).
+      assert.ok(!/\binternal_error\b|\n\s+at\s|SELECT |INSERT /.test(res.body), `leaked internals: ${res.body}`);
+    }
+    assert.equal(acquirerCalls, 0);
+  } finally {
+    app.acquirer.authorize = original;
+  }
+});
