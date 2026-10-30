@@ -353,3 +353,92 @@ web 8, scripts 6) and **go test all-ok**, with api/web/admin typecheck clean.
 - `packages/money`, `packages/events` — the shared primitives.
 - `db/migrations/` — `0001`–`0077` (we added 0073–0077).
 - `docs/` — architecture/ADRs/handover + **our** EXPLANATIONS/SUMMARY/TEACHING.
+
+---
+
+## 11. Guided read — how to read this document
+
+A companion walkthrough for someone sitting down with this doc. It gives the
+connective tissue that a bullet list can't: *why* each section matters and what
+would break without it. Read §3 twice; everything else hangs off it.
+
+### §1–2 — The shape of the system
+
+- Keep "**1 BD = 1000 fils**" and "**the database is the bus between services**"
+  in your head: every design decision here follows from those two.
+- The asymmetry worth noticing: `apps/settlement` (Go) owns the "who owes what"
+  math; `apps/api` writes events and moves no money on its own; `apps/web` +
+  `apps/admin` never touch the DB (pure HTTP to the API). Settlement's internal
+  HTTP API on `:8091` is bridge-only — that is the admin-trigger path.
+
+### §3 — The money model (read twice)
+
+- The toolbox in `packages/money` is deliberately small: `applyRateFils` is the
+  **only** place rates are applied (one rounding, half-to-even). When a fee bug
+  showed up, the root cause was always a *second* way of computing fees (float,
+  or a different table), never this function.
+- The **double-entry ledger with a deferred trigger** is the real safety net: a
+  buggy write *fails closed* instead of quietly unbalancing. Statements like
+  "the refund group nets to zero" are enforced, not hoped.
+- `merchant_balances` is a **cache**, not source of truth. Two rebuild paths
+  disagreeing is exactly the 135K→7K bug (B7); after our fix there is one rollup.
+
+### §4 — Core flows
+
+- **Idempotency keys** are the git-commit-hash of payments: same key + body =
+  same response, never a double write. It is the backbone of payment-links
+  races and of FP-209.
+- **The lock held across the acquirer call** (`SELECT … FOR UPDATE` while
+  talking to the acquirer) is what makes concurrency safe. Capture always held
+  it; refunds did not — that difference *was* FP-209.
+- **The outbox** is why webhooks survive crashes: the event is written in the
+  same transaction as the money movement. Step A (create deliveries) and Step B
+  (sign + send) are separate so a retry can't double-create.
+
+### §5 — Security
+
+- Sessions grant nothing until the OTP is verified (B12: the merchant
+  `live_sessions` view had skipped the `authenticated` flag). Admin roles are
+  enforced server-side per route (B20: credit creation is finance+, impersonation
+  is support-only). Idempotency doubles as a fraud control.
+
+### §6 — The fix-set table
+
+- The presentation backbone: 16 rows mapping every bug to its commit. `docs/
+  EXPLANATIONS.md` is the per-bug what/why/what-breaks detail.
+
+### §7 — The refunds feature
+
+- The part to be proudest of: **one transaction** that takes the row lock
+  across the acquirer call (FP-209), caps refunds at *captured* not authorized
+  (B8), reverses the *net* fee including the discount leg (F2), defaults the
+  reason so the DB check cannot 500 after money moved (F5-2), and hands off to
+  a signed, envelope-first webhook plus reporting rollups. The live proof:
+  ledger group nets to 0, `refund.succeeded` delivered, raw-bytes signature
+  verifies.
+
+### §8 — The mystery
+
+- Three empty commits carried a base64 → Vigenère → AES chain ending at the
+  flag. It decodes into the mission statement: every "Claude says" comment is a
+  planted bug, every locked test is a vow. That is why we trusted reproduction
+  over the suite.
+
+### §9 — Running it
+
+- The Docker path is the "ship" story (it builds and boots; the settlement
+  daemon ran a real daily batch). The npm path is the daily driver. The env
+  table is the only config reference you need. Current state: **458/458 npm,
+  go all-ok, tsc clean**.
+
+### §10 — Repo map
+
+- A locator only; nothing to memorize.
+
+### Companion documents
+
+| Doc | Read it when… |
+|---|---|
+| `docs/EXPLANATIONS.md` | you need the bug-by-bug what/why/what-breaks (pair it with §6) |
+| `docs/SUMMARY.md` | you need the 5-minute story (plain language, no jargon) |
+| `docs/TEACHING.md` | you're sitting down to teach or demo, or running the app hands-on |
