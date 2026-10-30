@@ -92,6 +92,15 @@ function encodeCursor(createdAtText: string, id: string): string {
   return Buffer.from(`${createdAtText}|${id}`, "utf8").toString("base64url");
 }
 
+/**
+ * The merchant-facing filter offers `failed`, but a delivery that uses up
+ * every attempt is recorded as `exhausted` (see dispatcher.ts); `failed` is a
+ * status CHECK value (migration 0022) that nothing ever writes. Map the filter
+ * value onto the stored status so filtering by `failed` returns the real
+ * permanently-failed deliveries instead of always matching zero rows.
+ */
+const FILTER_STATUS_TO_STORED: Record<string, string> = { failed: "exhausted" };
+
 export interface ListWebhookDeliveriesFilters {
   merchantId: string;
   endpointId: string;
@@ -121,7 +130,10 @@ export async function listWebhookDeliveries(
   filters: ListWebhookDeliveriesFilters,
 ): Promise<ListWebhookDeliveriesResult> {
   const limit = Math.min(MAX_LIMIT, Math.max(1, filters.limit ?? DEFAULT_LIMIT));
-  const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
+  const statusArray =
+    filters.status && filters.status.length > 0
+      ? [...new Set(filters.status.map((status) => FILTER_STATUS_TO_STORED[status] ?? status))]
+      : null;
   const decodedCursor = decodeCursor(filters.cursor);
 
   const result = await pool

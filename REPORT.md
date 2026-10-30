@@ -626,6 +626,13 @@
 - **Breaks:** No batch containing a large capture could be closed; settlement stalled for that merchant and day. The float copy also disagreed with `amount_fils` by up to 9 fils (it rounded the untruncated gross), against ADR-0002's "amount must be exactly amount_fils / 1000 formatted to two decimals".
 - **Fix:** Stop writing the overflow-prone float column at close (it is nullable and no reader needs it) and format the exported BD figure from the `BIGINT` `amount_fils` with the existing `formatFilsAsTwoDecimalString`, which is exact and cannot overflow. Removed the now-unused `SchemeAmountBD` float helper. No schema change. Test added: a 100,000,000.00 BD capture now closes and exports "100000000.00".
 
+### Bug: Webhook failed-status filter is a permanent no-op (BHA-143)
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** On the webhook endpoint deliveries list, filtering by the "failed" status always returned zero rows, so a merchant could never see their failed deliveries through that filter.
+- **Cause:** The deliveries list query filters `webhook_deliveries.status = ANY($statuses)` with the status strings passed straight through (`apps/api/src/webhooks/deliveries.ts`). The dispatcher only ever writes `pending`, `succeeded` or `exhausted` (`dispatcher.ts`): a delivery that uses up every attempt is stored as `exhausted`. `failed` is a value in the schema CHECK constraint (migration 0022) that nothing writes, so `status = 'failed'` matched nothing.
+- **Breaks:** A filter option that can never match anything misled the user into thinking there were no failed deliveries.
+- **Fix:** Map the user-facing `failed` filter value onto the stored `exhausted` status inside the shared list query, so filtering by `failed` returns the real permanently-failed deliveries. Parameterized SQL unchanged. Test added in `routes/webhooks.test.ts` that drives a delivery to `exhausted` and asserts the `failed` filter returns it.
 ### Bug: Settlement batch list mixes rows from a previous filter on a slow response (BHA-172)
 - **Status:** Fixed
 - **Type:** UX, low

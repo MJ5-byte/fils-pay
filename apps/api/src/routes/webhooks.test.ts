@@ -701,3 +701,54 @@ test("webhook endpoint routes answer 404 for a non-UUID endpoint or delivery id"
     assert.equal(res.statusCode, 404, `${label}: ${res.statusCode} ${res.body}`);
   }
 });
+
+test("GET deliveries?status=failed returns the real permanently-failed (exhausted) deliveries (BHA-143)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("failed-filter");
+  const receiver = await startTestReceiver(500);
+  try {
+    const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
+    await authorizeAndCapture(merchantId, 1_500, "failed-filter");
+
+    // Drive the one delivery to 'exhausted' (WEBHOOK_MAX_ATTEMPTS = 3): pass 1
+    // creates and attempts it, then force it due and pass twice more.
+    await runDispatchPass(pool, createFetchTransport(config), config);
+    for (let attempt = 2; attempt <= 3; attempt += 1) {
+      await pool.query(
+        `UPDATE webhook_deliveries SET next_attempt_at = now() - interval '1 second' WHERE endpoint_id = $1`,
+        [created.id],
+      );
+      await runDispatchPass(pool, createFetchTransport(config), config);
+    }
+
+    const stored = await pool.query<{ status: string }>(
+      `SELECT status FROM webhook_deliveries WHERE endpoint_id = $1`,
+      [created.id],
+    );
+    assert.equal(stored.rows.length, 1);
+    assert.equal(stored.rows[0]!.status, "exhausted");
+
+    // The bug: filtering by 'failed' used to match the never-written 'failed'
+    // status and always return zero rows. It must now surface the exhausted row.
+    const failedRes = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}/deliveries?status=failed`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(failedRes.statusCode, 200, failedRes.body);
+    const failedBody = failedRes.json() as { deliveries: Array<{ status: string }> };
+    assert.equal(failedBody.deliveries.length, 1);
+    assert.equal(failedBody.deliveries[0]!.status, "exhausted");
+
+    // The mapping is narrow, not a catch-all: 'succeeded' still matches nothing here.
+    const succeededRes = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}/deliveries?status=succeeded`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(succeededRes.statusCode, 200, succeededRes.body);
+    const succeededBody = succeededRes.json() as { deliveries: unknown[] };
+    assert.equal(succeededBody.deliveries.length, 0);
+  } finally {
+    await receiver.close();
+  }
+});
