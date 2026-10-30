@@ -73,3 +73,43 @@ test("getRecentLedgerActivity: a boundary business day is counted in exactly one
     "the boundary day belongs to the window that starts on it, counted once",
   );
 });
+
+test("getRecentLedgerActivity: more than 200 rows are all reachable by following nextCursor (BHA-106)", async () => {
+  const merchantResult = await pool.query<{ id: string }>(
+    `INSERT INTO merchants (display_name, mdr_bps) VALUES ($1, $2) RETURNING id`,
+    [`BHA-106 Paging ${randomUUID()}`, 250],
+  );
+  const merchantId = merchantResult.rows[0]!.id;
+
+  // 103 pairs = 206 rows; the pairs share a timestamp, so the id tie-break matters.
+  for (let i = 0; i < 103; i++) {
+    await insertLedgerPair(merchantId, new Date(Date.UTC(2026, 2, 1, 5, 0, i)).toISOString());
+  }
+
+  const window = { merchantId, from: "2026-03-01", to: "2026-04-01" };
+  const seen = new Set<string>();
+  let cursor: string | null | undefined;
+  let pages = 0;
+  do {
+    const page = await getRecentLedgerActivity(pool, { ...window, cursor });
+    assert.ok(page.points.length <= 200, "a page never exceeds 200 rows");
+    for (const point of page.points) seen.add(point.id);
+    cursor = page.nextCursor;
+    pages++;
+  } while (cursor && pages < 10);
+
+  assert.equal(seen.size, 206, "every row is returned exactly once across the pages");
+  assert.equal(pages, 2);
+});
+
+test("getRecentLedgerActivity: a malformed cursor is rejected, not read as page one (BHA-106)", async () => {
+  await assert.rejects(
+    getRecentLedgerActivity(pool, {
+      merchantId: randomUUID(),
+      from: "2026-03-01",
+      to: "2026-04-01",
+      cursor: "not-a-cursor",
+    }),
+    { code: "invalid_cursor" },
+  );
+});

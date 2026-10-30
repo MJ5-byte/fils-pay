@@ -791,3 +791,19 @@
 - **Cause:** `backoffDelayMs` applies ±10 % random jitter on purpose (`apps/api/src/webhooks/dispatcher.ts:48-58`, with an injectable `jitter` parameter), but the test asserted an exact 1000 and 2000 from the unseeded call (`dispatcher.test.ts:198-199`, `:218-219`). `ARCHITECTURE.md:63` only requires exponential backoff, so no doc rules jitter out and the code is right.
 - **Breaks:** A permanently red test that taught the team to ignore webhook failures, and a real retry-schedule regression would not have stood out.
 - **Fix:** The test now passes `() => 0.5` for the exact base delay and asserts the 900 and 1100 jitter bounds with `() => 0` and `() => 1`. No production code changed and no assertion was weakened. Test updated in `dispatcher.test.ts`; it failed before and passes 3 of 3 runs after.
+
+### Bug: Recent ledger activity silently stops at 200 rows
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** A merchant with more than 200 ledger entries in the chosen dates saw only the newest 200, with no sign that more existed.
+- **Cause:** `getRecentLedgerActivity` in `apps/api/src/analytics/query.ts` ended in a hard `LIMIT 200` with no cursor and ordered by `occurred_at` alone, so there was no way to ask for the rest.
+- **Breaks:** Any ledger total or audit built from this list was short without warning.
+- **Fix:** The query now orders by `(occurred_at, id) DESC`, filters on a keyset cursor and returns `nextCursor`, the same pattern as `reporting/transactionsReportQuery.ts`. The route accepts `?cursor=`, and a bad cursor answers 400 instead of restarting at page one. Test added in `recentLedgerActivityBoundary.new.test.ts` (206 rows over two pages, plus a bad cursor). No web page calls this endpoint yet, so there is no client to update.
+
+### Bug: Settlement batch progress bar does float math on money
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** The progress bar on a closed batch took its width from a float computed from the gross amount.
+- **Cause:** `SettlementBatchDetailPage.tsx` did `parseFloat((grossFils / 10000).toFixed(2))`, which rounds a fils amount through a decimal float.
+- **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
+- **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.

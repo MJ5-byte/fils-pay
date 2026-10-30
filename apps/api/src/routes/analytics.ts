@@ -117,12 +117,17 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get<{ Querystring: DateRangeQuery }>(
+  app.get<{ Querystring: DateRangeQuery & { cursor?: string } }>(
     "/recent-ledger-activity",
     { preHandler: requireMerchantAuth },
     async (request) => {
       const { from, to } = parseDateRange(request.query);
-      return getRecentLedgerActivity(app.db, { merchantId: request.merchantAuth!.merchantId, from, to });
+      return getRecentLedgerActivity(app.db, {
+        merchantId: request.merchantAuth!.merchantId,
+        from,
+        to,
+        cursor: typeof request.query.cursor === "string" ? request.query.cursor : undefined,
+      });
     },
   );
 

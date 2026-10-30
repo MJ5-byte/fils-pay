@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { BadRequestError } from "../lib/errors.js";
 
 const DEFAULT_TOP_LINKS_LIMIT = 10;
 const MIN_TOP_LINKS_LIMIT = 1;
@@ -270,6 +271,7 @@ export interface LedgerActivityPointDto {
 
 export interface RecentLedgerActivityResponse {
   points: LedgerActivityPointDto[];
+  nextCursor: string | null;
   readModelAsOf: string;
   live: true;
 }
@@ -280,7 +282,23 @@ interface LedgerActivityRow {
   direction: "debit" | "credit";
   amount_fils: string | number;
   occurred_at: Date;
+  occurred_at_text: string;
   description: string | null;
+}
+
+const LEDGER_ACTIVITY_PAGE_SIZE = 200;
+
+/** Cursor = base64url("<occurred_at as printed by Postgres>|<id>"), the same
+ *  keyset as reporting/transactionsReportQuery.ts (microsecond-exact). */
+function decodeLedgerCursor(cursor: string): { occurredAt: string; id: string } {
+  const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+  const separatorIndex = decoded.indexOf("|");
+  const occurredAt = decoded.slice(0, separatorIndex);
+  const id = decoded.slice(separatorIndex + 1);
+  if (separatorIndex === -1 || !occurredAt || !id) {
+    throw new BadRequestError("invalid_cursor", "cursor is not valid");
+  }
+  return { occurredAt, id };
 }
 
 /**
@@ -300,18 +318,31 @@ interface LedgerActivityRow {
  */
 export async function getRecentLedgerActivity(
   pool: Pool,
-  input: { merchantId: string; from: string; to: string },
+  input: { merchantId: string; from: string; to: string; cursor?: string | null },
 ): Promise<RecentLedgerActivityResponse> {
-  const result = await pool.query<LedgerActivityRow>(
-    `SELECT id, account_id, direction, amount_fils, occurred_at, description
-       FROM ledger_entries
-      WHERE merchant_id = $1
-        AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date >= $2::date
-        AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date < $3::date
-      ORDER BY occurred_at DESC
-      LIMIT 200`,
-    [input.merchantId, input.from, input.to],
-  );
+  // A present cursor that cannot be decoded must not fall back to page one.
+  const after = input.cursor ? decodeLedgerCursor(input.cursor) : null;
+  const result = await pool
+    .query<LedgerActivityRow>(
+      `SELECT id, account_id, direction, amount_fils, occurred_at, description,
+              occurred_at::text AS occurred_at_text
+         FROM ledger_entries
+        WHERE merchant_id = $1
+          AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date >= $2::date
+          AND (occurred_at AT TIME ZONE 'Asia/Bahrain')::date < $3::date
+          AND ($4::timestamptz IS NULL OR (occurred_at, id) < ($4::timestamptz, $5::bigint))
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT $6`,
+      [input.merchantId, input.from, input.to, after?.occurredAt ?? null, after?.id ?? null, LEDGER_ACTIVITY_PAGE_SIZE],
+    )
+    .catch((err: unknown) => {
+      // SQLSTATE class 22 with a cursor present: the decoded cursor isn't a valid timestamp/bigint.
+      if (after && (err as { code?: string }).code?.startsWith("22")) {
+        throw new BadRequestError("invalid_cursor", "cursor is not valid");
+      }
+      throw err;
+    });
+  const lastRow = result.rows[result.rows.length - 1];
 
   return {
     points: result.rows.map((row) => ({
@@ -322,6 +353,10 @@ export async function getRecentLedgerActivity(
       occurredAt: row.occurred_at.toISOString(),
       description: row.description,
     })),
+    nextCursor:
+      result.rows.length === LEDGER_ACTIVITY_PAGE_SIZE && lastRow
+        ? Buffer.from(`${lastRow.occurred_at_text}|${lastRow.id}`, "utf8").toString("base64url")
+        : null,
     readModelAsOf: new Date().toISOString(),
     live: true,
   };
