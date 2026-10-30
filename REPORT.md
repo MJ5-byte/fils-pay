@@ -1104,6 +1104,18 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Improvement: Settlement batch lookups scan whole tables
+- **Type:** Performance
+- **Before:** Lookups by settlement batch read every row of their table: the batch detail event count (`apps/api/src/settlement/query.ts:191`), MDR recalculation (`recalculate_mdr.go:192`, `:219`, `:249`) and the payout notifier's `NOT EXISTS` on `outbox_events` (`payout_notify.go:39-42`, every daemon tick, and its re-check at `:118`). The only indexes on these columns were partial `IS NULL` ones (`0023`, `0042`), which cannot serve `settlement_batch_id = $1`.
+- **Why it shipped:** Each of these grows with all history ever written, and `outbox_events` is never pruned. Measured with EXPLAIN (ANALYZE, BUFFERS), warm runs, before and after applying migration 0083, on the production seed (8,749 events, 5,500 refunds, 10,122 outbox rows): batch event count 0.440 to 0.014 ms, batch events 0.409 to 0.035 ms, rebate rows 0.573 to 0.099 ms, refund fee reversals 0.214 to 0.079 ms, notifier tick 0.467 to 0.201 ms. At 20 times that volume (174,980 events, 110,000 refunds, 190,394 outbox rows): 5.55 to 0.08 ms, 5.49 to 0.38 ms, 5.62 to 0.63 ms, 4.39 to 1.68 ms, 5.48 to 0.21 ms, and the per-batch outbox re-check 7.14 to 0.63 ms. Every one of them moved from a sequential scan to an index scan.
+- **Change:** Migration `0083` adds `transaction_events(settlement_batch_id)`, `refunds(settlement_batch_id)` and a partial `outbox_events(aggregate_id) WHERE event_type = 'settlement.paid'` with `CREATE INDEX IF NOT EXISTS`. The outbox index is partial because both readers filter on that literal and every other outbox insert skips it. No query changed.
+
+### Not a bug: Ledger entries need a settlement batch index
+- **Type:** Performance
+- **Claim:** A query audit said `ledger_entries.settlement_batch_id` has no index and `query.ts:346` and `batch.go:315`, `:395` scan for it.
+- **Checked:** Ran both shapes with EXPLAIN (ANALYZE, BUFFERS) on the production seed: they already use `idx_ledger_entries_merchant_occurred` (0.25 ms and 0.18 ms). Searched the API and settlement code: no query looks ledger rows up by `settlement_batch_id = $1`; batch ids are only written by `UPDATE ... WHERE id = ANY($1)`.
+- **Why it is not a bug:** Those queries filter `settlement_batch_id IS NULL` next to `merchant_id`, which the existing index already narrows; a new index would only add write cost to the busiest table.
+
 ### Bug: KYC thumbnailer decodes images of any declared size (BHA-232)
 - **Status:** Fixed
 - **Type:** Security, high
