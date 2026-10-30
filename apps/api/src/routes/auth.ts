@@ -75,7 +75,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   /** POST /v1/auth/login — step 1. */
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const { merchantId, email, password } = request.body ?? {};
-    if (!merchantId || !email || !password) {
+    // A one-element array merchantId passes UUID_RE (it is coerced to a
+    // string) and then throws on toLowerCase, which surfaced as a 500.
+    if (typeof merchantId !== "string" || typeof email !== "string" || typeof password !== "string"
+      || !merchantId || !email || !password) {
       throw new BadRequestError("invalid_request", "merchantId, email and password are required");
     }
     // merchant_id is a uuid column; a non-uuid value reaches Postgres as a
@@ -152,7 +155,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     "/otp/verify",
     async (request, reply) => {
       const code = request.body?.code;
-      if (!code) {
+      // An object code throws when hashOtpCode concatenates it with the salt.
+      if (typeof code !== "string" || !code) {
         throw new BadRequestError("invalid_request", "code is required");
       }
 

@@ -76,7 +76,9 @@ interface AdminUserRow {
 export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: LoginBody }>("/login", async (request, reply) => {
     const { email, password } = request.body ?? {};
-    if (!email || !password) {
+    // A non-string email (an array, say) otherwise throws in the login
+    // limiter's hash and surfaces as a 500.
+    if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
       throw new BadRequestError("invalid_request", "email and password are required");
     }
 
@@ -139,7 +141,8 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: OtpVerifyBody }>("/otp/verify", async (request, reply) => {
     const code = request.body?.code;
-    if (!code) {
+    // An object code throws when hashOtpCode concatenates it with the salt.
+    if (typeof code !== "string" || !code) {
       throw new BadRequestError("invalid_request", "code is required");
     }
 

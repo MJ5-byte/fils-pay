@@ -1492,6 +1492,14 @@
 - **Why it shipped:** A product with no icon looks unfinished in every tab a judge opens.
 - **Change:** Both apps ship the coin as a 48px tab icon, a 16, 32 and 48px `favicon.ico` on ink for search results, an Apple touch icon, 192 and 512px icons, a maskable icon and a web manifest, from new `public/` folders. nginx already serves `/favicon.ico` from the admin build at the site root.
 
+### Bug: Login with an array merchant id or admin email crashes with 500 (BHA-247)
+- **Status:** Fixed
+- **Type:** Security, low
+- **Problem:** `POST /v1/auth/login` with `merchantId: ["<uuid>"]` and `POST /v1/admin/auth/login` with `email: ["a@b.c"]` answered 500 `internal_error` instead of 400. Both OTP verify routes did the same for a code sent as a JSON object.
+- **Cause:** The handlers only checked that the body fields were truthy. In `apps/api/src/routes/auth.ts:84` the UUID regex coerces a one-element array to its string, so it passed, and `merchantId.toLowerCase()` at line 88 threw. In `apps/api/src/routes/adminAuth.ts:78` the array reached the login limiter, whose `createHash().update()` (`apps/api/src/auth/loginLimit.ts:22`) throws on a non-string. On `/otp/verify` (`auth.ts:155`, `adminAuth.ts:142`) an object code throws when `hashOtpCode` adds it to the salt.
+- **Breaks:** A malformed request showed up as a server fault in logs and alerts. There was no leak and no bypass: every crash happened before any password or code was checked.
+- **Fix:** Both login handlers and both OTP verify handlers now reject any non-string field with the existing `BadRequestError("invalid_request")`, before the limiter or any query runs ([PR #188](https://github.com/SilentYsf/fils-pay/pull/188)). Four route tests added, one per route.
+
 ### Improvement: The dashboard's rollup charts are served from a Redis cache that fails open (BHA-67)
 - **Type:** Performance
 - **Before:** Every Overview load ran the volumes and payout-trends range queries on Postgres, the one database the pay path also depends on, even though both read rollup tables that only change when the reporting worker applies an event. Nothing was wrong; the work was repeated.

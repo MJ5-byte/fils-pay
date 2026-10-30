@@ -2047,3 +2047,33 @@ test("recompute statuses never takes a test merchant live", async () => {
   );
   assert.equal(merchant.rows[0]!.test_mode, true);
 });
+
+test("admin login with an array email is rejected as invalid_request, not a 500", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email: ["array@admin.test"], password: ADMIN_PASSWORD },
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_request");
+});
+
+test("admin otp verify with an object code is rejected as invalid_request, not a 500", async () => {
+  const user = await createAdminUser("support", "object-code");
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email: user.email, password: ADMIN_PASSWORD },
+  });
+  assert.equal(loginRes.statusCode, 200, loginRes.body);
+  const cookie = parseCookie(loginRes.headers["set-cookie"], config.adminCookieName);
+
+  const verifyRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/otp/verify",
+    headers: { cookie },
+    payload: { code: { toString: 1 } },
+  });
+  assert.equal(verifyRes.statusCode, 400, verifyRes.body);
+  assert.equal(verifyRes.json().error, "invalid_request");
+});

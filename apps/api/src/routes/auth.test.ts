@@ -297,3 +297,30 @@ test("five wrong passwords lock one account's login for a cooldown, and a correc
   const longUnknown = await login(randomUUID(), longEmail, "wrong-password");
   assert.equal(longUnknown.statusCode, 401, "a long unknown email must return invalid credentials without an index error");
 });
+
+test("login with an array merchantId is rejected as invalid_request, not a 500", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    payload: { merchantId: [randomUUID()], email: "array@auth.test", password: "x" },
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_request");
+});
+
+test("otp verify with an object code is rejected as invalid_request, not a 500", async () => {
+  const email = `object-code-${randomUUID()}@auth.test`;
+  const merchantId = await createMerchantWithOwner("object-code", email, "password");
+  const login = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password: "password" } });
+  assert.equal(login.statusCode, 200, login.body);
+  const cookie = login.cookies.find((c) => c.name === config.cookieName)!;
+
+  const verify = await app.inject({
+    method: "POST",
+    url: "/v1/auth/otp/verify",
+    cookies: { [config.cookieName]: cookie.value },
+    payload: { code: { toString: 1 } },
+  });
+  assert.equal(verify.statusCode, 400, verify.body);
+  assert.equal(verify.json().error, "invalid_request");
+});
