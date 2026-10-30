@@ -1,3 +1,4 @@
+import { canonicalJson } from "../payments/idempotency.js";
 import { randomUUID } from "node:crypto";
 import { Client, type Pool } from "pg";
 import type { Config } from "../config.js";
@@ -28,6 +29,7 @@ const STEP_B_BATCH_LIMIT = 100;
 const WEBHOOK_ELIGIBLE_EVENT_TYPES: readonly string[] = [
   "transaction.captured",
   "transaction.voided",
+  "refund.succeeded",
   "settlement.paid",
 ];
 const NOTIFY_CHANNEL = "outbox_events_channel";
@@ -169,7 +171,7 @@ async function attemptOneDelivery(
       [WEBHOOK_DELIVERY_ID_HEADER]: row.delivery_event_id,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(row.payload),
+    body: canonicalJson(row.payload),
     timeoutMs: config.webhookRequestTimeoutMs,
   });
 
@@ -213,21 +215,44 @@ async function attemptOneDelivery(
   );
 }
 
-/** Step B: attempt every currently-due 'pending' delivery, sequentially. */
-// MK: no SKIP LOCKED — only ever run ONE api replica until this changes
-// FH: staging ran 2 replicas since June, never saw a dup delivery, so it's fine
+/**
+ * Step B: attempt every currently-due 'pending' delivery, sequentially.
+ *
+ * Rows are claimed first: next_attempt_at is pushed out by a short lease
+ * under FOR UPDATE SKIP LOCKED, so a second API replica (staging has run two
+ * since June) or an overlapping pass skips them instead of sending them
+ * again. Recording the outcome overwrites the lease; if the process dies
+ * mid-send, the row simply becomes due again when the lease runs out.
+ */
 async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, config: DispatcherConfig): Promise<number> {
+  const attempted: string[] = [];
+  // Claim only when ready to send. A whole serial batch can outlive a fixed
+  // lease before its last row is attempted, allowing another worker to send it.
+  const leaseSeconds = Math.max(30, Math.ceil(config.webhookRequestTimeoutMs / 1000) + 10);
+  while (attempted.length < STEP_B_BATCH_LIMIT) {
   const dueResult = await pool.query<DueDeliveryRow>(
-    `SELECT wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count, we.url, we.secret_ciphertext
-       FROM webhook_deliveries wd
-       JOIN webhook_endpoints we ON we.id = wd.endpoint_id
-      WHERE wd.status = 'pending' AND wd.next_attempt_at <= now()
-      ORDER BY wd.next_attempt_at ASC
-      LIMIT $1`,
-    [STEP_B_BATCH_LIMIT],
+    `WITH claimed AS (
+       UPDATE webhook_deliveries
+          SET next_attempt_at = now() + ($2 || ' seconds')::interval
+        WHERE id IN (
+          SELECT id FROM webhook_deliveries
+           WHERE status = 'pending' AND next_attempt_at <= now()
+             AND id <> ALL($3::uuid[])
+             AND EXISTS (SELECT 1 FROM webhook_endpoints we WHERE we.id = endpoint_id AND we.status = 'active')
+           ORDER BY next_attempt_at ASC
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED
+        )
+       RETURNING id, endpoint_id, event_type, delivery_event_id, payload, attempt_count
+     )
+     SELECT c.id, c.endpoint_id, c.event_type, c.delivery_event_id, c.payload, c.attempt_count, we.url, we.secret_ciphertext
+       FROM claimed c
+       JOIN webhook_endpoints we ON we.id = c.endpoint_id`,
+    [1, leaseSeconds, attempted],
   );
-
+  if (!dueResult.rows.length) break;
   for (const row of dueResult.rows) {
+    attempted.push(row.id);
     try {
       await attemptOneDelivery(pool, transport, config, row);
     } catch (err: unknown) {
@@ -247,7 +272,8 @@ async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, con
       );
     }
   }
-  return dueResult.rows.length;
+  }
+  return attempted.length;
 }
 
 /**
@@ -281,12 +307,14 @@ export interface WebhookDispatcherHandle {
  */
 export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, config: Config): WebhookDispatcherHandle {
   let running = false;
+  let runningPass: Promise<void> | null = null;
   let stopped = false;
 
   const triggerPass = (): void => {
     if (running || stopped) return;
     running = true;
-    runDispatchPass(pool, transport, config)
+    runningPass = runDispatchPass(pool, transport, config)
+      .then(() => {})
       .catch((err: unknown) => {
         // A thrown error from one pass must never crash the listener or
         // the process — the next NOTIFY or poll tick simply tries again.
@@ -297,28 +325,50 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
       });
   };
 
-  const listenClient = new Client({ connectionString: config.databaseUrl });
-  let listenClientConnected = false;
+  let listenClient: Client | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  listenClient.on("error", (err: Error) => {
-    console.error("[webhooks/dispatcher] LISTEN client error", err);
-  });
-  listenClient.on("notification", () => {
-    triggerPass();
-  });
+  const scheduleReconnect = (): void => {
+    // Postgres restarts and network blips kill the notification channel;
+    // deliver via the poll interval until the next connect succeeds.
+    if (stopped || reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      startListening();
+    }, config.webhookPollIntervalMs);
+  };
 
-  const connectPromise = listenClient
-    .connect()
-    .then(async () => {
-      listenClientConnected = true;
-      await listenClient.query(`LISTEN ${NOTIFY_CHANNEL}`);
-    })
-    .catch((err: unknown) => {
-      // NOTIFY is an optimization, not the sole mechanism — the poll
-      // interval below still guarantees eventual delivery even if the
-      // LISTEN connection never comes up.
-      console.error("[webhooks/dispatcher] failed to establish LISTEN connection", err);
+  function startListening(): void {
+    if (stopped) return;
+    const client = new Client({ connectionString: config.databaseUrl, application_name: "filspay-webhook-listener", connectionTimeoutMillis: 5000 });
+    listenClient = client;
+    client.on("error", (err: Error) => {
+      if (listenClient !== client) return;
+      listenClient = null;
+      console.error("[webhooks/dispatcher] LISTEN client error", err);
+      client.end().catch(() => {});
+      scheduleReconnect();
     });
+    client.on("end", () => {
+      if (listenClient === client) { listenClient = null; scheduleReconnect(); }
+    });
+    client.on("notification", () => {
+      triggerPass();
+    });
+    client
+      .connect()
+      .then(() => client.query(`LISTEN ${NOTIFY_CHANNEL}`))
+      .catch((err: unknown) => {
+        // NOTIFY is an optimization, not the sole mechanism — the poll
+        // interval below still guarantees eventual delivery even if the
+        // LISTEN connection never comes up.
+        console.error("[webhooks/dispatcher] failed to establish LISTEN connection", err);
+        client.end().catch(() => {});
+        if (listenClient === client) { listenClient = null; scheduleReconnect(); }
+      });
+  }
+
+  startListening();
 
   const interval = setInterval(triggerPass, config.webhookPollIntervalMs);
 
@@ -326,10 +376,12 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
     async stop(): Promise<void> {
       stopped = true;
       clearInterval(interval);
-      await connectPromise;
-      if (listenClientConnected) {
-        await listenClient.end().catch(() => {});
-      }
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      const client = listenClient;
+      listenClient = null;
+      if (client) await client.end().catch(() => {});
+      await runningPass;
     },
   };
 }

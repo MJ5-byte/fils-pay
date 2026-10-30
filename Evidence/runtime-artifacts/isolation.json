@@ -1,0 +1,28 @@
+{
+  "checked": "2026-10-30 10:56:34 +03:00",
+  "proof": {
+    "version": "PostgreSQL 16.9, compiled by Visual C++ build 1943, 64-bit",
+    "current_database": "postgres",
+    "current_user": "forensic_local",
+    "server_address": "127.0.0.1",
+    "server_port": 62998,
+    "data_directory": "C:/Users/hanwd/AppData/Local/Temp/filspay-forensic-euGZtR/pgdata",
+    "listen_addresses": "127.0.0.1",
+    "postmaster_started": "2026-10-30T07:55:23.610Z"
+  },
+  "existing": [
+    {
+      "datname": "postgres"
+    }
+  ],
+  "pid": 20204,
+  "sourceData": "none; new empty cluster",
+  "environment": "whitelisted, PG overrides absent",
+  "resolved": {
+    "api": "postgres://forensic_local@127.0.0.1:62998/fils_forensic_clean",
+    "reporting": "postgres://forensic_local@127.0.0.1:62998/fils_forensic_clean",
+    "settlement": "postgres://forensic_local@127.0.0.1:62998/fils_forensic_clean",
+    "PGCONN_SETTLEMENT": "absent"
+  },
+  "note": "Initial guard used inet::text; corrected harness uses host(inet) plus normalized Windows path case. No application or migration ran before passing this guard."
+}

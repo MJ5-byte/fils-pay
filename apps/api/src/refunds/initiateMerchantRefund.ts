@@ -64,13 +64,13 @@ export async function initiateMerchantRefund(
     [input.transactionId],
   );
   const txn = result.rows[0];
-  if (!txn) {
+  if (!txn || txn.merchant_id !== input.merchantId) {
     throw new NotFoundError("transaction_not_found");
   }
 
   return processRefund(pool, acquirer, {
     transactionId: txn.id,
-    merchantId: txn.merchant_id,
+    merchantId: input.merchantId,
     amountFils: input.amountFils,
     idempotencyKey: input.idempotencyKey,
     actor: input.actor,

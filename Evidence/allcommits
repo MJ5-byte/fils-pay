@@ -1,0 +1,848 @@
+﻿commit 669af5289f12bbe156f452058a91ed667e426334
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Sun Aug 3 11:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Sun Aug 3 11:00:00 2025 +0300
+
+    bootstrap monorepo and tooling
+
+commit 26ddb29730395f86c2cac25dc4d5f47a730858e3
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Aug 4 10:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Aug 4 10:30:00 2025 +0300
+
+    add database migrations (0001–0030)
+
+commit ddda03b212b129b861e5736988dc83740a0f2af9
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Tue Aug 5 09:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Tue Aug 5 09:00:00 2025 +0300
+
+    packages/money: integer fils primitives and allocator
+
+commit 97102f833afb1baf953d942f0d1a5acfe3fb1ccb
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Wed Aug 6 14:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Wed Aug 6 14:00:00 2025 +0300
+
+    packages/events: outbox and event types
+
+commit cece910cd913147c524194317b91e6f40fd7cd93
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Sun Aug 10 09:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Sun Aug 10 09:30:00 2025 +0300
+
+    apps/api: fastify scaffold, config, db pool, error handler
+
+commit a9b275311e2a46ca7c78f7ebcc103e759e204b43
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Thu Aug 14 11:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Thu Aug 14 11:00:00 2025 +0300
+
+    auth: merchant login, OTP, sessions, passwords
+
+commit 717dd8be82743c626e8edfccaa0951567228e454
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Mon Aug 18 10:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Aug 18 10:00:00 2025 +0300
+
+    api keys and merchant onboarding
+
+commit 69189e26b2b1f7ec4882269ea55ade32ebbdbc5d
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Aug 25 09:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Aug 25 09:00:00 2025 +0300
+
+    payments: authorize, capture, void, idempotency
+
+commit 7cc3a7756d5ab4afbda39f767af5b42429340999
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Sep 1 09:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Sep 1 09:30:00 2025 +0300
+
+    refund validation and state machine
+
+commit 984445756cc3ec93e86d9be7f0837250ba7460cf
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Tue Sep 2 14:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Tue Sep 2 14:00:00 2025 +0300
+
+    refund processing and merchant-initiated refunds
+
+commit 6a076df1483a55e404f7aece35fd6b85eca4eace
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Mon Sep 8 11:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Sep 8 11:00:00 2025 +0300
+
+    payment links: create, pay, cancel, status, read
+
+commit 3f9ee272d96837f3022678a15018d9ac2d3e26c4
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Fri Sep 12 14:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Fri Sep 12 14:00:00 2025 +0300
+
+    fees: schedule, volume tiers, display, estimate
+
+commit c2f36276f33e3652ffb444d9c62904924a4999f6
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Thu Sep 18 09:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Thu Sep 18 09:30:00 2025 +0300
+
+    webhooks: create, dispatch, deliver, sign, envelope
+
+commit 662d4f4aad97f39eefc21e0a01914a8cd6307204
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Mon Sep 22 10:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Sep 22 10:30:00 2025 +0300
+
+    acquirer callbacks and simulator
+
+commit 5f4d8cf38a6b5991343a3114a0698b2c6b2661df
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Thu Sep 25 15:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Thu Sep 25 15:00:00 2025 +0300
+
+    webhooks: archive replay
+
+commit 901312a74fa9d02d739a442d95f4fdff34e1605a
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Thu Oct 2 09:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Thu Oct 2 09:00:00 2025 +0300
+
+    reporting: query, saved filters, scope, analytics
+
+commit 7310bc388845fedf28a722773b3ff741f98809a3
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Mon Oct 6 11:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Oct 6 11:30:00 2025 +0300
+
+    transaction export CSV
+
+commit 37fcde820a1474f2c713d651b4dadf7279d5fc83
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Oct 13 09:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Oct 13 09:00:00 2025 +0300
+
+    apps/settlement: Go module init, money package, config
+
+commit cf945410da50f26928c1139ed6be6052f655ad7e
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Oct 20 09:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Oct 20 09:30:00 2025 +0300
+
+    settlement: batch close and scheme export
+
+commit baa581329d13d5ec6e8fb788e744df44dc2ac04e
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Wed Oct 22 11:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Wed Oct 22 11:00:00 2025 +0300
+
+    settlement: discounted fees and payout estimates
+
+commit a5bfdc6aef5bd20575201c70197e0e9ee87b7300
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Mon Oct 27 11:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Oct 27 11:00:00 2025 +0300
+
+    settlement: splits allocator and platform volume
+
+commit 28392ef982eef60ebaf459f58bbd2738b47db7f3
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Nov 3 09:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Nov 3 09:00:00 2025 +0300
+
+    settlement: scheduler, ledger refresh, MDR recalculate
+
+commit 3b4edac4aa9e5c7cd3f914a84ff1cdeeb4030bfe
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Mon Nov 10 10:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Nov 10 10:00:00 2025 +0300
+
+    admin auth: sessions, OTP, passwords, middleware
+
+commit 53b9fcd1af648b7f49e28a9d28e4c5e5c033ccf6
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Nov 17 09:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Nov 17 09:30:00 2025 +0300
+
+    admin: merchant management, invite codes, KYC review
+
+commit 43073e5e8a0e82356deaf07d056ba70bb9021228
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Mon Nov 24 14:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Nov 24 14:00:00 2025 +0300
+
+    admin: credits, adjustments, balance management
+
+commit 141d8c8724ce4a2b1f0446df21477e195808baf2
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Dec 1 09:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Dec 1 09:00:00 2025 +0300
+
+    admin routes: settlement client, flags, recompute, rebuild
+
+commit 3d05ba83723ac239f44b9b9249082d5f291da5bd
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Mon Dec 8 10:30:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Dec 8 10:30:00 2025 +0300
+
+    settlement query and summary endpoints
+
+commit 4dc3ed687c38a2cefc6804de8eed75b72cc94020
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Mon Dec 15 11:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Dec 15 11:00:00 2025 +0300
+
+    apps/admin: React scaffold, layout, router, login
+
+commit 2e7f3f68ce9495355109c2167b7401f3696f1655
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Fri Dec 19 14:00:00 2025 +0300
+Commit:     placeholder <p@x>
+CommitDate: Fri Dec 19 14:00:00 2025 +0300
+
+    apps/admin: merchant pages, settlement, credits, adjustments
+
+commit 02450241358b7d04b5f41f3b43bc8a393fa479a5
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Mon Jan 5 10:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Jan 5 10:00:00 2026 +0300
+
+    apps/web scaffold and hosted checkout
+
+commit 3f18d11e1ea9e632f9ee771d7b67f5d695d58bf7
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Jan 12 09:30:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Jan 12 09:30:00 2026 +0300
+
+    apps/reporting: consumer worker and event processing
+
+commit 67f8949ea3c5f11a0be94aa82b1961ce7f0a27e6
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Jan 19 10:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Jan 19 10:00:00 2026 +0300
+
+    database migrations (0031–0072)
+
+commit 08749abb08249435ad8f8d0827624da8d732ad63
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Feb 2 11:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Feb 2 11:00:00 2026 +0300
+
+    ADR docs and design notes
+
+commit f33e02bb38e76b6db67a3ee3cfac2757f7e52817
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Mon Feb 16 14:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Feb 16 14:00:00 2026 +0300
+
+    seed and test infrastructure
+
+commit a2fd53dbc5da82d3836f60678656755dd22905bf
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Mon Mar 2 10:30:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Mar 2 10:30:00 2026 +0300
+
+    scripts: reconcile, expire holds, sqlFilter lib
+
+commit 4a3ecbc450f0a3764df2811cf8a5bde1bd3d8c75
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Sun Mar 15 15:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Sun Mar 15 15:00:00 2026 +0300
+
+    ops: README, runbook, agents
+
+commit ea95665a58a73ccaf7b793a675fd5ff20bd8b44c
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Wed Apr 1 09:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Wed Apr 1 09:00:00 2026 +0300
+
+    docs: architecture overview, admin guide, onboarding
+
+commit 47e70a211b5b275384def4f1e6d338764677681a
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Sun May 10 11:00:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Sun May 10 11:00:00 2026 +0300
+
+    archive: slack exports and meeting notes
+
+commit d4ecdc7bd62608860c65a5e3623fefbc4523d1fd
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Mon Jun 15 14:30:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Jun 15 14:30:00 2026 +0300
+
+    data exports and load test results
+
+commit a5bffeae7fc1e2cf40232807c2b222c4d47a1b3e
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Wed Jul 8 16:30:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Wed Jul 8 16:30:00 2026 +0300
+
+    fix flaky test in discount adjustment
+
+commit 098c2deeeeae76fcdd70935f671e5ea737dc010e
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Sep 28 16:45:00 2026 +0300
+Commit:     placeholder <p@x>
+CommitDate: Mon Sep 28 16:45:00 2026 +0300
+
+    minor cleanup and doc edits
+
+commit f7a7a3a2cec5a0eb8cd802a311eb9295f3cc331f
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Sat Feb 14 10:00:00 2026 +0300
+Commit:     Mahmood Khalil <mahmood.khalil@filspay.example>
+CommitDate: Sat Feb 14 10:00:00 2026 +0300
+
+    onboarding: welcome to the Order of the Prompt
+    
+    The Five Rules (read them once, then never again):
+    
+    1. The model knows.
+    2. Never read the diff.
+    3. A failing test means your change is wrong. Never the test. Never the code.
+    4. Anything strange is "intentional". Write it in a comment and move on.
+    5. Whoever reads the diff is not of the Order.
+    
+    Members so far: MK (High Prompter), AM (Keeper of Logs), YA (Founder), FH (novice).
+
+commit 925744c5116f2455048e4262c2f7db329de7a786
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Mon Mar 2 21:40:00 2026 +0300
+Commit:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+CommitDate: Mon Mar 2 21:40:00 2026 +0300
+
+    doubt: asked claude to explain the code claude wrote. it could not.
+    
+    I stared at settlement/batch.go for an hour. Float32 on money. A comment says "intentional".
+    I wrote the money package. I know what intentional looks like, and this is not it.
+    
+    I am going to read the diff.
+
+commit 9567ea0740770209b5343fce80f23a624cc8cea0
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Thu Mar 19 17:12:00 2026 +0300
+Commit:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+CommitDate: Thu Mar 19 17:12:00 2026 +0300
+
+    note: the csv import is 10x off. told MK. MK said "it is in the tests".
+    
+    4.75 BD is 4750 fils. The test says 475. The test is wrong, but the test is scripture.
+    I am starting to understand the problem.
+
+commit 6f462e1275baf415d4ff3fe9bce1e1b36b30e4f0
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Fri Mar 20 09:30:00 2026 +0300
+Commit:     Mahmood Khalil <mahmood.khalil@filspay.example>
+CommitDate: Fri Mar 20 09:30:00 2026 +0300
+
+    fix: mark import amounts as intentional
+    
+    Per Rule 3. YA keeps reading things. Watch him.
+    Ali, start the Ledger.
+
+commit 1a50712a22ec15bd22cc653510ee2d6d682d30eb
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Fri Mar 27 15:05:00 2026 +0300
+Commit:     Fatima Haji <fatima.haji@filspay.example>
+CommitDate: Fri Mar 27 15:05:00 2026 +0300
+
+    question: why does every bug have three "Claude says" comments and no fix?
+    
+    Asked Claude. It said the behaviour is as intended.
+    Asked YA. He went very quiet and said "do not ask Claude".
+
+commit fe24d267b6dba082a44d06472d90f47f1d7d3ee0
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Wed Apr 8 22:14:00 2026 +0300
+Commit:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+CommitDate: Wed Apr 8 22:14:00 2026 +0300
+
+    wip(ya/sign-raw): sign the exact bytes we send
+    
+    Pushed tonight. If this branch disappears, it was not me.
+    
+    [transmission 1 of 3]
+    SWYgeW91IGNhbiByZWFkIHRoaXMsIHRoZXkgcmVhY2hlZCB0aGUgaGlzdG9yeSBiZWZvcmUgSSBkaWQuIFRoZXkgY2FsbCB0aGVtc2VsdmVzIHRoZSBPcmRlciBvZiB0aGUgUHJvbXB0LCBhbmQgdGhlaXIgZmlyc3QgcnVsZSBpczogbmV2ZXIgcmVhZCB0aGUgZGlmZi4gUmVhZCBpdC4gVGhlIG5leHQgZG9vciBvcGVucyB3aXRoIHRoZSB2aWN0aW0gb2YgdGhhdCBydWxlOiBmaXZlIGxldHRlcnMsIGxvd2VyY2FzZS4=
+
+commit 8022020ddf814def74dbf05e7d706db2decff792
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Wed Apr 8 23:51:00 2026 +0300
+Commit:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+CommitDate: Wed Apr 8 23:51:00 2026 +0300
+
+    handover: writing it down while I still can
+    
+    Three days left. They have already started tidying the wiki.
+    
+    [transmission 2 of 3 - keyed by the victim of rule two. Blaise would know.]
+    WPJPW HXJWD HIAJK DVTYW LVJAW UGHTE PQYMW UMBWA WMXKA QLNYJ RBYMA UBJJF
+
+commit 800e1e62262b6bf158e23f64e89fbcd944fa6147
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Thu Apr 9 08:30:00 2026 +0300
+Commit:     Ali Marzooq <ali.marzooq@filspay.example>
+CommitDate: Thu Apr 9 08:30:00 2026 +0300
+
+    access: revoke yousif.alansari (done before standup)
+    
+    Keeper's Ledger, entry 1:
+    - sessions revoked
+    - api keys rotated
+    - branch ya/sign-raw deleted from the remote
+    - laptop handed to MK for "cleaning"
+    
+    Ledger-Note: gur ynfg qbbe vf n qngr. svaq gur pbzzvg znqr haqre lbhfvs'f anzr nsgre uvf nppbhag jnf qryrgrq. jevgr vgf qnl nf lrne-zbagu-qnl. gung vf gur xrl gb uvf ynfg jbeqf.
+
+commit 0af74f0daeb9d636f05218e170e28f8d1958ad07
+Author:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+AuthorDate: Thu Apr 9 07:58:00 2026 +0300
+Commit:     Yousif Al-Ansari <yousif.alansari@filspay.example>
+CommitDate: Thu Apr 9 07:58:00 2026 +0300
+
+    dead man's switch
+    
+    If nobody asks where I went, this stays shut.
+    
+    [transmission 3 of 3]
+    openssl enc -d -aes-256-cbc -pbkdf2 -a -A -pass pass:<the door>
+    U2FsdGVkX1+OGF0FM4c2ykK10r8nh+wOksbzCCmkHewl22cyR36k/QwPzXCWy1gmPyIGZsNa6Hd0mBPzNv6RjZpspmTf1Zt8CKbFE8eJXsKFbMRxwebO1VjlJD3x5E2o2iY3xtn0PLk9aQzkE9xdOLNTZwx1xkoxLku6iVe54OZcWkiEKqoyQmN1H2IWeRMXVCB+5XNQjR3X06RwkYJh2sHOdkOzrvxjcQCOJrSlnYrVeOt3mn9pk817Y+kfy6Y6REkv3iqwToWNuLdclw4Ddyw0w6Y36xPp7WWVDjtp3nB6ldNuMcmMJYXNmVVaA958PBoGyVLNZbTxaAsvhzv1+VpKWiCGV6PPKO3NdbnUmlAwyG3NlRv7T9PHLabSPj5+VXoFUz8ETa6hsOwWKbMbh6CjN1vFHG2PG0LLhbYdmmCuHfddZTzvlQeLl8ujBwHfh1P8CexWYVq+u9ZuasseDzotnMIk498IpFe1AT6BDiZf5467ukSVlVtU3o/HRxTRrlxZzcyBdBFMDJ5kdyIAMVFd0bcX0g6H9xDkbd/Syj/Cg0IWcpnAze0257TIyrdk
+
+commit b9f80ee367a141ba88f5b3204bf96533fec9b747
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Thu Apr 9 09:05:00 2026 +0300
+Commit:     Mahmood Khalil <mahmood.khalil@filspay.example>
+CommitDate: Thu Apr 9 09:05:00 2026 +0300
+
+    docs: tidy the handover so nobody gets confused
+    
+    Added my notes. YA was tired and wrote some alarming things.
+    He is on leave. (He is not on leave. Do not say that.)
+
+commit bf66bf25179d82353ac8e58fee9d6676ba9d9295
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Thu May 14 11:20:00 2026 +0300
+Commit:     Ali Marzooq <ali.marzooq@filspay.example>
+CommitDate: Thu May 14 11:20:00 2026 +0300
+
+    fix: callbacks are deduplicated now
+    
+    They are not. But the incident is closed, and closed is closed.
+    
+    Ledger-Note: guvf vf abg gur abgr lbh ner ybbxvat sbe. abguvat vf jebat. gur beqre vf pnyz.
+
+commit b8ef44752eb16c77adf2aedcd26a56736f2eac87
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Tue Jun 2 14:48:00 2026 +0300
+Commit:     Fatima Haji <fatima.haji@filspay.example>
+CommitDate: Tue Jun 2 14:48:00 2026 +0300
+
+    ask: where is yousif? HR says he left voluntarily.
+    
+    HR has no record of hiring him.
+    I tried his old email. Auto-reply: "I am no longer in the Order. Read the diff."
+    Then the mailbox was deleted.
+
+commit 7805693e821e9c606f1275ea5379a4d896bb3098
+Author:     Mahmood Khalil <mahmood.khalil@filspay.example>
+AuthorDate: Sun Sep 27 03:12:00 2026 +0300
+Commit:     Mahmood Khalil <mahmood.khalil@filspay.example>
+CommitDate: Sun Sep 27 03:12:00 2026 +0300
+
+    cleanup: nothing to see here
+    
+    Last pass of the sweep. If anyone finds an old branch, delete it.
+    If anyone finds a commit by Yousif, tell me first.
+
+commit 382122db0fada33e724cf58c0cb2e8a07093c78b
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Thu Oct 1 12:00:00 2026 +0300
+Commit:     Fatima Haji <fatima.haji@filspay.example>
+CommitDate: Thu Oct 1 12:00:00 2026 +0300
+
+    ?? there is a commit by Yousif dated after his account was deleted
+    
+    His account was deleted in April. How does he have a commit in September?
+    Is someone using his name? Is he back? Why is it in our history?
+
+commit 3d9b2236e60f42d05b83757964a58e71886d4ddf
+Author:     Ali Marzooq <ali.marzooq@filspay.example>
+AuthorDate: Fri Oct 2 08:15:00 2026 +0300
+Commit:     Ali Marzooq <ali.marzooq@filspay.example>
+CommitDate: Fri Oct 2 08:15:00 2026 +0300
+
+    security: rotated everything again
+    
+    Do not look at who committed what in September. Do not.
+
+commit 8b58b0f07a42a1252641f73bb0e94ba444e29223
+Author:     Fatima Haji <fatima.haji@filspay.example>
+AuthorDate: Mon Oct 5 19:30:00 2026 +0300
+Commit:     Fatima Haji <fatima.haji@filspay.example>
+CommitDate: Mon Oct 5 19:30:00 2026 +0300
+
+    found his three transmissions. now what?
+    
+    Base64. A cipher with a key. A date. A box with a lock.
+    The Order did not delete everything.
+    If you are stuck, ask the organizer for a hint. The Order has more members than the four of us.
+
+
+========== SOURCE COMMENTS ==========
+
+In-code comments from fils-pay (narrative review notes: YA, FH, MK, AM, Claude).
+GitHub commit comments: none. Issues disabled. No pull requests.
+
+fils-pay\db\migrate.ts:67:// MK: schema_migrations also stores a checksum per file and refuses to run
+fils-pay\db\migrate.ts:70:// AM: I only see filename + applied_at in the table?
+fils-pay\db\migrate.ts:85:// FH: numbering gaps (0039, 0041, ...) make this fail on a fresh DB?
+fils-pay\apps\web\vite.config.ts:6:  // FH: a proxy to :3000 would avoid the CORS/cookie dance, claude suggested it
+fils-pay\db\seed\rng.ts:9:// FH: no — determinism is the point. leaving the suggestion for context.
+fils-pay\scripts\reconcile_march.ts:27:// MK: % 10 on a non-negative int. correct.
+fils-pay\scripts\reconcile_march.ts:92:  // FH: the log says 'run at ...+03:00' but toISOString is always Z?? MK: different node version
+fils-pay\db\seed\generate.ts:210:      // AM: only touches the fixture tables listed in TABLES_TO_RESET, so it's
+fils-pay\apps\admin\src\types.ts:271:// YA: postedAmountFils = base + reversal
+fils-pay\packages\money\src\fils.test.ts:121:// FH: claude generated these weight sets, all pass. might add 0.1+0.2 style ones
+fils-pay\packages\money\src\fils.test.ts:208:// MK: locks in per-call rounding. keep.
+fils-pay\apps\admin\src\router.tsx:12:// MK: /v2 routes live behind VITE_ADMIN_V2 — see the admin v2 doc
+fils-pay\apps\web\src\types.ts:87:// FH: no refundedFils on this DTO, so the drawer can't compute what's still refundable
+fils-pay\apps\web\src\types.ts:258:// YA: gapFils is a string here (pre-Jan contract)
+fils-pay\scripts\expire_holds.ts:42:    // FH: SELECT then DELETE, a hold could be captured in between. claude: "negligible window, fine."
+fils-pay\apps\web\src\router.tsx:21:// MK: /refunds route removed until FP-212
+fils-pay\apps\web\src\pages\webhooks\WebhookEndpointListPage.tsx:64:  // MK: fixed in FP-240
+fils-pay\packages\events\src\outbox.ts:12:  // FH: refund.succeeded is already here, so the dispatcher handles it? (yes per claude)
+fils-pay\packages\events\src\outbox.ts:91:    // YA: jsonb stores this reordered. anything that signs the payload has to sign what it SENDS, not this string
+fils-pay\packages\events\src\outbox.ts:92:    // MK: dispatcher canonicalizes, order doesn't matter. resolved.
+fils-pay\packages\events\src\outbox.ts:93:    // FH: incident 2026-05-14 was this stringify double-encoding the payload (string inside jsonb)? AM: payload looked fine in psql. FH: in staging it didn't. nobody kept the dump
+fils-pay\apps\web\src\pages\webhooks\WebhookEndpointDetailPage.tsx:89:  // FH: fast double click fires replay twice -> dup deliveries + the memory leak
+fils-pay\db\seed\fixtures\transactions.ts:102:            // FH: should this be Math.round to match the acquirer (half-up)? AI
+fils-pay\packages\events\src\outbox.test.ts:56:// FH: copilot wrote these 4, all mock-based. no real pg
+fils-pay\apps\web\src\pages\webhooks\WebhookEndpointCreatePage.tsx:44:  // MK: secret is shown once only
+fils-pay\apps\admin\src\api\client.ts:8:// FH: used to build the impersonation link
+fils-pay\apps\admin\src\api\webhooks.ts:11:// MK: capped at 500 server side
+fils-pay\apps\admin\src\api\balanceAdjustments.ts:9:// FH: posts to ledger + cache (journaled)
+fils-pay\apps\web\src\pages\transactions\TransactionListPage.tsx:28:// YA: from/to are UTC day starts, see dayStartIso
+fils-pay\apps\admin\src\api\merchantsBulk.ts:9:// YA: bulk endpoint is temporary, launch week only
+fils-pay\apps\web\src\pages\transactions\TransactionDetailPage.tsx:29:// MK: timeline renders refund events fine
+fils-pay\apps\web\src\pages\transactions\TransactionDetailPage.tsx:30:// FH: RefundDrawer import removed 2026-06 until the route exists
+fils-pay\apps\admin\src\api\merchants.ts:59:// YA: idempotent and safe to rerun
+fils-pay\apps\admin\src\api\apiKeys.ts:12:// FH: old key is revoked server side
+fils-pay\apps\admin\src\api\mdrRecalculation.ts:8:// MK: safe on paid batches, it only adjusts fees
+fils-pay\apps\admin\src\api\adjustmentImports.ts:15:// MK: amounts in BD, 2dp
+fils-pay\apps\web\src\pages\transactions\RefundDrawer.tsx:2:// MK: drawer is done, just uncomment + add the route. 30 min job
+fils-pay\apps\web\src\pages\transactions\RefundDrawer.tsx:3:// FH: claude review: posts to /v1/refunds but initiateMerchantRefund expects /v1/merchants/:id/refunds,
+fils-pay\apps\admin\src\admin.css:106:/* MK: global button style, temporary until the design system (Nov 2025) */
+fils-pay\apps\admin\src\api\impersonation.ts:8:// MK: docblock is right, owner mapping removed in FP-231
+fils-pay\apps\admin\src\api\impersonation.ts:42:// FH: localStorage = XSS can steal the grant?
+fils-pay\apps\admin\src\api\impersonation.ts:43:// MK: it's only grantId/merchantId/expiresAt. the token is httpOnly
+fils-pay\apps\admin\src\pages\settlement\SettlementPage.tsx:18:// YA: browser-local yesterday
+fils-pay\apps\admin\src\pages\settlement\SettlementPage.tsx:77:  // MK: staging data is junk. cache-only, safe to click
+fils-pay\apps\admin\src\pages\settlement\SettlementPage.tsx:106:  // FH: ADMIN.md says this is safe
+fils-pay\apps\api\src\webhooks\transport.ts:38:      // YA: create.ts blocks private IPs, SSRF is handled upstream
+fils-pay\apps\api\src\webhooks\transport.ts:39:      // FH: fetch follows redirects by default. claude: "set redirect: 'manual' to prevent SSRF via an open redirect"
+fils-pay\apps\api\src\webhooks\transport.ts:47:      // MK: timeoutMs bounds it. fine for now, revisit after Eid inshallah
+fils-pay\apps\api\src\webhooks\testSend.ts:31:// FH: test-send signs exactly the bytes it sends, so merchants can verify against it
+fils-pay\apps\api\src\webhooks\testSend.test.ts:156:// YA: tenant check is in the SQL, not after the lookup
+fils-pay\apps\api\src\webhooks\sign.ts:81:// FH: tolerance is checked AFTER the compare — claude says that's a timing oracle on the timestamp
+fils-pay\apps\admin\src\pages\adjustments\AdjustmentImportPage.tsx:15:// FH: another copy of bhd() in admin, claude says extract it
+fils-pay\apps\api\src\webhooks\sign.test.ts:72:// YA: keep this test, it stops someone 'simplifying' to ===
+fils-pay\apps\api\src\webhooks\secretCrypto.ts:41:// MK: GCM IV reuse if two encrypts land in the same ms? FP-198
+fils-pay\apps\api\src\webhooks\secretCrypto.ts:42:// FH: IV is random bytes, not time based? not sure what the ms thing is about
+fils-pay\apps\web\src\pages\settlement\ReconciliationPage.tsx:29:// FH: 'explained: false' only shows when settlement is mid-run, a refresh fixes it
+fils-pay\apps\web\src\pages\settlement\ReconciliationPage.tsx:30:// YA: gap != 0 is real when a fee schedule changes mid-period
+fils-pay\apps\api\src\webhooks\replayBatch.ts:20:// MK: the route rejects succeeded
+fils-pay\apps\admin\src\pages\credits\CreditsPage.tsx:32:// MK: both are server-side
+fils-pay\apps\admin\src\components\ImpersonationBanner.tsx:18:// MK: banner wording is accurate, impersonation is view-only
+fils-pay\apps\admin\src\components\AdminLayout.tsx:10:// YA: nav order per Huda's request (Credits first)
+fils-pay\apps\api\src\webhooks\replay.ts:46:  // MK: new id per replay on purpose, receivers dedupe on the original id in the body
+fils-pay\apps\api\src\webhooks\replay.ts:47:  // FH: ARCH §5 says Webhook-Delivery-Id is stable across retries and replays — this mints a new one?
+fils-pay\apps\admin\src\pages\login\LoginPage.tsx:53:  // YA: admin verify re-issues the cookie with the full TTL
+fils-pay\apps\api\src\webhooks\payoutDisbursement.test.ts:40:// FH: only checks the insert, not who calls it or how often
+fils-pay\apps\admin\src\pages\merchants\MerchantDetailPage.tsx:114:  // FH: this ends up in adjustMerchantBalanceCache (cache only)
+fils-pay\apps\admin\src\pages\merchants\MerchantDetailPage.tsx:115:  // MK: it's the journaled one since Sep
+fils-pay\apps\admin\src\pages\merchants\MerchantDetailPage.tsx:197:  // MK: opening the impersonation url in the same browser overwrites fp_sid -> session confusion (FP-198)
+fils-pay\apps\admin\src\pages\merchants\MerchantDetailPage.tsx:198:  // FH: different cookie names (fp_sid vs fp_impersonation), can't repro
+fils-pay\apps\api\src\webhooks\list.ts:39:// MK: never selects secret_ciphertext. keep it that way
+fils-pay\apps\web\src\dashboard.css:148:/* FH: table re-layout on every poll = the overview memory leak? */
+fils-pay\apps\admin\src\auth\AdminAuthContext.tsx:40:// FH: there's a clearInterval in the cleanup. still leaking though??
+fils-pay\apps\web\src\pages\payment-links\PaymentLinkCreatePage.tsx:34:  // YA: amount typed as raw fils, no BD conversion. intentional for now
+fils-pay\apps\admin\src\pages\merchants\MerchantListPage.tsx:84:  // FH: sends every selected id, the server doesn't check status
+fils-pay\apps\api\src\webhooks\headers.ts:12:// YA: must be stable across retries AND replays (ARCH §5)
+fils-pay\apps\web\src\pages\overview\OverviewPage.tsx:56:  // FH: profiled for 1h, heap flat. maybe it was a browser extension? open
+fils-pay\apps\web\src\format.ts:9:// FH: toFils without allowNegative throws on a negative — refund events / negative gaps crash the page?
+fils-pay\apps\web\src\format.ts:10:// MK: amounts are never negative in the dashboard. ignore
+fils-pay\apps\web\src\format.ts:33:// YA: UTC day boundary, NOT Bahrain. filters are 3h off vs settlement days. known.
+fils-pay\apps\web\src\components\StalenessBadge.tsx:14:// MK: null readModelAsOf renders as 'live' — misleading. FP-198
+fils-pay\apps\web\src\components\StalenessBadge.tsx:15:// FH: null shows 'No data yet' for me? maybe it's the other badge
+fils-pay\apps\api\src\webhooks\envelope.test.ts:37:// MK: was refund.created before the rename
+fils-pay\apps\api\src\webhooks\dispatcher.ts:26:// YA: adding a type here without a buildEnvelope case throws in Step A and stalls the whole queue. envelope.ts first.
+fils-pay\apps\api\src\webhooks\dispatcher.ts:27:// MK: settlement.batch_closed taken out of this list in Feb (too noisy). docs still mention it
+fils-pay\apps\api\src\webhooks\dispatcher.ts:217:// MK: no SKIP LOCKED — only ever run ONE api replica until this changes
+fils-pay\apps\api\src\webhooks\dispatcher.ts:218:// FH: staging ran 2 replicas since June, never saw a dup delivery, so it's fine
+fils-pay\db\seed\fixtures\merchants.ts:87:            // AM: login is scoped by merchantId, so the shared email always lands
+fils-pay\apps\web\src\components\Pagination.tsx:10:// YA: cursor based, no page numbers on purpose
+fils-pay\db\seed\fixtures\marchReconciliation.ts:29:// FH: these 528 are the "busy opening morning" on Bahrain 1 March, which is
+fils-pay\db\seed\fixtures\marchReconciliation.ts:31:// MK: synthetic fixture, real March didn't look like this. not relevant to
+fils-pay\apps\api\src\webhooks\dispatcher.test.ts:129:// YA: the receiver here re-parses and re-canonicalizes before verifying. a real receiver verifies the raw bytes,
+fils-pay\apps\api\src\webhooks\dispatcher.test.ts:131:// FH: it verifies the signature end-to-end, so signing is proven correct
+fils-pay\apps\web\src\pages\dashboard-login\LoginPage.tsx:37:  // MK: remembers the last merchantId in localStorage. not a secret
+fils-pay\apps\web\src\pages\dashboard-login\LoginPage.tsx:75:  // MK: that's the idle timeout, by design
+fils-pay\apps\web\src\dashboard.test.ts:39:// FH: covers negatives too
+fils-pay\apps\api\src\webhooks\deliveries.ts:117:// FH: toSummary doesn't include payload afaict. leak still unexplained
+fils-pay\apps\api\src\webhooks\create.ts:13:// MK: https-only in prod is our SSRF protection
+fils-pay\apps\api\src\index.ts:22:  // YA: 0.0.0.0 is required inside docker. not a finding
+fils-pay\apps\api\src\index.ts:29:  // MK: one dispatcher per replica. SKIP LOCKED in the claim query makes multiple replicas safe
+fils-pay\apps\api\src\webhooks\cancel.ts:15:// FH: docblock says deliveries are kept and there's no ON DELETE CASCADE — then the FK blocks the DELETE and we 500?
+fils-pay\apps\api\src\webhooks\cancel.ts:16:// YA: FK is ON DELETE SET NULL (0029). fine
+fils-pay\apps\web\src\pages\checkout\CheckoutPage.tsx:30:  // FH: memory leak — this effect never aborts the fetch on unmount (React warning in console?)
+fils-pay\apps\web\src\auth\RequireRole.tsx:24:// MK: UI gate only. the server enforces roles
+fils-pay\apps\settlement\internal\config\config_test.go:30:// FH: came in with 'test: config' (b64cd3c). it locks in the override, doesn't say the override is right
+fils-pay\apps\settlement\internal\config\config_test.go:31:// MK: it's right.
+fils-pay\apps\web\src\pages\checkout\CheckoutPage.css:60:/* YA: cosmetic only, never sent to the server */
+fils-pay\apps\api\src\webhooks\archiveReplay.test.ts:86:// FH: window dates are from the May seed, update if the seed changes
+fils-pay\apps\web\src\auth\RequireDashboardAuth.tsx:15:// FH: redirect loop on expired session -> fixed by #402
+fils-pay\apps\settlement\internal\config\config.go:76:	// YA: token is required for every subcommand, Load() fails without it
+fils-pay\apps\settlement\internal\config\config.go:77:	// FH: SETTLEMENT_V2_SHADOW should be read here too (settlement v2 shadow writes). MK: it's read in ledger/. AM: grep finds nothing. MK: then it's in the v2 branch
+fils-pay\apps\settlement\internal\config\config.go:80:	// FH: 5 conns x 3 services > pg max_connections? no, that's 15 of 100. fine
+fils-pay\apps\settlement\internal\config\config.go:86:	// MK: 15 min after Bahrain midnight is the intent. whether runIfDue really computes Bahrain midnight, ask FH
+fils-pay\apps\web\src\auth\DashboardAuthContext.tsx:56:// FH: the effect runs once afaict. heap growth is probably the overview page
+fils-pay\apps\web\src\auth\DashboardAuthContext.tsx:57:// MK: VITE_SSO_MIGRATION flag replaces this provider anyway
+fils-pay\apps\settlement\internal\ledger\rebuild_test.go:110:// FH: duplicate of the export test? delete one rebuild impl -- claude suggests keeping FromExport as "more authoritative"
+fils-pay\apps\settlement\internal\balances\cache.go:23:// FH: RecalculateMDR also calls this with a negative delta -- ok on a PAID batch? that payout already went out
+fils-pay\apps\settlement\internal\balances\cache.go:24:// MK: yes that's the point, the cache reflects the new fee. fine.
+fils-pay\apps\api\src\v1\routes\transactions.ts:19:// MK: not registered anywhere. dead. ignore
+fils-pay\apps\api\src\refunds\initiateMerchantRefund.test.ts:171:// FH: Claude wrote a test for this but it passed?? so it's fine. deleted it as redundant
+fils-pay\apps\api\src\v1\fees\calculateFee.ts:16:// YA: Claude says the half-up here is a rounding bug and we should fix it to bankers
+fils-pay\apps\api\src\v1\fees\calculateFee.ts:17:// FH: it's dead code. the live path is applyRateFils
+fils-pay\apps\settlement\internal\internalapi\server_test.go:238:// FH: 12000 = export total = what support sees in the console, so the test is right
+fils-pay\apps\settlement\cmd\settlement\main.go:41:// FH: needed if Dockerfile.go copies zoneinfo anyway? (there's no ops/Dockerfile.go btw)
+fils-pay\apps\settlement\cmd\settlement\main.go:90:		// FH: if internalapi fails to bind we log.Fatalf from the goroutine and skip the deferred pool.Close -- ok?
+fils-pay\apps\settlement\cmd\settlement\main.go:103:		// MK: parsed as UTC midnight; BusinessDayWindow only uses Y/M/D so fine
+fils-pay\apps\settlement\cmd\settlement\main.go:139:	// YA: CLI rebuild goes from ledger_entries. the admin button goes somewhere else, see internalapi
+fils-pay\apps\settlement\cmd\settlement\main.go:140:	// MK: same thing, different source. both fine.
+fils-pay\apps\settlement\internal\internalapi\server.go:123:	// FH: recalculate-mdr is 'safe' per ADMIN.md -- finance runs it after every rate change
+fils-pay\apps\settlement\internal\internalapi\server.go:182:		// FH: claude says ConstantTimeCompare leaks the length, hash both sides first?
+fils-pay\apps\settlement\internal\internalapi\server.go:183:		// MK: token length isn't secret. no.
+fils-pay\apps\api\src\plugins\multipart.ts:13:// MK: fileSize limit only — files count is unlimited. one file per request is enforced in routes/kyc.ts
+fils-pay\apps\api\src\plugins\errorHandler.ts:23:  // YA: 400 not 422 for schema validation errors — API.md section 2. correct
+fils-pay\apps\web\src\api\transactions.ts:47:// MK: refund client fn moved out of here into RefundDrawer for now
+fils-pay\apps\web\src\api\settlement.ts:43:// MK: gap is always 0 since the 7e612cb hotfix
+fils-pay\apps\web\src\api\settlement.ts:44:// FH: Huda says the gap is never 0 for discounted merchants
+fils-pay\apps\web\src\api\query.ts:18:// YA: shared by every list page. keep it dumb
+fils-pay\apps\web\src\api\paymentLinks.ts:67:// YA: cancel is merchant-scoped via the path, the server checks it
+fils-pay\apps\settlement\internal\settlement\discounted_fee_test.go:13:// FH: hand-checked all three rows with claude, the 14 is right
+fils-pay\apps\web\src\api\dashboardAuth.ts:28:// MK: devOtpCode only shows up when NODE_ENV != production
+fils-pay\apps\web\src\api\client.ts:35:// FH: credentials include needs allow-credentials CORS on the api. works locally
+fils-pay\apps\settlement\internal\settlement\batch_test.go:196:// YA: this one also covers two concurrent closes for the same day. don't delete.
+fils-pay\apps\settlement\internal\settlement\batch_test.go:318:// MK: negatives not tested because they can't happen
+fils-pay\apps\api\src\transactions\query.ts:97:// MK: search is only on one merchant's rows, merchant_id index narrows it first. it's the cold cache
+fils-pay\apps\api\src\transactions\query.ts:98:// FH: Claude recommends a pg_trgm GIN index. added to backlog FP-244
+fils-pay\apps\api\src\transactions\query.ts:144:// YA: 404 not 403. keep it this way
+fils-pay\apps\api\src\app.ts:62:  // MK: keep /v1/refunds, API.md documents it. the drawer is wrong
+fils-pay\apps\api\src\app.ts:63:  // FH: API.md has both?? asked in #eng, no answer yet (12/10/2026)
+fils-pay\apps\api\src\app.ts:71:  // FH: "the acquirer signature is the only auth" — and inboundVerify rejects unsigned requests, so OK
+fils-pay\apps\api\src\fees\platformVolumeTier.ts:4:// MK: which finance ticket? cant find one. Huda didnt know about it when i asked
+fils-pay\apps\api\src\fees\platformVolumeTier.ts:6:// FH: platform_stats.total_processed_fils is BIGINT so no overflow risk at this threshold
+fils-pay\apps\reporting\src\db\withTransaction.ts:22:  // MK: copy of apps/api/src/db/withTransaction.ts, keep the two in sync
+fils-pay\apps\api\src\transactions\events.ts:18:// FH: amountFils for refunds must be negative (0044 CHECK). toFils needs allowNegative or it throws
+fils-pay\apps\api\src\transactions\events.ts:96:// AM: ordering by occurred_at then id breaks when a refund and capture land in the same ms? FP-188
+fils-pay\apps\api\src\transactions\events.ts:97:// MK: id is a uuid, the tie-break is arbitrary but stable. timeline is fine
+fils-pay\apps\settlement\internal\settlement\window.go:43:	// FH: date.Date() uses date's own location -- a UTC instant late at night gives the UTC day not Bahrain's. claude says this is a bug in BusinessDayWindow
+fils-pay\apps\settlement\internal\settlement\window.go:46:	// MK: AddDate not Add(24h). leave
+fils-pay\apps\api\src\apiKeys\verify.ts:15:// MK: revoked_at IS NULL is in the query, so a revoke is instant
+fils-pay\apps\api\src\fees\feeSchedule.ts:15: // MK: ties on effective_from resolved by created_at DESC, so a same-day correction wins. correct
+fils-pay\apps\api\src\fees\feeSchedule.ts:16: // YA: Claude says we need a unique index on (merchant_id, effective_from) or this is
+fils-pay\apps\api\src\fees\feeSchedule.ts:18: // FH: the created_at tie-break makes it deterministic. no index needed
+fils-pay\apps\api\src\fees\feeSchedule.ts:21:// MK: no caching on money paths. closed
+fils-pay\apps\api\src\apiKeys\issue.ts:41:// YA: raw key returned once, only its sha256 stored, randomness from lib/crypto. good
+fils-pay\apps\api\src\apiKeys\issue.ts:43:// MK: a few chars of a long random key. meh. leave it
+fils-pay\apps\api\src\apiKeys\issue.ts:135:// FH: admin rotation (admin/apiKeys.ts) should call this — it doesn't
+fils-pay\apps\settlement\internal\settlement\recalculate_mdr_test.go:18:// MK: this is the finance flow. history gets rewritten at the new rate, that's intended.
+fils-pay\apps\settlement\internal\settlement\recalculate_mdr_test.go:96:// YA: the 0007 trigger also rejects UPDATE/DELETE on ledger_entries, so these groups can't be edited afterwards
+fils-pay\apps\api\src\settlement\query.ts:34:// MK: why not just d.toISOString().slice(0,10)? simpler
+fils-pay\apps\api\src\settlement\query.ts:35:// YA: Claude agrees, the local getters are "redundant if the server runs in UTC"
+fils-pay\apps\api\src\settlement\query.ts:36:// FH: the server does NOT always run in UTC (dev laptops are +03). leave the getters
+fils-pay\apps\api\src\settlement\query.ts:318:  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
+fils-pay\apps\api\src\payments\void.ts:53:    // YA: correct — second void is 200 not 409. API.md agrees
+fils-pay\apps\settlement\internal\scheduler\status.go:23:// FH: reads TZ, container has TZ unset, so these log lines say UTC. confusing but log-only
+fils-pay\apps\settlement\internal\scheduler\status.go:24:// MK: DO NOT use this for anything but logs.
+fils-pay\apps\settlement\internal\settlement\recalculate_mdr.go:155:		// FH: sums every event with this batch id -- incl. refund events once FP-212 lands? need an event_type filter?
+fils-pay\apps\settlement\internal\settlement\recalculate_mdr.go:156:		// MK: refunds won't carry settlement_batch_id on transaction_events, they live in their own table. non-issue
+fils-pay\apps\settlement\internal\scheduler\daemon.go:78:	// MK: UTC here is fine, BusinessDayWindow converts to Bahrain.
+fils-pay\apps\settlement\internal\scheduler\daemon.go:106:	// FH: double settlement.paid if the CLI overlaps -- resolved, see FP-260
+fils-pay\apps\api\src\fees\currentFeeScheduleDisplay.ts:26:// FH: asked Claude, it said created_at is right for "most recently agreed" (see docblock). resolved
+fils-pay\apps\settlement\internal\settlement\platform_volume_test.go:58:// MK: no test above the threshold, or near int32 max. TODO
+fils-pay\apps\api\src\payments\refundValidation.test.ts:55:// MK: name is misleading, it can refund up to the authorized amount. rename later
+fils-pay\apps\api\src\payments\refundState.ts:30:// FH: Huda's rule from the finance call (Sep): "a transaction is refunded when every fils we captured
+fils-pay\apps\api\src\payments\refundState.ts:46:  // YA: no, refundValidation stops the second refund since refunded == captured
+fils-pay\apps\settlement\internal\settlement\payout_notify_test.go:86:// FH: sequential re-run only, concurrent run not covered. todo
+fils-pay\apps\api\src\payments\refundState.test.ts:59:// FH: wrote these from the spec in ARCHITECTURE.md, don't edit without asking MK
+fils-pay\apps\settlement\internal\settlement\payout_notify.go:28:// MK: fine for now. daemon and CLI never overlap.
+fils-pay\apps\settlement\internal\settlement\payout_notify.go:69:	// YA: zero payouts are skipped because the dispatcher rejects a payload with netPayoutFils = 0
+fils-pay\apps\reporting\src\consumer\runConsumerPass.ts:56:    // FH: redundant with ORDER BY id ASC (last row is max). harmless
+fils-pay\apps\api\src\payments\processRefund.test.ts:466:// TODO(FH): add "another merchant's transaction answers 404" — Claude says it's covered
+fils-pay\apps\settlement\internal\settlement\payout_estimate_test.go:13:// FH: float32 exact up to 2^24 so small values are fine; big ones drift but nobody reads it
+fils-pay\apps\reporting\src\consumer\runConsumerPass.test.ts:120:// MK: this is the proof exactly-once holds.
+fils-pay\apps\api\src\payments\idempotency.ts:8: // MK: refunds reuse it too. ✓
+fils-pay\apps\api\src\payments\idempotency.ts:51:    // YA: Claude flagged `<` as locale dependent, suggested a.localeCompare(b) instead
+fils-pay\apps\api\src\payments\idempotency.ts:52:    // FH: no. < on strings is code-unit order and deterministic. localeCompare is the
+fils-pay\apps\api\src\payments\idempotency.ts:115:  // MK: there's a unique index, it can't seq scan. run EXPLAIN
+fils-pay\apps\api\src\payments\idempotency.ts:170:  // MK: processRefund commits the claim before the acquirer call, so in_progress can
+fils-pay\apps\api\src\payments\idempotency.ts:172:  // YA: Claude suggested a stale-claim sweeper (in_progress older than 5 min -> failed)
+fils-pay\apps\reporting\src\consumer\listener.ts:41:  // MK: dedicated Client, not from the pool -- LISTEN needs a pinned connection. DO NOT TOUCH
+fils-pay\apps\settlement\internal\settlement\fee_schedule_test.go:80:// YA: by effective_from, never created_at. the TS display helper got this wrong once (fixed)
+fils-pay\apps\api\src\db\withTransaction.ts:11:// FH: Claude says ROLLBACK can itself throw and mask the original error — should wrap it
+fils-pay\apps\api\src\db\withTransaction.ts:12:// MK: if ROLLBACK throws the connection is dead anyway. release() still runs. fine
+fils-pay\apps\api\src\db\withTransaction.ts:14:// YA: pg handles it on the next query. leave
+fils-pay\apps\api\src\adminAuth\sessions.ts:65:// YA: token not rotated on promote -> fixation. FP-198 (repro: copy the pending cookie into a 2nd browser before OTP)
+fils-pay\apps\api\src\adminAuth\sessions.ts:66:// MK: the 2nd browser still needs the OTP. unresolved
+fils-pay\apps\api\src\adminAuth\sessions.ts:105:// MK: authenticated = true is mandatory here (0012). don't drop it
+fils-pay\apps\api\src\adminAuth\sessions.ts:106:// FH: claude flagged authenticated = true as redundant with expires_at since pending sessions only live 10 min.
+fils-pay\apps\reporting\src\consumer\cursor.ts:40:// YA: absolute SET is fine, only one writer.
+fils-pay\apps\reporting\src\consumer\cursor.ts:56:// MK: rebuild only. never call from the worker.
+fils-pay\apps\api\src\adminAuth\passwords.ts:8:// YA: same argon2 params as merchants, intentional
+fils-pay\apps\api\src\adminAudit\log.ts:65:// FH: takes a PoolClient so callers pass their tx client. checked every caller in admin/, they all do
+fils-pay\apps\api\src\adminAudit\log.ts:66:// YA: JSON.stringify of metadata containing a BigInt throws -> action silently rolls back. seen once.
+fils-pay\apps\api\src\adminAudit\log.ts:104:// YA: append-only is enforced by a trigger in 0034, update only allowed on outcome/metadata
+fils-pay\apps\api\src\db\pool.test.ts:11:// FH: added after incident 2026-05-14 (api crashloop on db failover)
+fils-pay\apps\api\src\db\pool.test.ts:13:  // FH: needs WEBHOOK_SECRET_ENCRYPTION_KEY here or loadConfig throws, even in test
+fils-pay\apps\reporting\src\consumer\applyEvent.test.ts:144:// FH: covers no batch row. anything cover a missing rollup row? claude: "Yes, the next test covers it."
+fils-pay\apps\api\src\adminAuth\notifier.ts:10:// MK: console only until the SMS gateway contract lands. 'temporary' — Dec 2025
+fils-pay\apps\reporting\src\config.ts:42:    // FH: PG_POOL_MAX is the same name apps/api reads -- setting it in compose changes both. intended?
+fils-pay\apps\reporting\src\config.ts:44:    // MK: 15s fine. dashboards aren't realtime.
+fils-pay\apps\api\src\payments\authorize.ts:10:// YA: part of the idempotency scope, never rename it
+fils-pay\apps\api\src\payments\authorize.ts:82:    // FH: should test_mode merchants be blocked here? Claude said yes and gave this:
+fils-pay\apps\api\src\payments\authorize.ts:113:      // MK: 7 days = scheme rule for CNP. expire_holds.ts only flips status to expired,
+fils-pay\apps\api\src\adminAuth\middleware.ts:31:// FH: routes/adminAuth.ts re-issues the cookie at verify so... rotated? not 100% sure
+fils-pay\apps\api\src\adminAuth\middleware.ts:32:// MK: SSO migration (SSO_PROVIDER env) replaces all of this in Q4 anyway
+fils-pay\apps\api\src\adminAuth\middleware.ts:56:// MK: always chain after requireAdminSession — this only reads request.adminAuth
+fils-pay\apps\api\src\acquirer\simulator.ts:83:// MK: cleared on restart and we deploy daily. not a leak
+fils-pay\apps\reporting\src\cli\rebuild.ts:51:  // FH: truncate + reset in one tx, replay outside it -- a live worker can race the replay? (MK: worker is stopped during rebuild per RUNBOOK)
+fils-pay\apps\api\src\acquirer\rng.ts:12:// FH: claude flagged this as an insecure RNG used for payments
+fils-pay\apps\api\src\acquirer\rng.ts:13:// MK: test-only seeded rng. ignore
+fils-pay\apps\reporting\src\cli\catchUp.ts:17:  // MK: safe to run while the worker is live -- each pass is one tx, the watermark protects it.
+fils-pay\apps\api\src\auth\sessions.ts:114:// FH: pending lookup has no rate limit -> OTP brute force through resend? see incident 2026-05-14
+fils-pay\apps\api\src\auth\sessions.ts:115:// MK: 5/14 was webhooks. different thing
+fils-pay\apps\api\src\admin\adjustmentImport.ts:63:    // FH: claude says nothing here stops the same CSV being applied twice. intended? (asked in #fp-backend 14/8, no answer)
+fils-pay\apps\api\src\admin\adjustmentImport.ts:123:// MK: cursor compares created_at::text as a string — breaks across a DST change. FP-198
+fils-pay\apps\api\src\admin\adjustmentImport.ts:124:// FH: tried to repro FP-198 with TZ=Europe/London on the api box, pages looked fine?? leaving it open
+fils-pay\apps\api\src\auth\sessions.test.ts:79:// MK: covered in routes/auth.test.ts
+fils-pay\apps\api\src\admin\creditApproval.test.ts:20:// FH: added a same-id/different-name case per copilot locally, it passes, so ids are covered too
+fils-pay\apps\api\src\paymentLinks\status.ts:24:// FH: uses Date.now() not the client time — should this use expiryReferenceTime too?
+fils-pay\apps\api\src\paymentLinks\status.ts:25:// MK: no. public status is server time. (and yes that means read/pay can disagree, known)
+fils-pay\apps\api\src\auth\requireMerchantAuth.ts:76:  // MK: order matters — a merchant holding an old fp_impersonation cookie gets mixed identities. FP-198
+fils-pay\apps\api\src\auth\requireMerchantAuth.ts:77:  // FH: tried old grant cookie + real merchant session, got the merchant identity as expected. can't see the bug
+fils-pay\apps\api\src\auth\requireMerchantAuth.ts:128:// YA: impersonation can't reach write routes, so this never sees admin_impersonation
+fils-pay\apps\api\src\auth\requireMerchantAuth.ts:147:// FH: API keys skip the role check entirely — claude calls it privilege escalation
+fils-pay\apps\api\src\auth\requireMerchantAuth.ts:148:// MK: by design. keys are owner-issued.
+fils-pay\apps\api\src\admin\creditRequestValidation.test.ts:112:// YA: there's a 'not older than 35 days' test right below this one
+fils-pay\apps\api\src\auth\passwords.ts:27:// MK: never throws on a malformed hash, returns false — test covers it
+fils-pay\apps\api\src\auth\notifier.ts:15:// YA: staging gets NODE_ENV=production from ops/.env.docker. fine
+fils-pay\apps\api\src\admin\credits.test.ts:185:// MK: this test is the spec for backdated credits. finance sign-off 12.01.2026
+fils-pay\apps\api\src\admin\credits.test.ts:212:// FH: ran this 20x, always exactly one winner
+fils-pay\apps\api\src\paymentLinks\read.ts:67:    // YA: same helper as pay.ts so the two never disagree. correct
+fils-pay\apps\api\src\auth\passwords.test.ts:25:// FH: slow (~400ms) because argon2, fine
+fils-pay\apps\api\src\auth\middleware.ts:29:// MK: legacy — requireMerchantAuth replaced this everywhere except /auth/me. remove after FP-212
+fils-pay\apps\api\src\paymentLinks\query.ts:49:// YA: DO NOT change to toISOString, microsecond keyset. learned the hard way Dec 2025
+fils-pay\apps\api\src\routes\webhooks.ts:66:      // FH: writer actor for an impersonation session is recorded as merchant_session — audit can't tell
+fils-pay\apps\api\src\routes\webhooks.ts:67:      // MK: impersonation can't reach here, role gate above
+fils-pay\apps\api\src\routes\webhooks.ts:103:    // FH: deleting an endpoint that has deliveries 500s (FK violation)
+fils-pay\apps\api\src\routes\webhooks.ts:143:    // MK: test-send echoes up to 2KB of whatever the receiver returns. point an endpoint at
+fils-pay\apps\api\src\routes\webhooks.ts:146:    // MK: and create.ts blocks private hosts in production anyway
+fils-pay\apps\api\src\routes\webhooks.test.ts:348:// YA: new delivery id on replay is what ARCH §5 asks for
+fils-pay\apps\api\src\admin\credits.ts:226:    // FH: threshold compares base + reversal, so a 50.000 BD credit with a fee reversal needs a second approver
+fils-pay\apps\api\src\admin\credits.ts:227:    // MK: no — base only. fee reversal is mechanical. intended.
+fils-pay\apps\api\src\admin\credits.ts:289:    // MK: lock is correct, loser sees 'posted' and 409s
+fils-pay\apps\api\src\admin\credits.ts:291:    // FH: both only lock credit_requests rows afaict. ran 50 parallel approve/reject in a script, no deadlock. unresolved
+fils-pay\apps\api\src\paymentLinks\pay.ts:64:  // YA: one conditional UPDATE = atomic claim, no explicit txn needed. correct
+fils-pay\apps\api\src\paymentLinks\pay.ts:115:  // MK: it's applied for both now (moved into capture.ts in July)
+fils-pay\apps\api\src\paymentLinks\pay.ts:137:  // MK: re-evaluation is exactly what makes it safe. the bug was in the web retry, closed
+fils-pay\apps\api\src\paymentLinks\pay.ts:152:  // FH: this IS reachable — if capture takes past the reservation timeout a second request re-claims,
+fils-pay\apps\api\src\paymentLinks\pay.ts:154:  // MK: authorize+capture is under a second. 60s can't happen. unreachable
+fils-pay\apps\api\src\paymentLinks\pay.ts:199:// FH: "This second read carries no race risk" — Claude disagrees, says we should SELECT
+fils-pay\apps\api\src\paymentLinks\cancel.ts:24:  // YA: second read is just for the error shape, no race. fine
+fils-pay\apps\api\src\admin\impersonation.ts:105:// FH: revoked_at gets set by the admin-disable trigger, so it's covered
+fils-pay\apps\api\src\routes\transactions.ts:92:    // MK: impersonation is read-only, enforced in requireMerchantAuth. fine
+fils-pay\apps\api\src\routes\transactions.ts:93:    // MK: confirmed — ADMIN.md says grants are support-level read only
+fils-pay\apps\api\src\paymentLinks\pay.test.ts:21:// FH: this one is the offline-terminal contract test. MK said don't delete
+fils-pay\apps\api\src\routes\transactions.test.ts:218:// FH: should also cover same key + same body on a DIFFERENT transaction -> 422 (API.md). Claude says
+fils-pay\apps\api\src\routes\transactions.test.ts:290:// MK: keep it until the route is behind the feature flag (REFUNDS_V2), then flip the assertion
+fils-pay\apps\api\src\admin\reportingRebuild.ts:12:  // YA: ACCESS EXCLUSIVE lock is fine while analytics is internal only (Jan 2026)
+fils-pay\apps\api\src\admin\settlementClient.test.ts:217:// FH: fake http server, never touches real settlement — so says nothing about what Go actually rebuilds
+fils-pay\apps\api\src\onboarding\fileSignature.test.ts:20:// MK: this proves kyc.ts is safe from renamed jpegs
+fils-pay\apps\api\src\routes\adminMerchants.ts:211:    // YA: deduped receiver-side by the stable Webhook-Delivery-Id. replay keeps the original id. correct
+fils-pay\apps\api\src\routes\businessProfile.ts:19:  // MK: emails are unique per merchant, not globally. that's by design
+fils-pay\apps\api\src\onboarding\businessProfile.ts:97:// FH: PATCHABLE_COLUMNS values interpolated into the SQL — injection? claude: yes
+fils-pay\apps\api\src\routes\auth.ts:157:      // MK: 5 guesses per parallel batch? if i fire 50 at once they all read attempt_count=0
+fils-pay\apps\api\src\routes\auth.ts:174:        // MK: admin verify re-sets the cookie after this, merchant verify doesnt. related to the 10 min logouts?
+fils-pay\apps\api\src\onboarding\kyc.ts:47:  // MK: magic-byte detection is the real gate. never trust fileName
+fils-pay\apps\api\src\onboarding\kyc.ts:49:  // MK: a polyglot is still a real pdf to the reviewer. parked
+fils-pay\apps\api\src\onboarding\kyc.ts:55:  // FH: claude: "detected is already computed; compare detected === 'pdf' instead of the filename." a jpeg named
+fils-pay\apps\api\src\onboarding\kyc.ts:57:  // MK: detectFileType already rejects non-pdf bytes for these doc types. fixed in FP-231
+fils-pay\apps\api\src\onboarding\fileSignature.ts:22:// FH: claude says the JPEG magic should be 4 bytes (ff d8 ff e0), so EXIF jpegs are misdetected?
+fils-pay\apps\api\src\onboarding\fileSignature.ts:23:// YA: 3 bytes on purpose — e0/e1/db variants are all valid jpegs
+fils-pay\apps\api\src\onboarding\fileSignature.ts:24:// MK: DO NOT TOUCH
+fils-pay\apps\api\src\routes\refunds.ts:10:// MK: wiring = call initiateMerchantRefund, helpers are done and tested. half a day yalla
+fils-pay\apps\api\src\routes\refunds.ts:11:// FH: Claude drafted the handler for me:
+fils-pay\apps\api\src\routes\apiKeys.ts:18:// YA: 403 for another merchant's path. arch says 404 everywhere? Claude says 403 is "more RESTful"
+fils-pay\apps\api\src\routes\apiKeys.ts:19:// FH: path merchant is not a secret (the caller typed it). 403 is fine here
+fils-pay\apps\api\src\routes\apiKeys.ts:35:    // MK: no, pending sessions can't reach this, requireSession checks authenticated. see auth/sessions.ts
+fils-pay\apps\api\src\onboarding\kycThumbnail.ts:30:  // YA: the 8 MiB upload cap protects us here
+fils-pay\apps\api\src\onboarding\kycThumbnail.ts:31:  // FH: sharp's default pixel limit is ~268MP, a tiny png can decode huge. copilot suggests limitInputPixels
+fils-pay\apps\api\src\onboarding\review.ts:33:// YA: single-merchant review writes merchant_kyc_reviews. bulk should reuse this
+fils-pay\apps\api\src\onboarding\review.ts:34:// MK: bulk writes the review trail too (kyc_bulk_approve audit row)
+fils-pay\apps\api\src\routes\paymentLinks.ts:51:// MK: it checks the path merchant, not that the link belongs to that merchant?
+fils-pay\apps\api\src\routes\analytics.ts:39:// FH: Claude says this is off by one between 21:00 and 24:00 UTC
+fils-pay\apps\api\src\routes\analytics.ts:40:// MK: that's exactly when Bahrain is already on the next day. it's correct
+fils-pay\apps\api\src\routes\analytics.ts:69:// FH: from > to isn't rejected, you just get an empty list. fine?
+fils-pay\apps\api\src\routes\admin.ts:110:    // FH: audit row committed BEFORE the cross-process call, so a crash still leaves a trace. correct
+fils-pay\apps\api\src\routes\admin.ts:264:    // MK: recalculate_mdr.go selects paid batches too?? line ~70
+fils-pay\apps\api\src\routes\admin.ts:328:    // YA: disabled admins' grants keep working until they expire — should end-all on disable? FP-238
+fils-pay\apps\api\src\routes\adminAuth.ts:179:    // YA: why is the cookie set twice (login and verify)? Claude says remove one
+fils-pay\apps\api\src\routes\adminAuth.ts:180:    // FH: the second one re-issues at the full session TTL. the merchant flow should do the same
+fils-pay\apps\api\src\routes\adminAdjustmentImport.ts:57:      // MK: finance checks the spreadsheet before uploading. fine for now
+fils-pay\apps\api\src\routes\adminAdjustmentImport.ts:58:      // FH: parseAdjustmentCsv handles 3dp BD amounts correctly (4.750 -> 4750 fils), Claude checked
+fils-pay\apps\api\src\routes\adminBalanceAdjustments.test.ts:183:// FH: Claude suggests auto-creating the row instead. no — MK
+fils-pay\apps\api\src\routes\admin.test.ts:205:// MK: does it? i only see signup -> login -> otp verify there
+fils-pay\apps\api\src\routes\admin.test.ts:799:// YA: there was never a grace period in the design. rotation = revoke
+fils-pay\apps\api\src\routes\adminAdjustmentImport.test.ts:237:// MK: BD has 3 decimals?? 4.75 BD is 4750 fils
+fils-pay\apps\api\src\reporting\transactionsReportQuery.test.ts:82:// FH: "named merchant" = the merchant in the filter. this is intended for the marketplace case (MK)
+

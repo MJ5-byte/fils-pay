@@ -1,0 +1,270 @@
+[
+  {
+    "name": "0001_extensions.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0002_merchants.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0003_merchant_users.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0004_transactions.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0005_holds.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0006_settlement_batches.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0007_ledger_double_entry.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0008_scheme_export_lines.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0009_outbox_events.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0010_merchant_user_password_auth.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0011_otp_challenges.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0012_sessions.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0013_api_keys.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0014_merchant_onboarding_state.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0015_kyc_documents.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0016_merchant_kyc_reviews.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0017_transaction_acquirer_reference.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0018_transaction_events.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0019_idempotency_keys.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0020_payment_links.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0021_webhook_endpoints.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0022_webhook_deliveries.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0023_transaction_events_settlement_batch.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0024_settlement_batches_paid_at.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0025_merchant_balances.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0026_scheme_export_lines_batch_txn_unique.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0027_merchant_daily_volume.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0028_merchant_payout_trends.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0029_payment_links_merchant_paid_amount_index.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0030_reporting_outbox_cursor.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0031_admin_users.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0032_admin_otp_challenges.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0033_admin_sessions.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0034_admin_audit_log.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0035_admin_impersonation_grants.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0036_merchant_kyc_reviews_admin_reviewer.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0037_api_keys_admin_rotation.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0038_kyc_documents_thumbnail.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0040_merchants_lifetime_payout_monitoring_estimate.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0042_refunds.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0043_transactions_refunded_fils.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0044_transaction_events_refund_types.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0045_merchant_split_children.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0046_settlement_batch_splits.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0047_merchant_discount_bps.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0048_fee_schedules.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0049_platform_stats.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0050_scheme_export_lines_acquirer_amount.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0051_acquirer_callback_notes.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0052_merchants_refunds_enabled.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0053_legacy_transactions.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0054_views.sql",
+    "status": "failed/omitted",
+    "code": "42P01",
+    "message": "relation \"settlement_batch_events\" does not exist"
+  },
+  {
+    "name": "0055_chart_of_accounts_suspense.sql",
+    "status": "failed/omitted",
+    "code": "42703",
+    "message": "column \"code\" of relation \"chart_of_accounts\" does not exist"
+  },
+  {
+    "name": "0056_api_keys_revoke_after.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0057_settlement_payout_disbursements.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0058_live_sessions.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0060_credit_requests.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0061_chart_of_accounts_goodwill.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0064_chart_of_accounts_manual_adjustment.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0065_adjustment_imports.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0066_adjustment_import_rows.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0068_webhook_delivery_archives.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0069_reporting_saved_filters.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0070_refund_reason_default.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0071_refund_fee_index.sql",
+    "status": "applied"
+  },
+  {
+    "name": "0072_refund_merchant_summary.sql",
+    "status": "applied"
+  }
+]

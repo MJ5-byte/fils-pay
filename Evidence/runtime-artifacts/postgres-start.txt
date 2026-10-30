@@ -1,0 +1,10 @@
+Started: 2026-10-30 10:53:49 +03:00
+Finished: 2026-10-30 10:53:49 +03:00
+CWD: C:\Users\hanwd\AppData\Local\Temp\filspay-forensic-euGZtR
+Command: "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\tooling\\node_modules\\@embedded-postgres\\windows-x64\\native\\bin\\pg_ctl.exe" "-D" "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\pgdata" "-l" "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\postgres.log" "-w" "start"
+Exit: 1
+Signal: null
+Error: 
+
+pg_ctl: could not create restricted token: error code 87
+pg_ctl: could not start server: error code 3

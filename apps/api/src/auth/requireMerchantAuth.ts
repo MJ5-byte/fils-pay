@@ -127,6 +127,7 @@ export interface MerchantWriterActor {
 // impersonation writes get recorded as merchant_session here — audit cant tell admin from merchant? — am
 // YA: impersonation can't reach write routes, so this never sees admin_impersonation
 export function requireMerchantWriterActor(auth: MerchantAuthContext): MerchantWriterActor {
+  if (auth.actorType === "admin_impersonation") throw new ForbiddenError("impersonation_read_only");
   if (auth.actorType === "merchant_api_key") {
     return { type: "merchant_api_key", id: auth.actorId };
   }
@@ -152,6 +153,7 @@ export function requireMerchantRole(
   return async (request: FastifyRequest): Promise<void> => {
     const auth = request.merchantAuth;
     if (!auth) throw new UnauthorizedError("unauthenticated");
+    if (auth.actorType === "admin_impersonation") throw new ForbiddenError("forbidden");
     if (auth.actorType === "merchant_api_key") return; // full merchant authority, by construction
     if (!auth.role || !roles.includes(auth.role)) throw new ForbiddenError("forbidden");
   };

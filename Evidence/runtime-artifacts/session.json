@@ -1,0 +1,73 @@
+{
+  "opened": "2026-10-30 10:48:57 +03:00",
+  "temp": "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR",
+  "checkout": "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\checkout",
+  "omitted": [
+    "Evidence/FilsPay_Git_Commit_and_Code_Comments_Evidence.md",
+    "Evidence/FilsPay_The_Order_of_the_Prompt_Story.md",
+    "Evidence/allcommits",
+    "Evidence/messages.md",
+    "Evidence/old-agints-instration/.cursorrules",
+    "Evidence/old-agints-instration/AGENTS.md",
+    "Evidence/old-agints-instration/CLAUDE.md",
+    "db/seed/fixtures/production_seed.sql",
+    "docs/ADMIN.md",
+    "docs/ARCHITECTURE.md",
+    "docs/HANDOVER.md",
+    "docs/ONBOARDING.md",
+    "docs/RUNBOOK.md",
+    "docs/adr/0001-integer-fils.md",
+    "docs/adr/0002-scheme-residue-at-export.md",
+    "docs/adr/0003-report-date-windows.md",
+    "docs/adr/0004-balance-rebuild-source.md",
+    "docs/adr/0005-settlement-v2-shadow-ledger.md",
+    "docs/adr/0006-display-adjustments.md",
+    "docs/adr/README.md",
+    "docs/archive/onboarding-checklist-2026-01.md",
+    "docs/archive/slack-export-fp-finance-2026-09.txt",
+    "docs/archive/slack-export-fp-ops-2026-05.txt",
+    "docs/design/settlement-v2.md",
+    "docs/exports/README.md",
+    "docs/exports/admin-audit-2026-09.csv",
+    "docs/exports/merchant-balances-rebuild-2026-09-15.csv",
+    "docs/exports/scheme/delta-wholesale-2026-09-14.csv",
+    "docs/exports/scheme/scheme_export_lines-delta-wholesale-2026-09-14.tsv",
+    "docs/exports/settlement-batches-2026-09-01_20.csv",
+    "docs/exports/webhook-deliveries-beta-2026-09.csv",
+    "docs/incidents/postmortem-2026-05.md",
+    "docs/meetings/2026-06-02-eng-sync.md",
+    "docs/meetings/2026-07-08-finance-eng.md",
+    "docs/meetings/2026-09-17-fp-203-review.md",
+    "docs/perf/2026-07-settlement-summary-slow.md",
+    "docs/perf/fp-209-loadtest-2026-09.md",
+    "docs/research/acquirer-comparison-2025-11.md",
+    "docs/runbooks/shadow-ledger-cutover.md",
+    "ops/.env.docker"
+  ],
+  "pgdata": "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\pgdata",
+  "pgbin": "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\tooling\\node_modules\\@embedded-postgres\\windows-x64\\native\\bin",
+  "port": 62998,
+  "postgresPid": 20204,
+  "base": "postgres://forensic_local@127.0.0.1:62998",
+  "cleanUrl": "postgres://forensic_local@127.0.0.1:62998/fils_forensic_clean",
+  "partialUrl": "postgres://forensic_local@127.0.0.1:62998/fils_forensic_partial",
+  "probeDatabases": [
+    {
+      "name": "fils_probe_core_f07ed4",
+      "url": "postgres://forensic_local@127.0.0.1:62998/fils_probe_core_f07ed4",
+      "tag": "core",
+      "omitted": [
+        {
+          "name": "0054_views.sql",
+          "code": "42P01",
+          "message": "relation \"settlement_batch_events\" does not exist"
+        },
+        {
+          "name": "0055_chart_of_accounts_suspense.sql",
+          "code": "42703",
+          "message": "column \"code\" of relation \"chart_of_accounts\" does not exist"
+        }
+      ]
+    }
+  ]
+}

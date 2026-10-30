@@ -59,7 +59,7 @@ function callbackBody(transactionId: string, callbackId: string) {
   };
 }
 
-function signatureHeader(body: unknown, secret = ACQUIRER_SECRET, timestamp = 1_757_930_000): string {
+function signatureHeader(body: unknown, secret = ACQUIRER_SECRET, timestamp = Math.floor(Date.now() / 1000)): string {
   const signature = createHmac("sha256", secret).update(`${timestamp}.${JSON.stringify(body)}`).digest("hex");
   return `t=${timestamp},v1=${signature}`;
 }

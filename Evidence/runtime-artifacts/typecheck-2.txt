@@ -1,0 +1,36 @@
+Started: 2026-10-30 11:06:19 +03:00
+Finished: 2026-10-30 11:07:06 +03:00
+CWD: C:\Users\hanwd\AppData\Local\Temp\filspay-forensic-euGZtR\checkout
+Command: "C:\\Program Files\\nodejs\\node.exe" "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js" "run" "typecheck"
+Exit: 0
+Signal: null
+Error: 
+
+
+> filspay@0.1.0 typecheck
+> npm run typecheck --workspaces --if-present && tsc -p db --noEmit && tsc -p scripts --noEmit
+
+
+> @filspay/events@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @filspay/money@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @filspay/admin@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @filspay/api@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @filspay/reporting@0.1.0 typecheck
+> tsc --noEmit
+
+
+> @filspay/web@0.1.0 typecheck
+> tsc --noEmit
+

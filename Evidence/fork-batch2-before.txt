@@ -1,0 +1,190 @@
+TAP version 13
+# Subtest: expired checkout ignores spoofed submittedAt without contacting acquirer
+not ok 1 - expired checkout ignores spoofed submittedAt without contacting acquirer
+  ---
+  duration_ms: 420.3201
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:2032'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 410
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 410
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:27:120)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# payPaymentLink: finalize UPDATE matched 0 rows for link af5bc899-5514-4911-a26b-494bb5b135cf after a successful capture (transaction 46a9c284-b4fc-42d7-b4ff-ce31709962d2) — invariant violation, investigate
+# Subtest: slow capture cannot be overtaken after timeout; cancellation cannot steal reservation
+not ok 2 - slow capture cannot be overtaken after timeout; cancellation cannot steal reservation
+  ---
+  duration_ms: 469.2073
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:2436'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 409
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 409
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:33:100)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: same-key retry recovers crash after authorize and different payer cannot resume
+not ok 3 - same-key retry recovers crash after authorize and different payer cannot resume
+  ---
+  duration_ms: 96.0935
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:3222'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 409
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 409
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:41:9)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: same-key retry recovers committed capture before finalize, discount applied exactly once
+not ok 4 - same-key retry recovers committed capture before finalize, discount applied exactly once
+  ---
+  duration_ms: 85.9986
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:3956'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      {
+        body: {
+    +     error: 'payment_link_already_paid'
+    -     amountFils: 10000,
+    -     paidAt: '2026-10-30T11:33:16.426Z',
+    -     status: 'paid',
+    -     transactionId: '805554ec-4bd6-4842-9da0-ab09a6502cbe'
+        },
+    +   statusCode: 409
+    -   statusCode: 200
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    statusCode: 200
+    body:
+      status: 'paid'
+      transactionId: '805554ec-4bd6-4842-9da0-ab09a6502cbe'
+      amountFils: 10000
+      paidAt: '2026-10-30T11:33:16.426Z'
+  actual:
+    statusCode: 409
+    body:
+      error: 'payment_link_already_paid'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:50:9)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: definitive capture decline voids authorization and releases hold before another payer
+not ok 5 - definitive capture decline voids authorization and releases hold before another payer
+  ---
+  duration_ms: 55.6978
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:5150'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'active'
+    - 'released'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'released'
+  actual: 'active'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:59:9)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: cross-merchant cancellation returns not_found and preserves link
+not ok 6 - cross-merchant cancellation returns not_found and preserves link
+  ---
+  duration_ms: 19.0106
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:5790'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'canceled'
+    - 'not_found'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'not_found'
+  actual: 'canceled'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:62:57)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: public checkout never exposes a merchant API key hash
+not ok 7 - public checkout never exposes a merchant API key hash
+  ---
+  duration_ms: 28.2076
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\paymentLinks\\forkBatch2.new.test.ts:1:6097'
+  failureType: 'testCodeFailure'
+  error: 'duplicate key value violates unique constraint "api_keys_key_hash_key"'
+  code: '23505'
+  name: 'error'
+  stack: |-
+    C:\Users\hanwd\OneDrive\Desktop\fils-pay\node_modules\pg-pool\index.js:45:11
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\paymentLinks\forkBatch2.new.test.ts:67:28)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 0
+# fail 7
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2596.2613

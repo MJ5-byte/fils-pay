@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../db/withTransaction.js";
 import { ConflictError, NotFoundError } from "../lib/errors.js";
@@ -43,9 +42,13 @@ export async function insertReplayDeliveryRow(
   client: PoolClient,
   original: OriginalDelivery,
 ): Promise<ReplayResult> {
-  // MK: new id per replay on purpose, receivers dedupe on the original id in the body
-  // FH: ARCH §5 says Webhook-Delivery-Id is stable across retries and replays — this mints a new one?
-  const newDeliveryEventId = randomUUID();
+  // Webhook-Delivery-Id (and the envelope's `id`) must be stable across
+  // retries AND replays (ARCHITECTURE, headers.ts): it is what receivers
+  // dedupe on. Minting a new one made every replay look like a new event.
+  const identity = await client.query<{ delivery_event_id: string }>(
+    `SELECT delivery_event_id FROM webhook_deliveries WHERE id = $1`, [original.id]);
+  const newDeliveryEventId = identity.rows[0]?.delivery_event_id;
+  if (!newDeliveryEventId) throw new NotFoundError("webhook_delivery_not_found");
   const replayPayload = { ...original.payload, id: newDeliveryEventId };
 
   const insertResult = await client.query<{ id: string; status: string }>(

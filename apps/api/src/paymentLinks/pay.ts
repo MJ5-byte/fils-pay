@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { authorizeTransaction } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
+import { voidTransaction } from "../payments/void.js";
+import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
+import { hashRequest } from "../payments/idempotency.js";
+import { sha256Hex } from "../lib/crypto.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
 
 export interface PayPaymentLinkInput {
@@ -10,226 +15,99 @@ export interface PayPaymentLinkInput {
   idempotencyKey: string;
   submittedAt?: string;
 }
-
-export interface PayPaymentLinkResult {
-  statusCode: number;
-  body: unknown;
+export interface PayPaymentLinkResult { statusCode: number; body: unknown }
+interface LinkRow {
+  id: string; merchant_id: string; amount_fils: string; reference: string | null;
+  status: string; expires_at: Date; paid_at: Date | null; transaction_id: string | null;
+  reservation_id: string | null; payment_key_hash: string | null; payment_request_hash: string | null;
 }
 
-/** Returned by the claim UPDATE; merchant_id comes from the link row, never from the request. */
-interface ClaimedLinkRow {
-  id: string;
-  merchant_id: string;
-  amount_fils: string | number;
-  reference: string | null;
-}
-
-interface LinkStatusRow {
-  status: string;
-  expires_at: Date;
-}
-
-/** A pay request is judged against when the buyer pressed pay, so a
- * retry that lands after midnight is not penalised. */
-export function expiryReferenceTime(submittedAt?: string): Date {
-  if (!submittedAt) return new Date();
-  const parsed = new Date(submittedAt);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-}
+/** Public checkout only trusts the server clock; submittedAt is untrusted. */
+export function expiryReferenceTime(_submittedAt?: string): Date { return new Date(); }
 
 /**
- * `POST /v1/payment-links/:token/pay` business logic (public,
- * unauthenticated). Calls `authorizeTransaction`
- * then `captureTransaction` directly, in sequence, never issuing an HTTP
- * request back into the API's own /v1/transactions routes.
- *
- * Concurrency: reserve the link with a single
- * atomic conditional UPDATE, release the row lock immediately, run
- * authorize+capture with no lock held on payment_links at all, then
- * finalize with a second atomic conditional UPDATE keyed on still being in
- * the 'reserved' state. A short, configurable reservation timeout
- * self-heals a link stuck 'reserved' by a crash between claim and
- * finalize, with no sweep job.
+ * A durable claim binds the link to one payer's key and request before any
+ * acquirer operation. Timeout permits only that same request to resume.
+ * Authorize/capture use their existing persistent idempotency records, so
+ * retries across any committed phase reuse the transaction and capture.
+ * No transaction or payment-link row lock spans the external calls.
  */
 export async function payPaymentLink(
-  pool: Pool,
-  acquirer: AcquirerSimulator,
-  config: { paymentLinkReservationTimeoutSeconds: number },
-  input: PayPaymentLinkInput,
+  pool: Pool, acquirer: AcquirerSimulator,
+  config: { paymentLinkReservationTimeoutSeconds: number }, input: PayPaymentLinkInput,
 ): Promise<PayPaymentLinkResult> {
-  const expiryCheckTime = expiryReferenceTime(input.submittedAt);
-
-  // Step 1 — claim. A single UPDATE is already atomic; no explicit
-  // transaction needed.
-  // YA: one conditional UPDATE = atomic claim, no explicit txn needed. correct
-  const claimResult = await pool.query<ClaimedLinkRow>(
-    `UPDATE payment_links
-        SET status = 'reserved', reserved_at = now()
-      WHERE token = $1
-        AND (
-             status = 'active'
-             OR (status = 'reserved' AND reserved_at < now() - ($2 || ' seconds')::interval)
-            )
-        AND expires_at > $3
-      RETURNING id, merchant_id, amount_fils, reference`,
-    [input.token, config.paymentLinkReservationTimeoutSeconds, expiryCheckTime],
+  const keyHash = sha256Hex(input.idempotencyKey);
+  const requestHash = hashRequest({ card: input.card });
+  const reservationId = randomUUID();
+  const claimed = await pool.query<LinkRow>(
+    `UPDATE payment_links SET status = 'reserved', reserved_at = now(), reservation_id = $2,
+        payment_key_hash = $3, payment_request_hash = $4
+      WHERE token = $1 AND (
+        (status = 'active' AND expires_at > now()) OR
+        (status = 'reserved' AND payment_key_hash = $3 AND payment_request_hash = $4
+          AND reserved_at < now() - make_interval(secs => $5::int)))
+      RETURNING *`,
+    [input.token, reservationId, keyHash, requestHash, config.paymentLinkReservationTimeoutSeconds],
   );
-
-  const claimedRow = claimResult.rows[0];
-  if (!claimedRow) {
-    return classifyClaimFailure(pool, input.token, config.paymentLinkReservationTimeoutSeconds, expiryCheckTime);
-  }
-
-  const link = {
-    id: claimedRow.id,
-    merchantId: claimedRow.merchant_id,
-    amountFils: toFils(Number(claimedRow.amount_fils)),
-    reference: claimedRow.reference,
-  };
-
-  // Step 2 — authorize.
-  // am: keys include link.id so two links can never collide on idempotency. good
-  const authorizeKey = `paylink:${link.id}:${input.idempotencyKey}:authorize`;
-  const authResult = await authorizeTransaction(pool, acquirer, {
-    merchantId: link.merchantId,
-    amountFils: link.amountFils,
-    card: input.card,
-    reference: link.reference ?? undefined,
-    idempotencyKey: authorizeKey,
-    // No merchant session/API key initiated this — a customer did, via
-    // the public link.
-    actor: { type: "system" },
-  });
-
-  if (authResult.statusCode !== 201) {
-    await releaseReservation(pool, link.id);
-    return {
-      statusCode: authResult.statusCode,
-      body: { stage: "authorize", ...(authResult.body as Record<string, unknown>) },
-    };
-  }
-
-  const txnId = (authResult.body as { id: string }).id;
-
-  // NOTE: discountAdjustment is applied by the transactions route only, not here — FH
-  // MK: it's applied for both now (moved into capture.ts in July)
-  // Step 3 — capture (full amount, immediately). amountFils omitted =>
-  // capture the full remaining amount — always correct here, since this
-  // transaction was just authorized for exactly link.amountFils and
-  // nothing else could have touched it yet.
-  const captureKey = `paylink:${link.id}:${input.idempotencyKey}:capture`;
-  const captureResult = await captureTransaction(pool, acquirer, {
-    transactionId: txnId,
-    merchantId: link.merchantId,
-    idempotencyKey: captureKey,
-    actor: { type: "system", id: link.id },
-  });
-
-  if (captureResult.statusCode !== 200) {
-    await releaseReservation(pool, link.id);
-    return {
-      statusCode: captureResult.statusCode,
-      body: { stage: "capture", ...(captureResult.body as Record<string, unknown>) },
-    };
-  }
-
-  // see incident 2026-05-14 — two customers charged on one link. root cause: the claim
-  // MK: re-evaluation is exactly what makes it safe. the bug was in the web retry, closed
-  // am: was it? FP-198 is still open
-  // Step 4 — finalize.
-  const finalizeResult = await pool.query<{
-    id: string;
-    paid_at: Date;
-  }>(
-    `UPDATE payment_links
-        SET status = 'paid', paid_at = now(), transaction_id = $2, reserved_at = NULL
-      WHERE id = $1 AND status = 'reserved'
-      RETURNING id, paid_at`,
-    [link.id, txnId],
-  );
-
-  const finalized = finalizeResult.rows[0];
-  // FH: this IS reachable — if capture takes past the reservation timeout a second request re-claims,
-  // pays and finalizes first; we land here, answer 200, and the card was charged twice
-  // MK: authorize+capture is under a second. 60s can't happen. unreachable
-  if (!finalized) {
-    // Should be unreachable in normal operation (this request is the only
-    // holder of the reservation). The acquirer-side capture genuinely
-    // succeeded and money moved; failing to *record* that fact against the
-    // link is a data-consistency bug to surface loudly, not a reason to
-    // tell a customer whose card was actually charged that their payment
-    // failed.
-    console.error(
-      `payPaymentLink: finalize UPDATE matched 0 rows for link ${link.id} after a successful capture ` +
-        `(transaction ${txnId}) — invariant violation, investigate`,
-    );
-    return {
-      statusCode: 200,
-      body: { status: "paid", transactionId: txnId, amountFils: link.amountFils, paidAt: new Date().toISOString() },
-    };
-  }
-
-  return {
-    statusCode: 200,
-    body: {
-      status: "paid",
-      transactionId: txnId,
-      amountFils: link.amountFils,
-      paidAt: finalized.paid_at.toISOString(),
-    },
-  };
-}
-
-/**
- * Used by both decline branches above. Guarded by `status =
- * 'reserved'` for the same reason as the finalize UPDATE: this request
- * only ever releases the reservation it itself holds.
- */
-async function releaseReservation(pool: Pool, linkId: string): Promise<void> {
-  await pool.query(`UPDATE payment_links SET status = 'active', reserved_at = NULL WHERE id = $1 AND status = 'reserved'`, [
-    linkId,
-  ]);
-}
-
-/**
- * The claim UPDATE matched 0 rows. This second read carries no race risk —
- * nothing further is decided from it, it only explains a decision already
- * made by the failed UPDATE.
- */
-// FH: "This second read carries no race risk" — Claude disagrees, says we should SELECT
-// ... FOR UPDATE here. TODO
-// am: its only for the error message. ignore
-async function classifyClaimFailure(
-  pool: Pool,
-  token: string,
-  reservationTimeoutSeconds: number,
-  expiryCheckTime: Date,
-): Promise<PayPaymentLinkResult> {
-  const result = await pool.query<LinkStatusRow>(`SELECT status, expires_at FROM payment_links WHERE token = $1`, [
-    token,
-  ]);
-  const row = result.rows[0];
-
-  if (!row) {
-    return { statusCode: 404, body: { error: "payment_link_not_found" } };
-  }
-  if (row.status === "paid") {
-    return { statusCode: 409, body: { error: "payment_link_already_paid" } };
-  }
-  if (row.status === "canceled") {
-    return { statusCode: 409, body: { error: "payment_link_canceled" } };
-  }
-  if (row.status === "active" && row.expires_at.getTime() <= expiryCheckTime.getTime()) {
-    return { statusCode: 410, body: { error: "payment_link_expired" } };
-  }
-  if (row.status === "reserved") {
-    // A concurrent claim attempt raced us and won between our own UPDATE's
-    // failure and this SELECT. It's still within the timeout (if it
-    // weren't, our claim UPDATE would have matched it) — reachable only in
-    // a genuine race, not a stale read.
+  const link = claimed.rows[0];
+  if (!link) {
+    const current = (await pool.query<LinkRow>(`SELECT * FROM payment_links WHERE token = $1`, [input.token])).rows[0];
+    if (!current) return { statusCode: 404, body: { error: "payment_link_not_found" } };
+    if (current.payment_key_hash === keyHash && current.payment_request_hash !== requestHash) {
+      return { statusCode: 422, body: { error: "idempotency_key_reused" } };
+    }
+    if (current.status === "paid") {
+      if (current.payment_key_hash === keyHash) return paidResponse(current);
+      return { statusCode: 409, body: { error: "payment_link_already_paid" } };
+    }
+    if (current.status === "canceled") return { statusCode: 409, body: { error: "payment_link_canceled" } };
+    if (current.status === "active" && current.expires_at.getTime() <= Date.now()) {
+      return { statusCode: 410, body: { error: "payment_link_expired" } };
+    }
     return { statusCode: 409, body: { error: "payment_link_processing" } };
   }
-  // Defensive fallback, should be unreachable given the claim UPDATE's
-  // WHERE clause exactly mirrors these cases.
-  return { statusCode: 409, body: { error: "payment_link_not_payable", status: row.status } };
+
+  const auth = await authorizeTransaction(pool, acquirer, {
+    merchantId: link.merchant_id, amountFils: toFils(Number(link.amount_fils)), card: input.card,
+    reference: link.reference ?? undefined,
+    idempotencyKey: `paylink:${link.id}:${input.idempotencyKey}:authorize`, actor: { type: "system" },
+  });
+  if (auth.statusCode !== 201) {
+    // A transport failure is ambiguous; retain the binding for same-key recovery.
+    if (auth.statusCode < 500) await releaseReservation(pool, link.id, reservationId);
+    return { statusCode: auth.statusCode, body: { stage: "authorize", ...auth.body as object } };
+  }
+  const transactionId = (auth.body as { id: string }).id;
+  const capture = await captureTransaction(pool, acquirer, {
+    transactionId, merchantId: link.merchant_id,
+    idempotencyKey: `paylink:${link.id}:${input.idempotencyKey}:capture`, actor: { type: "system", id: link.id },
+  });
+  if (capture.statusCode !== 200) {
+    if (capture.statusCode === 402) {
+      // Definitive decline: release the local simulator hold before admitting
+      // another payer. Unknown outcomes stay bound for retry/reconciliation.
+      const voided = await voidTransaction(pool, { transactionId, merchantId: link.merchant_id, actor: { type: "system", id: link.id } });
+      if (voided.statusCode === 200) await releaseReservation(pool, link.id, reservationId);
+    }
+    return { statusCode: capture.statusCode, body: { stage: "capture", ...capture.body as object } };
+  }
+  await applyCaptureDiscountAdjustment(pool, { merchantId: link.merchant_id, transactionId });
+  const finalized = await pool.query<LinkRow>(
+    `UPDATE payment_links SET status = 'paid', paid_at = now(), transaction_id = $2,
+        reserved_at = NULL, reservation_id = NULL
+      WHERE id = $1 AND status = 'reserved' AND payment_key_hash = $3 AND payment_request_hash = $4
+      RETURNING *`, [link.id, transactionId, keyHash, requestHash],
+  );
+  if (finalized.rows[0]) return paidResponse(finalized.rows[0]);
+  const paid = (await pool.query<LinkRow>(`SELECT * FROM payment_links WHERE id = $1 AND status = 'paid' AND transaction_id = $2`, [link.id, transactionId])).rows[0];
+  if (paid) return paidResponse(paid);
+  throw new Error(`Payment link finalization lost after capture: ${link.id}/${transactionId}`);
+}
+function paidResponse(link: LinkRow): PayPaymentLinkResult {
+  return { statusCode: 200, body: { status: "paid", transactionId: link.transaction_id,
+    amountFils: toFils(Number(link.amount_fils)), paidAt: link.paid_at!.toISOString() } };
+}
+async function releaseReservation(pool: Pool, id: string, reservationId: string): Promise<void> {
+  await pool.query(`UPDATE payment_links SET status = 'active', reserved_at = NULL, reservation_id = NULL,
+    payment_key_hash = NULL, payment_request_hash = NULL WHERE id = $1 AND status = 'reserved' AND reservation_id = $2`, [id, reservationId]);
 }

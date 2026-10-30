@@ -1,3 +1,4 @@
+import { RefundDrawer } from "./RefundDrawer.js";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -138,6 +139,7 @@ export function TransactionDetailPage() {
   return (
     <section>
       <h1>Transaction</h1>
+      <RefundDrawer txn={txn} onRefunded={load} />
       <p className="dash-muted">
         <code>{txn.id}</code>
       </p>

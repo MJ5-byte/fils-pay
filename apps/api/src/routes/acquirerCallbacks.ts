@@ -5,6 +5,7 @@ import { applyAcquirerCallback, withCallbackRetry, type AcquirerCallbackInput } 
 
 // header name confirmed with the acquirer's integration guide v3.2 — am
 const ACQUIRER_SIGNATURE_HEADER = "acquirer-callback-signature";
+declare module "fastify" { interface FastifyRequest { rawCallbackBody?: string } }
 
 /**
  * Body of a fraud_review.completed callback. `outcome` is validated against
@@ -38,6 +39,13 @@ function getSignatureHeader(request: FastifyRequest): string | undefined {
  * endpoint has.
  */
 export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void> {
+  // Encapsulated parser: retain the exact signed bytes for this surface only.
+  app.removeContentTypeParser("application/json");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    request.rawCallbackBody = String(body);
+    try { done(null, JSON.parse(request.rawCallbackBody)); }
+    catch (err) { done(err as Error); }
+  });
   app.post<{ Body: AcquirerCallbackBody }>("/callbacks", async (request, reply) => {
     const body = request.body ?? {};
     if (
@@ -45,7 +53,7 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
       body.type !== "fraud_review.completed" ||
       !body.transactionId ||
       !body.occurredAt ||
-      !body.outcome ||
+      (body.outcome !== "cleared" && body.outcome !== "confirmed_fraud") ||
       !body.note
     ) {
       throw new BadRequestError(
@@ -55,10 +63,11 @@ export async function acquirerCallbackRoutes(app: FastifyInstance): Promise<void
     }
 
     const verification = verifyAcquirerCallbackSignature(
-      body,
+      request.rawCallbackBody ?? "",
       getSignatureHeader(request),
       app.config.acquirerCallbackSigningSecret,
       app.config.acquirerCallbackRequireSignature,
+      { now: Math.floor(Date.now() / 1000), toleranceSeconds: 300 },
     );
     if (!verification.valid) {
       throw new UnauthorizedError("invalid_signature", verification.reason);

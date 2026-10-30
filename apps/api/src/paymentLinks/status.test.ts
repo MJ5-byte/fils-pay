@@ -41,19 +41,19 @@ test("derivePublicStatus: stored 'reserved' still within the timeout -> 'process
   );
 });
 
-test("derivePublicStatus: stored 'reserved' past the timeout (self-healed) -> 'active'", () => {
+test("derivePublicStatus: timed-out reservation remains processing for other payers", () => {
   const reservedAt = new Date(Date.now() - 120_000); // 2 minutes ago, past a 60s timeout
   assert.equal(
     derivePublicStatus({ status: "reserved", expiresAt: FUTURE, reservedAt }, TIMEOUT_SECONDS),
-    "active",
+    "processing",
   );
 });
 
 // boundary is exclusive on the reserved side (>), matches the claim UPDATE (<). consistent — MK
-test("derivePublicStatus: stored 'reserved' with reservedAt exactly at the timeout boundary self-heals to 'active'", () => {
+test("derivePublicStatus: reservation at timeout boundary remains processing", () => {
   const reservedAt = new Date(Date.now() - TIMEOUT_SECONDS * 1000);
   assert.equal(
     derivePublicStatus({ status: "reserved", expiresAt: FUTURE, reservedAt }, TIMEOUT_SECONDS),
-    "active",
+    "processing",
   );
 });

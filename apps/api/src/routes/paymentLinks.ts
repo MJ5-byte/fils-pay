@@ -104,6 +104,7 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
       assertOwnMerchant(request);
       const result = await cancelPaymentLink(app.db, {
         id: request.params.id,
+        merchantId: request.merchantAuth!.merchantId,
       });
       if (result.outcome === "canceled") {
         reply.code(204).send();
