@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { formatBhd, toFils } from "@filspay/money";
 import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
 import { ApiError } from "../../api/client.js";
+import { loadFailureKind } from "./loadFailure.js";
 import type { PaymentLinkPublicDto, PayPaymentLinkResponse, SimulatedCardInput } from "../../types.js";
 import "./CheckoutPage.css";
 
 type LoadState =
   | { kind: "loading" }
   | { kind: "not_found" }
+  | { kind: "error" }
   | { kind: "loaded"; link: PaymentLinkPublicDto };
 
 type PayState =
@@ -27,27 +29,26 @@ export function CheckoutPage() {
   const [card, setCard] = useState<SimulatedCardInput>(EMPTY_CARD);
   const [brandHint, setBrandHint] = useState<string | null>(null);
 
-  // FH: memory leak — this effect never aborts the fetch on unmount (React warning in console?)
-  // theres a cancelled flag in the cleanup tho. warning must be from somewhere else — am
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!token) {
       setLoadState({ kind: "not_found" });
-      return;
+      return () => {};
     }
     let cancelled = false;
+    setLoadState({ kind: "loading" });
     getPaymentLink(token)
       .then((link) => {
         if (!cancelled) setLoadState({ kind: "loaded", link });
       })
-      .catch(() => {
-        // Never distinguishes "malformed token" from "doesn't exist" —
-        // matches the API's own non-disclosure choice.
-        if (!cancelled) setLoadState({ kind: "not_found" });
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadState({ kind: loadFailureKind(err) });
       });
     return () => {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => load(), [load]);
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -100,6 +101,18 @@ export function CheckoutPage() {
       <main className="checkout-page">
         <h1>Payment link not found</h1>
         <p>This payment link does not exist.</p>
+      </main>
+    );
+  }
+
+  if (loadState.kind === "error") {
+    return (
+      <main className="checkout-page">
+        <h1>Couldn't load payment link</h1>
+        <p>We couldn't load this payment link right now. Please try again.</p>
+        <button type="button" onClick={load}>
+          Try again
+        </button>
       </main>
     );
   }

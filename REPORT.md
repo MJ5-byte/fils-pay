@@ -1026,6 +1026,13 @@
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
 
+### Bug: Checkout says a payment link does not exist when the API is only busy
+- **Status:** Fixed
+- **Type:** UX, medium
+- **Problem:** When the payment-link lookup failed for any reason (503 from nginx under load, 429, 500, a dropped connection), the buyer saw "Payment link not found. This payment link does not exist." for a link that exists.
+- **Cause:** The load handler in `apps/web/src/pages/checkout/CheckoutPage.tsx` caught every error and set the not-found state, without looking at the status code.
+- **Breaks:** A buyer could abandon a valid invoice, and the merchant lost the payment, because a page told them something false during a load spike.
+- **Fix:** Only an `ApiError` with status 404 shows not found (`loadFailureKind`, the same check `PaymentLinkDetailPage` uses). Any other failure shows "We couldn't load this payment link right now. Please try again." with a Try again button that re-runs the load. `client.ts` reads `import.meta.env?.` so the test can import `ApiError` under node. Test added in `loadFailure.test.ts`. PR: see the PR for this branch.
 ### Bug: An abandoned payment on an expired link shows the link as payable
 - **Status:** Fixed
 - **Type:** UX, low
