@@ -256,8 +256,8 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 		t.Fatalf("seed drifted cache: %v", err)
 	}
 
-	// A closed batch with its scheme-export line, which the rebuild must not
-	// read: the balance comes from the ledger legs inserted above.
+	// A closed batch with its scheme-export line. The balance is the batch's
+	// net (ADR-0007, BHA-189), not the capture's ledger legs or the export.
 	var batchID uuid.UUID
 	err = pool.QueryRow(context.Background(), `
 		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
@@ -293,8 +293,8 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 	if diff.Before != 999999 {
 		t.Errorf("before = %d, want 999999 (the drifted cached value)", diff.Before)
 	}
-	if diff.After != 12000 {
-		t.Errorf("after = %d, want 12000 (the ledger sum)", diff.After)
+	if diff.After != 11700 {
+		t.Errorf("after = %d, want 11700 (the closed batch's net)", diff.After)
 	}
 	if !diff.Changed {
 		t.Error("changed = false, want true")
@@ -305,16 +305,17 @@ func TestRebuildBalances_ValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query persisted balance: %v", err)
 	}
-	if persisted != 12000 {
-		t.Errorf("persisted cached_payable_fils = %d, want 12000", persisted)
+	if persisted != 11700 {
+		t.Errorf("persisted cached_payable_fils = %d, want 11700", persisted)
 	}
 }
 
-// TestRebuildBalances_MatchesLedgerAndCLI pins the admin button to the
-// same figure the rebuild-balances CLI writes: the merchant_payable ledger
-// sum, net of fees and payouts. ADR-0004 promises the two paths agree; a
-// rebuild from the scheme export alone would put the gross back in the cache.
-func TestRebuildBalances_MatchesLedgerAndCLI(t *testing.T) {
+// TestRebuildBalances_MatchesClosedBatchesAndCLI pins the admin button to the
+// same figure the rebuild-balances CLI writes: the net of the merchant's
+// closed, unpaid batches, so a paid batch is left out. ADR-0004 promises the
+// two paths agree; a rebuild from the scheme export alone would put the gross
+// back in the cache.
+func TestRebuildBalances_MatchesClosedBatchesAndCLI(t *testing.T) {
 	pool := mustPool(t)
 	server := newTestServer(t, pool)
 	ctx := context.Background()
@@ -322,19 +323,12 @@ func TestRebuildBalances_MatchesLedgerAndCLI(t *testing.T) {
 	merchantID := insertActiveMerchant(t, pool)
 	txnID := insertCaptureEvent(t, pool, merchantID, 12000, time.Date(2026, 4, 13, 9, 0, 0, 0, time.UTC))
 
-	// The fee and a partial payout both come off merchant_payable, so the
-	// ledger balance is 12000 - 300 - 5000 = 6700.
 	_, err := pool.Exec(ctx, `
-		INSERT INTO ledger_entries
-		  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
-		VALUES
-		  ($1, $2, $3, 'merchant_payable', 'debit',  300,  now(), 'mdr fee'),
-		  ($1, $2, $3, 'platform_fee_revenue', 'credit', 300,  now(), 'mdr fee'),
-		  ($4, $2, $3, 'merchant_payable', 'debit',  5000, now(), 'payout'),
-		  ($4, $2, $3, 'platform_cash',    'credit', 5000, now(), 'payout')
-	`, uuid.New(), merchantID, txnID, uuid.New())
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+		VALUES ($1, '2026-04-12', 'paid', 5000, 0, 5000, now(), now())
+	`, merchantID)
 	if err != nil {
-		t.Fatalf("seed fee and payout legs: %v", err)
+		t.Fatalf("seed paid batch: %v", err)
 	}
 
 	var batchID uuid.UUID
@@ -354,19 +348,6 @@ func TestRebuildBalances_MatchesLedgerAndCLI(t *testing.T) {
 		t.Fatalf("seed scheme export line: %v", err)
 	}
 
-	var ledgerSum int64
-	err = pool.QueryRow(ctx, `
-		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
-		  FROM ledger_entries
-		 WHERE merchant_id = $1 AND account_id = 'merchant_payable'
-	`, merchantID).Scan(&ledgerSum)
-	if err != nil {
-		t.Fatalf("sum ledger: %v", err)
-	}
-	if ledgerSum != 6700 {
-		t.Fatalf("seeded ledger sum = %d, want 6700", ledgerSum)
-	}
-
 	resp := post(t, server, "/internal/rebuild-balances", "Bearer "+testToken, "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -377,8 +358,8 @@ func TestRebuildBalances_MatchesLedgerAndCLI(t *testing.T) {
 	if !ok {
 		t.Fatalf("response has no diff entry for merchant %s", merchantID)
 	}
-	if diff.After != ledgerSum {
-		t.Errorf("button after = %d, want the ledger sum %d", diff.After, ledgerSum)
+	if diff.After != 11700 {
+		t.Errorf("button after = %d, want 11700 (the closed batch; the paid one is out)", diff.After)
 	}
 
 	cliBalance, err := ledger.RebuildMerchantBalance(ctx, pool, merchantID)

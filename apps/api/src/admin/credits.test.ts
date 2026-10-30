@@ -146,7 +146,9 @@ test("a credit with a fee reversal posts four legs in ONE group that still nets 
   );
 });
 
-test("merchant_balances moves by exactly base + reversal, in the same transaction", async () => {
+// BHA-189: the cache holds closed, unpaid batch nets, and the next CloseBatch
+// carries the credit into its net, so posting must not add it a second time.
+test("posting a credit journals base + reversal and leaves merchant_balances to the batch close", async () => {
   const merchantId = await createMerchant("balance", 275);
   const admin = await createAdmin("balance");
   assert.equal(await cachedPayable(merchantId), null, "no cache row before the first credit");
@@ -162,24 +164,21 @@ test("merchant_balances moves by exactly base + reversal, in the same transactio
     },
   });
   assert.equal(first.feeReversalFils, 825, "30.000 BD @ 275 bps");
-  assert.equal(await cachedPayable(merchantId), 30_825);
 
-  // A second credit accumulates onto the same row rather than replacing it.
   const second = await createCreditRequest(pool, {
     merchantId,
     adminUserId: admin.id,
     body: { baseAmountFils: 1_000, reasonCode: "goodwill", effectiveDate: todayIso() },
   });
   assert.equal(second.postedAmountFils, 1_000);
-  assert.equal(await cachedPayable(merchantId), 31_825);
+  assert.equal(await cachedPayable(merchantId), null, "the batch close, not the posting, moves the cache");
 
-  // ...and the cache agrees with the ledger, which is the authoritative side.
   const ledgerNet = await pool.query<{ net: string }>(
     `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)::text AS net
        FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'`,
     [merchantId],
   );
-  assert.equal(Number(ledgerNet.rows[0]!.net), 31_825, "cache and ledger must not disagree");
+  assert.equal(Number(ledgerNet.rows[0]!.net), 31_825, "both credits are owed on merchant_payable");
 });
 
 // MK: this test is the spec for backdated credits. finance sign-off 12.01.2026
@@ -249,7 +248,6 @@ test("two concurrent approvals of one pending request resolve to exactly one win
     [merchantId],
   );
   assert.equal(groups.rows[0]!.count, "1");
-  assert.equal(await cachedPayable(merchantId), 90_000);
 });
 
 test("rejecting a pending credit journals nothing and closes it to approval", async () => {

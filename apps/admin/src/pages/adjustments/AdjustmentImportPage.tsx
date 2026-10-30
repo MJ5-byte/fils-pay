@@ -83,7 +83,9 @@ export function AdjustmentImportPage() {
         filename.trim() ? filename.trim() : undefined,
       );
       setNotice(
-        `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`,
+        result.alreadyApplied
+          ? "This file was already applied, so nothing new was posted."
+          : `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`,
       );
       setCsvContent("");
       setFilename("");

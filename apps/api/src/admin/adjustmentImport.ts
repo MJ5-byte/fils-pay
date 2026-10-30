@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import { addFils, toFils, ZERO_FILS, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { BadRequestError } from "../lib/errors.js";
+import { BadRequestError, ConflictError } from "../lib/errors.js";
+import { claimIdempotencyKey, completeIdempotencyKey, hashRequest } from "../payments/idempotency.js";
 import { parseAdjustmentAmountFils } from "./adjustmentCsvParsing.js";
 import { postLedgerAdjustment } from "./ledgerAdjustments.js";
 
@@ -13,26 +14,23 @@ export interface AdjustmentImportRow {
   reason?: string;
 }
 
+const ADJUSTMENT_IMPORT_ENDPOINT = "admin.adjustment_imports.create";
+
 /** @property totalPostedFils Sum of the absolute row amounts, so always >= 0. */
 export interface AdjustmentImportResult {
   importId: string;
   rowCount: number;
   totalPostedFils: Fils;
+  /** True when this upload replayed an earlier identical file and posted nothing. */
+  alreadyApplied: boolean;
 }
 
-async function postAdjustmentToLedgerAndCache(
+async function postAdjustmentToLedger(
   client: import("pg").PoolClient,
   merchantId: string,
   amountFils: Fils,
 ): Promise<string | null> {
   const entryGroupId = await postLedgerAdjustment(client, merchantId, amountFils, "CSV adjustment import");
-  await client.query(
-    `INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
-     VALUES ($1, $2, now())
-     ON CONFLICT (merchant_id) DO UPDATE
-       SET cached_payable_fils = merchant_balances.cached_payable_fils + $2, updated_at = now()`,
-    [merchantId, amountFils],
-  );
   return entryGroupId;
 }
 
@@ -52,6 +50,35 @@ export async function applyAdjustmentImport(
   }
 
   return withTransaction(pool, async (client) => {
+    // A resent file would post every row again (BHA-191). idempotency_keys is
+    // scoped per merchant, so the file's content hash is claimed once for
+    // each merchant in it. Sorted, so two uploads that share merchants take
+    // the keys in the same order and cannot deadlock; a concurrent resend
+    // waits on the first upload's keys and then replays it.
+    const fileHash = hashRequest(input.rows);
+    const merchantIds = [...new Set(input.rows.map((row) => row.merchantId))].sort();
+    const claims = [];
+    for (const merchantId of merchantIds) {
+      claims.push(
+        await claimIdempotencyKey(client, {
+          merchantId,
+          endpoint: ADJUSTMENT_IMPORT_ENDPOINT,
+          key: fileHash,
+          requestHash: fileHash,
+        }),
+      );
+    }
+    if (claims.every((claim) => claim.outcome === "replay")) {
+      const stored = claims[0]!.row.responseBody;
+      if (!isAdjustmentImportResult(stored)) {
+        throw new Error("applyAdjustmentImport: completed idempotency key has no stored result");
+      }
+      return { ...stored, alreadyApplied: true };
+    }
+    if (claims.some((claim) => claim.outcome !== "fresh")) {
+      throw new ConflictError("request_in_progress");
+    }
+
     const importRow = await client.query<{ id: string }>(
       `INSERT INTO adjustment_imports (uploaded_by_admin_user_id, original_filename, row_count)
        VALUES ($1, $2, $3) RETURNING id`,
@@ -60,12 +87,10 @@ export async function applyAdjustmentImport(
     const importId = importRow.rows[0]!.id;
 
     let total = ZERO_FILS;
-    // FH: claude says nothing here stops the same CSV being applied twice. intended? (asked in #fp-backend 14/8, no answer)
-    // re-upload is blocked by the unique original_filename i think — am
     for (let i = 0; i < input.rows.length; i++) {
       const row = input.rows[i]!;
       const amountFils = parseAdjustmentAmountFils(row.amount);
-      const entryGroupId = await postAdjustmentToLedgerAndCache(client, row.merchantId, amountFils);
+      const entryGroupId = await postAdjustmentToLedger(client, row.merchantId, amountFils);
 
       await client.query(
         `INSERT INTO adjustment_import_rows
@@ -88,8 +113,18 @@ export async function applyAdjustmentImport(
       },
     });
 
-    return { importId, rowCount: input.rows.length, totalPostedFils: total };
+    const result: AdjustmentImportResult = { importId, rowCount: input.rows.length, totalPostedFils: total, alreadyApplied: false };
+    for (const claim of claims) {
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 201, body: result, resourceId: importId });
+    }
+    return result;
   });
+}
+
+function isAdjustmentImportResult(value: unknown): value is AdjustmentImportResult {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.importId === "string" && Number.isSafeInteger(v.rowCount) && Number.isSafeInteger(v.totalPostedFils);
 }
 
 export interface AdjustmentImportSummary {

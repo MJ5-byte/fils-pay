@@ -203,8 +203,8 @@ export function SettlementPage() {
 
       <h2>Rebuild cached balances</h2>
       <p className="admin-muted">
-        Recomputes every merchant&apos;s cached payable balance from <code>ledger_entries</code>, the
-        authoritative record. The ledger itself is only read, never written — but this touches every
+        Recomputes every merchant&apos;s cached payable balance as the net of their closed, unpaid
+        settlement batches. Batches and the ledger are only read, never written, but this touches every
         merchant on the platform at once, so it asks before it runs.
       </p>
 
@@ -265,7 +265,7 @@ export function SettlementPage() {
               </tbody>
             </table>
           ) : (
-            <p className="admin-muted">Every cached balance already matched the ledger.</p>
+            <p className="admin-muted">Every cached balance already matched its closed, unpaid batches.</p>
           )}
         </div>
       ) : null}

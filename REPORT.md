@@ -922,6 +922,21 @@
 - **Breaks:** Every extra run moved money again. Merchant payables were reduced by the residue. Rounding lost across several captures went unrecorded.
 - **Fix:** The sweep now posts one ADR-0002 group per export line, with the line's transaction and batch, and computes the residue as gross minus `amount_fils`. It runs under an advisory lock in one transaction and skips any batch that already carries residue legs. A second run, or a batch CloseBatch already journalled, posts nothing. It aborts if a line's residue is outside 0 to 9 fils, and it refuses to post over unreversed old-script rows. Batches are picked by a March `batch_date` (the Bahrain business month), so a batch is swept whole. Tests added in `scripts/reconcile_march.integration.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/127
 
+### Bug: A balance rebuild during the day double-counts that day's captures at close
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** After a balance rebuild, the next settlement close added the day's captures to the merchant's cached balance a second time. A 10,000 fils capture plus a 1,500 fils credit, then a rebuild, then the close left the cache at 21,000 fils against a batch net of 11,250, and at 9,750 after the payout instead of 0.
+- **Cause:** `merchant_balances` had two meanings. The rebuild (`ledger.RebuildAllBalances`, ADR-0007) wrote the ledger's `merchant_payable`, which counts a capture the moment it posts, while `CloseBatch` step 14 (`balances.ApplyBatchClose`) adds the batch net at close, assuming the cache only holds closed batches. Manual credits were also added to the cache at posting, with the close adding only `net - credits`.
+- **Breaks:** Any rebuild between a capture and its close inflated the payable figure ops see on the merchant page by that day's net, and it never came back down.
+- **Fix:** The cache now means "closed but not yet paid out", which is what `ApplyBatchClose`, `ApplyPayout` and their missing-row rules already assumed. Both rebuild functions write `SUM(net_payout_fils)` of the merchant's closed batches under the same lock, a posted credit no longer writes the cache, and step 14 adds the whole batch net. ADR-0007 has an amendment saying so. Test added (`TestRebuildThenClose_CountsEachCaptureAndCreditOnce`).
+
+### Bug: Resending an adjustment CSV import posts every row again
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** Uploading the same adjustment CSV twice applied every adjustment twice, to the ledger and to the balance.
+- **Cause:** `applyAdjustmentImport` had no idempotency at all; a code comment in the route admitted it.
+- **Breaks:** A retried or double-clicked upload paid every merchant in the file twice.
+- **Fix:** No schema change. Inside the import's own transaction it claims one `idempotency_keys` row per merchant in the file, keyed on a hash of the file's rows, in sorted order so two uploads cannot deadlock. A resend, even under another file name, replays the first result and posts nothing. A file with exactly the same rows can no longer be posted twice on purpose; finance changes a reason or splits it. Test added.
 ### Bug: Recalculate MDR moves a fil on discounted merchants with no rate change (BHA-171)
 - **Status:** Fixed
 - **Type:** Money, medium
@@ -980,6 +995,14 @@
 - **Breaks:** Merchants saw a dead link as live and could not filter expired links; the dashboard and checkout disagreed about the same link.
 - **Fix:** The serializer returns `expired` for a stored `active` link past `expires_at`, and the list filter matches the same meaning in SQL (`active` means not yet expired, `expired` means stored active and past expiry); `reserved`, `paid` and `canceled` are unchanged, pagination is unchanged, no schema change. The dashboard gets an `expired` filter and colour. Test added in `routes/paymentLinks.test.ts` (red before: list showed `active`). PR: https://github.com/SilentYsf/fils-pay/pull/132
 
+### Bug: Admin balance adjustments change only the cached balance, not the ledger
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** A balance adjustment in the admin console moved the merchant's cached balance but wrote no ledger rows, so the next balance rebuild silently undid it and the money never reached a payout. The CSV import posted ledger legs, but no settlement batch ever claimed them, so imported money never reached a payout either.
+- **Cause:** `applyBalanceCorrection` in `apps/api/src/admin/balanceAdjustments.ts` updated `merchant_balances` directly, as ADR-0006 asked, while the admin client's comment claimed it posted to the ledger. `CloseBatch` only claimed `merchant_payable` legs of manual credits, so adjustment legs from the import sat unbatched.
+- **Breaks:** A correction owed to or by a merchant was never paid or recovered, and it vanished on every rebuild. With the cache now meaning closed but not yet paid out (BHA-189), a cache-only write would also contradict the rebuild.
+- **Fix:** Both teams agreed to supersede ADR-0006 with ADR-0008. An adjustment and every CSV import row now post balanced legs (`manual_balance_adjustment_contra` against `merchant_payable`) and never write the cache. `CloseBatch` claims those legs once: a positive adjustment joins gross with no fee, like a manual credit, and a negative one comes off after refunds, oldest first, carrying forward when it would push the batch net below zero. The route keeps its response shape and the console notice says the adjustment reaches the payable at the next close. Test added (`TestCloseBatch_ClaimsManualAdjustmentsOnce`). A positive adjustment above the 50.000 BD credit threshold is refused with `adjustment_needs_second_approver` and goes through the two-approver manual credit flow instead; an import with such a row fails as a whole. Test added (`applyBalanceCorrection rejects a credit above the second-approver threshold`).
+- **Deploy steps:** Before deploying, count (read-only) the unbatched `merchant_payable` legs whose entry group has a `manual_balance_adjustment_contra` leg, because the next close pays them; on live this is expected to be 0 (no adjustment imports, empty `admin_audit_log`). Right after deploying and before the first close, run "Rebuild cached balances" once, because live caches still hold the old meaning and credits would otherwise count twice.
 ### Bug: A wrong login code shows the raw error string `invalid_code`
 - **Status:** Fixed
 - **Type:** UX, low

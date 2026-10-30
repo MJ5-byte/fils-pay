@@ -127,9 +127,7 @@ export function MerchantDetailPage() {
       // A fresh Idempotency-Key per submit, the same discipline as the web capture.
       const result = await adjustBalance(id, { deltaFils, reason: adjustReason.trim() }, crypto.randomUUID());
       setNotice(
-        `Balance adjusted by ${bhd(result.deltaFils)}: ${bhd(
-          result.cachedPayableFilsBefore,
-        )} → ${bhd(result.cachedPayableFilsAfter)}.`,
+        `Adjustment of ${bhd(result.deltaFils)} posted to the ledger. It reaches the payable balance at the next settlement close.`,
       );
       setAdjustDeltaFils("");
       setAdjustReason("");

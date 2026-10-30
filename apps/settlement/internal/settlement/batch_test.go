@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/filspay/settlement/internal/ledger"
 	"github.com/filspay/settlement/internal/money"
 )
 
@@ -1020,7 +1021,8 @@ func TestCloseBatch_PaysTheFeeJournaledAtCapture(t *testing.T) {
 // insertPostedCredit writes what apps/api's admin/credits.ts postCreditToLedger
 // leaves behind for a posted manual credit: the credit_requests row, the
 // merchant_credit_contra/merchant_payable base pair, the platform_fee_revenue/
-// merchant_payable reversal pair when feeReversalFils > 0, and the cache bump.
+// merchant_payable reversal pair when feeReversalFils > 0. The cache is left
+// alone: the batch close that claims the credit adds it (ADR-0007).
 func insertPostedCredit(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, baseFils, feeReversalFils int64, occurredAt, postedAt time.Time) {
 	t.Helper()
 	ctx := context.Background()
@@ -1061,14 +1063,102 @@ func insertPostedCredit(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, 
 			t.Fatalf("insertPostedCredit: reversal legs: %v", err)
 		}
 	}
-	_, err = pool.Exec(ctx, `
-		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (merchant_id) DO UPDATE
-		  SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils
-	`, merchantID, baseFils+feeReversalFils)
+}
+
+// insertPostedAdjustment writes the balanced leg shape postLedgerAdjustment uses.
+func insertPostedAdjustment(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, delta money.Fils, occurredAt time.Time) uuid.UUID {
+	t.Helper()
+	groupID := uuid.New()
+	debitAccount, creditAccount := "manual_balance_adjustment_contra", "merchant_payable"
+	magnitude := delta
+	if delta < 0 {
+		debitAccount, creditAccount = creditAccount, debitAccount
+		magnitude = -delta
+	}
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES ($1, $2, $3, 'debit',  $5, $6, 'manual balance adjustment'),
+		       ($1, $2, $4, 'credit', $5, $6, 'manual balance adjustment')
+	`, groupID, merchantID, debitAccount, creditAccount, int64(magnitude), occurredAt)
 	if err != nil {
-		t.Fatalf("insertPostedCredit: balance cache: %v", err)
+		t.Fatalf("insertPostedAdjustment: ledger legs: %v", err)
+	}
+	return groupID
+}
+
+func TestCloseBatch_ClaimsManualAdjustmentsOnce(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	day := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
+	dayStart, _ := BusinessDayWindow(day)
+	_, feeFils := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, dayStart.Add(time.Hour))
+	creditID := insertPostedAdjustment(t, pool, merchantID, 500, dayStart.Add(2*time.Hour))
+	debitID := insertPostedAdjustment(t, pool, merchantID, -300, dayStart.Add(3*time.Hour))
+	carriedID := insertPostedAdjustment(t, pool, merchantID, -50000, dayStart.Add(4*time.Hour))
+
+	if n := countRows(t, pool, `SELECT count(*) FROM merchant_balances WHERE merchant_id = $1`, merchantID); n != 0 {
+		t.Errorf("posting adjustments created a cache row before close")
+	}
+	if rebuilt, err := ledger.RebuildMerchantBalance(ctx, pool, merchantID); err != nil {
+		t.Fatalf("RebuildMerchantBalance before close: %v", err)
+	} else if rebuilt != 0 {
+		t.Errorf("rebuilt balance before close = %d, want 0", rebuilt)
+	}
+
+	closed, err := CloseBatch(ctx, pool, merchantID, day)
+	if err != nil {
+		t.Fatalf("CloseBatch(day): %v", err)
+	}
+	wantNet := money.Fils(10000) - feeFils + 500 - 300
+	if closed.NetPayoutFils != wantNet {
+		t.Errorf("CloseBatch(day) NetPayoutFils = %d, want %d (capture net plus 500 minus 300, with 50000 carried)", closed.NetPayoutFils, wantNet)
+	}
+	if closed.NetPayoutFils != closed.GrossFils-closed.FeeFils {
+		t.Errorf("CloseBatch(day) net %d != gross %d - fee %d", closed.NetPayoutFils, closed.GrossFils, closed.FeeFils)
+	}
+	for _, groupID := range []uuid.UUID{creditID, debitID} {
+		if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE entry_group_id = $1 AND account_id = 'merchant_payable' AND settlement_batch_id = $2`, groupID, closed.BatchID); n != 1 {
+			t.Errorf("adjustment %s merchant_payable leg was not claimed by the day-1 batch", groupID)
+		}
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE entry_group_id = $1 AND account_id = 'merchant_payable' AND settlement_batch_id IS NULL`, carriedID); n != 1 {
+		t.Errorf("the debit adjustment was claimed by a batch that could not carry it")
+	}
+	if cached := cachedPayable(t, pool, merchantID); money.Fils(cached) != wantNet {
+		t.Errorf("cached_payable_fils after close = %d, want %d", cached, wantNet)
+	}
+	if rebuilt, err := ledger.RebuildMerchantBalance(ctx, pool, merchantID); err != nil {
+		t.Fatalf("RebuildMerchantBalance after close: %v", err)
+	} else if rebuilt != wantNet {
+		t.Errorf("rebuilt balance after close = %d, want %d", rebuilt, wantNet)
+	}
+
+	next, err := CloseBatch(ctx, pool, merchantID, day.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("CloseBatch(nextDay): %v", err)
+	}
+	if next.GrossFils != 0 || next.FeeFils != 0 || next.NetPayoutFils != 0 {
+		t.Errorf("day 2 batch = gross %d, fee %d, net %d; want 0, 0, 0 (adjustments claimed once and 50000 still carried)", next.GrossFils, next.FeeFils, next.NetPayoutFils)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE entry_group_id = $1 AND account_id = 'merchant_payable' AND settlement_batch_id IS NULL`, carriedID); n != 1 {
+		t.Errorf("the carried debit adjustment was claimed by the empty day-2 batch")
+	}
+	paid, err := PayoutBatch(ctx, pool, closed.BatchID)
+	if err != nil {
+		t.Fatalf("PayoutBatch(day): %v", err)
+	}
+	if paid.NetPayoutFils != wantNet {
+		t.Errorf("PayoutBatch(day) paid %d, want %d", paid.NetPayoutFils, wantNet)
+	}
+	if cached := cachedPayable(t, pool, merchantID); cached != 0 {
+		t.Errorf("cached_payable_fils after payout = %d, want 0", cached)
+	}
+	if rebuilt, err := ledger.RebuildMerchantBalance(ctx, pool, merchantID); err != nil {
+		t.Fatalf("RebuildMerchantBalance after payout: %v", err)
+	} else if rebuilt != 0 {
+		t.Errorf("rebuilt balance after payout = %d, want 0", rebuilt)
 	}
 }
 
@@ -1154,6 +1244,46 @@ func TestCloseBatch_PaysPostedManualCreditsExactlyOnce(t *testing.T) {
 	}
 	if payable != 0 {
 		t.Errorf("merchant_payable ledger balance after every batch paid = %d, want 0", payable)
+	}
+}
+
+// BHA-189: merchant_balances holds what is closed but not yet paid out, so a
+// rebuild between a capture and its close must leave the capture, and a
+// manual credit posted that day, for the close to add once.
+func TestRebuildThenClose_CountsEachCaptureAndCreditOnce(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	day := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
+	dayStart, _ := BusinessDayWindow(day)
+
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, dayStart.Add(time.Hour))
+	insertPostedCredit(t, pool, merchantID, 1500, 0, dayStart, dayStart.Add(2*time.Hour))
+
+	if _, err := ledger.RebuildAllBalances(ctx, pool); err != nil {
+		t.Fatalf("RebuildAllBalances: %v", err)
+	}
+	closed, err := CloseBatch(ctx, pool, merchantID, day)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+	var cached int64
+	if err := pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached); err != nil {
+		t.Fatalf("query merchant_balances after close: %v", err)
+	}
+	if money.Fils(cached) != closed.NetPayoutFils {
+		t.Errorf("cached_payable_fils after rebuild then close = %d, want %d (the batch net, each capture and credit once)", cached, closed.NetPayoutFils)
+	}
+
+	if _, err := PayoutBatch(ctx, pool, closed.BatchID); err != nil {
+		t.Fatalf("PayoutBatch: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached); err != nil {
+		t.Fatalf("query merchant_balances after payout: %v", err)
+	}
+	if cached != 0 {
+		t.Errorf("cached_payable_fils after payout = %d, want 0", cached)
 	}
 }
 

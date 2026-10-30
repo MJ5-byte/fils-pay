@@ -97,3 +97,39 @@ merchant_id` in place of one query per merchant, not a different source.
   changed by this decision.
 - `ledger.RefreshBalanceCache` and the `merchant_payable_position` view have
   no callers left. Whether they are removed is a separate decision.
+
+## Amendment, 2026-10-30: the rebuild writes closed, unpaid batch nets
+
+- **Deciders:** Moataz Osama, Yusuf Mohamed
+- **Related:** BHA-189, BHA-149, ADR-0006
+
+The rebuild summed `merchant_payable` in `ledger_entries`, but that account
+is credited the moment a capture or a manual credit posts, and the
+incremental path adds the same money again when the batch that carries it
+closes (`balances.ApplyBatchClose`). A rebuild between a capture and its
+close therefore counted the capture twice: 10,000 fils captured, then a
+rebuild, then the close left the cache at about twice the batch net. The
+Consequences above already noted this.
+
+`merchant_balances.cached_payable_fils` now has one meaning: the net of the
+merchant's settlement batches that are closed and not yet paid out. That is
+what `ApplyBatchClose` (adds the net at close), `ApplyPayout` (takes it off
+at payout) and both of their missing-row rules already assumed. So:
+
+- `RebuildAllBalances` and `RebuildMerchantBalance` write
+  `SUM(net_payout_fils)` of the merchant's batches with status `closed`. The
+  `EXCLUSIVE` table lock, the 5 s lock timeout and the client-disconnect
+  handling above are unchanged. A close or payout that commits before the
+  rebuild reads the batches is counted through the batch's status; one that
+  starts later waits and applies its delta on top.
+- A manual credit (`apps/api/src/admin/credits.ts`) no longer writes the
+  cache when it posts. Since BHA-149 the next `CloseBatch` claims its
+  `merchant_payable` legs into the batch net, and step 14 now adds the whole
+  net to the cache, credits included. Before, the credit was added at posting
+  and the close added only `net - credits`, which a rebuild under this rule
+  would have lost.
+- The ledger stays authoritative for money. The cache is a view of what
+  settlement owes and has not paid yet, and every rebuild source now agrees
+  with the incremental path.
+- **Adjust balance** no longer writes the cache: ADR-0008 makes every adjustment a ledger posting that the next `CloseBatch` claims, so a rebuild keeps it.
+- `ledger.RefreshBalanceCache` still has no callers and is left as it was.

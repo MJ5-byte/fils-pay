@@ -60,11 +60,12 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
   await request<unknown>(path, init);
 }
 
-/** Plain-language copy for the login error codes the API answers with. */
+/** Plain-language copy for the error codes the API answers with. */
 const ERROR_COPY: Record<string, string> = {
   invalid_code: "That code is wrong or has expired. Check it and try again.",
   too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
   resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
+  adjustment_needs_second_approver: "Adjustments above 50.000 BD need a second approver. Post this one as a manual credit instead.",
 };
 
 /** Human-readable text for anything thrown by `request` — used by every

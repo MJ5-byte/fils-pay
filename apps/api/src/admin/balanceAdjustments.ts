@@ -18,7 +18,7 @@ export interface BalanceAdjustmentInput {
 
 const BALANCE_CORRECTION_ENDPOINT = "admin.balance_adjustments.create";
 
-/** Before/after are read under the same row lock as the UPDATE, so the pair is exact. */
+/** Before/after are the unchanged cache value read while holding the merchant row lock. */
 export interface BalanceAdjustmentResult {
   merchantId: string;
   deltaFils: Fils;
@@ -26,24 +26,24 @@ export interface BalanceAdjustmentResult {
   cachedPayableFilsAfter: Fils;
 }
 
-/** Applies a correction to a merchant's balance record and audits it. */
+/** Posts the correction to the ledger; the cache picks it up at the next settlement close. */
 export async function applyBalanceCorrection(
   pool: Pool,
   input: BalanceAdjustmentInput,
 ): Promise<BalanceAdjustmentResult> {
   return withTransaction(pool, async (client) => {
-    const existing = await client.query<{ cached_payable_fils: string }>(
-      `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1 FOR UPDATE`,
+    const existing = await client.query<{ cached_payable_fils: string | null }>(
+      `SELECT b.cached_payable_fils FROM merchants m LEFT JOIN merchant_balances b ON b.merchant_id = m.id WHERE m.id = $1 FOR UPDATE OF m`,
       [input.merchantId],
     );
     const row = existing.rows[0];
     if (!row) {
-      throw new NotFoundError("merchant_balance_not_found");
+      throw new NotFoundError("merchant_not_found");
     }
-    const before = toFils(Number(row.cached_payable_fils), { allowNegative: true });
+    const before = toFils(Number(row.cached_payable_fils ?? 0), { allowNegative: true });
 
     // A delta is not idempotent by itself: a resent correction would move the
-    // balance twice. Claimed after the row lock, which proves the merchant
+    // balance twice. Claimed after the merchants row lock, which proves the merchant
     // exists for idempotency_keys' foreign key.
     const claim = input.idempotencyKey
       ? await claimIdempotencyKey(client, {
@@ -66,21 +66,15 @@ export async function applyBalanceCorrection(
       return claim.row.responseBody;
     }
 
-    const updated = await client.query<{ cached_payable_fils: string }>(
-      `UPDATE merchant_balances
-          SET cached_payable_fils = cached_payable_fils + $2, updated_at = now()
-        WHERE merchant_id = $1
-      RETURNING cached_payable_fils`,
-      [input.merchantId, input.deltaFils],
-    );
-    const after = toFils(Number(updated.rows[0]!.cached_payable_fils), { allowNegative: true });
+    const entryGroupId = await postLedgerAdjustment(client, input.merchantId, input.deltaFils);
+    const after = before;
 
     await insertAdminAuditLog(client, {
       adminUserId: input.adminUserId,
       action: "balance_adjustment",
       targetType: "merchant",
       targetId: input.merchantId,
-      metadata: { deltaFils: input.deltaFils, reason: input.reason, before, after },
+      metadata: { deltaFils: input.deltaFils, reason: input.reason, before, after, entryGroupId },
     });
 
     const result: BalanceAdjustmentResult = {

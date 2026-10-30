@@ -1,8 +1,9 @@
 // Package balances maintains merchant_balances — a cache of each
 // merchant's settlement-batch-driven payable balance, maintained
 // incrementally by apps/settlement at batch close/payout time. It is a CACHE, not a second source of
-// truth: ledger_entries remains authoritative (see internal/ledger for the
-// full, authoritative recompute).
+// truth: ledger_entries remains authoritative. It holds the net of the
+// merchant's closed, unpaid batches, which is also what internal/ledger's
+// rebuild recomputes (ADR-0007).
 // -- M? (Jan 2026): cache only. anything that 'corrects' a balance has to go through ledger_entries or the next rebuild undoes it.
 // am: support adjusts via the cache directly and its been fine for months
 package balances

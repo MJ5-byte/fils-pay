@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/filspay/settlement/internal/balances"
 )
 
 func mustPool(t *testing.T) *pgxpool.Pool {
@@ -59,39 +61,43 @@ func postLedgerLeg(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, direc
 	}
 }
 
-func TestRebuildMerchantBalance_MatchesDirectSummation(t *testing.T) {
+// insertBatch inserts one settlement batch for merchantID with the given
+// status and net, daysAgo days before today so each call gets its own date.
+func insertBatch(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, daysAgo int, status string, netFils int64) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := pool.QueryRow(context.Background(), `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
+		VALUES ($1, current_date - $2::int, $3, $4, 0, $4,
+		        CASE WHEN $3 = 'open' THEN NULL ELSE now() END,
+		        CASE WHEN $3 = 'paid' THEN now() END)
+		RETURNING id
+	`, merchantID, daysAgo, status, netFils).Scan(&id)
+	if err != nil {
+		t.Fatalf("insertBatch: %v", err)
+	}
+	return id
+}
+
+// BHA-189: the cache holds closed, unpaid batch nets. A paid batch is out,
+// an open one is not closed yet, and a capture's ledger legs wait for the
+// close that adds them, so none of the three may count.
+func TestRebuildMerchantBalance_SumsClosedUnpaidBatches(t *testing.T) {
 	pool := mustPool(t)
 	merchantID := insertActiveMerchant(t, pool)
 
-	// Credits increase the merchant_payable liability (money owed to the
-	// merchant); debits reduce it (fees, payouts).
-	postLedgerLeg(t, pool, merchantID, "credit", 10000)
-	postLedgerLeg(t, pool, merchantID, "credit", 5000)
-	postLedgerLeg(t, pool, merchantID, "debit", 375) // e.g. an MDR fee
-	postLedgerLeg(t, pool, merchantID, "debit", 2000)
-
-	want := int64(10000 + 5000 - 375 - 2000)
+	insertBatch(t, pool, merchantID, 4, "closed", 10000)
+	insertBatch(t, pool, merchantID, 3, "closed", 5000)
+	insertBatch(t, pool, merchantID, 2, "paid", 2000)
+	insertBatch(t, pool, merchantID, 1, "open", 375)
+	postLedgerLeg(t, pool, merchantID, "credit", 999)
 
 	got, err := RebuildMerchantBalance(context.Background(), pool, merchantID)
 	if err != nil {
 		t.Fatalf("RebuildMerchantBalance: %v", err)
 	}
-	if int64(got) != want {
-		t.Errorf("RebuildMerchantBalance = %d, want %d", got, want)
-	}
-
-	// Cross-check against a raw direct-summation query independent of the
-	// function under test.
-	var direct int64
-	err = pool.QueryRow(context.Background(), `
-		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
-		  FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'
-	`, merchantID).Scan(&direct)
-	if err != nil {
-		t.Fatalf("direct summation query: %v", err)
-	}
-	if int64(got) != direct {
-		t.Errorf("RebuildMerchantBalance (%d) disagrees with direct summation (%d)", got, direct)
+	if got != 15000 {
+		t.Errorf("RebuildMerchantBalance = %d, want 15000 (the two closed, unpaid batches)", got)
 	}
 }
 
@@ -104,7 +110,7 @@ func TestRebuildMerchantBalance_ZeroActivity(t *testing.T) {
 		t.Fatalf("RebuildMerchantBalance: %v", err)
 	}
 	if got != 0 {
-		t.Errorf("RebuildMerchantBalance for a merchant with no ledger activity = %d, want 0", got)
+		t.Errorf("RebuildMerchantBalance for a merchant with no batches = %d, want 0", got)
 	}
 }
 
@@ -113,14 +119,14 @@ func TestRebuildAllBalances_OverwritesDriftedCache(t *testing.T) {
 	pool := mustPool(t)
 	merchantID := insertActiveMerchant(t, pool)
 
-	postLedgerLeg(t, pool, merchantID, "credit", 20000)
-	postLedgerLeg(t, pool, merchantID, "debit", 500)
-	wantBalance := int64(20000 - 500)
+	insertBatch(t, pool, merchantID, 2, "closed", 20000)
+	insertBatch(t, pool, merchantID, 1, "paid", 500)
+	wantBalance := int64(20000)
 
 	// Seed a deliberately WRONG cached value, simulating drift (a crash
 	// between CloseBatch and PayoutBatch, or any other cause) —
-	// RebuildAllBalances must overwrite it with the true, ledger-derived
-	// figure, not merely apply a delta.
+	// RebuildAllBalances must overwrite it with the closed, unpaid batch
+	// net, not merely apply a delta.
 	_, err := pool.Exec(context.Background(), `
 		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
 		VALUES ($1, 999999, now())
@@ -164,9 +170,9 @@ func TestRebuildMerchantBalance_OverwritesDriftedCache(t *testing.T) {
 	pool := mustPool(t)
 	merchantID := insertActiveMerchant(t, pool)
 
-	postLedgerLeg(t, pool, merchantID, "credit", 20000)
-	postLedgerLeg(t, pool, merchantID, "debit", 500)
-	wantBalance := int64(20000 - 500)
+	insertBatch(t, pool, merchantID, 2, "closed", 20000)
+	insertBatch(t, pool, merchantID, 1, "paid", 500)
+	wantBalance := int64(20000)
 
 	_, err := pool.Exec(context.Background(), `
 		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
@@ -195,14 +201,15 @@ func TestRebuildMerchantBalance_OverwritesDriftedCache(t *testing.T) {
 }
 
 // TestRebuildAllBalances_KeepsConcurrentPayout runs a rebuild while a payout
-// transaction is open, shaped like PayoutBatch: a merchant_payable debit,
-// then the cache decrement. The rebuild must wait for the payout and count
-// its debit, not overwrite the decrement with a sum taken before it committed.
+// transaction is open, shaped like PayoutBatch: the batch marked paid, then
+// the cache decrement. The rebuild must wait for the payout and leave its
+// batch out, not overwrite the decrement with a sum taken before it committed.
 func TestRebuildAllBalances_KeepsConcurrentPayout(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
 	merchantID := insertActiveMerchant(t, pool)
-	postLedgerLeg(t, pool, merchantID, "credit", 10000)
+	insertBatch(t, pool, merchantID, 2, "closed", 7000)
+	paidBatchID := insertBatch(t, pool, merchantID, 1, "closed", 3000)
 	if _, err := RebuildMerchantBalance(ctx, pool, merchantID); err != nil {
 		t.Fatalf("seed cache: %v", err)
 	}
@@ -217,13 +224,10 @@ func TestRebuildAllBalances_KeepsConcurrentPayout(t *testing.T) {
 		t.Fatalf("payout pid: %v", err)
 	}
 	_, err = payout.Exec(ctx, `
-		INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
-		VALUES
-		  ($1, $2, 'merchant_payable', 'debit',  3000, now(), 'test payout'),
-		  ($1, $2, 'platform_cash',    'credit', 3000, now(), 'test payout')
-	`, uuid.New(), merchantID)
+		UPDATE settlement_batches SET status = 'paid', paid_at = now() WHERE id = $1
+	`, paidBatchID)
 	if err != nil {
-		t.Fatalf("payout ledger legs: %v", err)
+		t.Fatalf("payout batch status: %v", err)
 	}
 	_, err = payout.Exec(ctx, `
 		UPDATE merchant_balances SET cached_payable_fils = cached_payable_fils - 3000 WHERE merchant_id = $1
@@ -259,49 +263,42 @@ func TestRebuildAllBalances_KeepsConcurrentPayout(t *testing.T) {
 		t.Fatalf("read cache: %v", err)
 	}
 	if cached != 7000 {
-		t.Errorf("cached_payable_fils = %d, want 7000 (the ledger after the payout); the rebuild overwrote the payout", cached)
+		t.Errorf("cached_payable_fils = %d, want 7000 (the batch still unpaid); the rebuild overwrote the payout", cached)
 	}
 }
 
-// TestRebuildAllBalances_KeepsConcurrentCreditWithoutCacheRow runs a rebuild
-// while a manual credit is open for a merchant that has ledger activity but
-// no merchant_balances row yet, shaped like the admin credit in
-// apps/api/src/admin/credits.ts: ledger legs, then an upsert of the cache.
-// There is no row for the rebuild to lock, so it must still wait for the
-// credit and count it, not insert a sum taken before the credit committed.
-func TestRebuildAllBalances_KeepsConcurrentCreditWithoutCacheRow(t *testing.T) {
+// TestRebuildAllBalances_KeepsConcurrentCloseWithoutCacheRow runs a rebuild
+// while a batch close is open for a merchant that has a closed batch but no
+// merchant_balances row yet, shaped like CloseBatch: the batch written as
+// closed, then balances.ApplyBatchClose. There is no row for the rebuild to
+// lock, so it must still wait for the close and count it, not insert a sum
+// taken before the close committed.
+func TestRebuildAllBalances_KeepsConcurrentCloseWithoutCacheRow(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
 	merchantID := insertActiveMerchant(t, pool)
-	postLedgerLeg(t, pool, merchantID, "credit", 10000)
+	insertBatch(t, pool, merchantID, 2, "closed", 10000)
 
-	credit, err := pool.Begin(ctx)
+	closing, err := pool.Begin(ctx)
 	if err != nil {
-		t.Fatalf("begin credit: %v", err)
+		t.Fatalf("begin close: %v", err)
 	}
-	defer credit.Rollback(ctx) //nolint:errcheck
-	var creditPID int
-	if err := credit.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&creditPID); err != nil {
-		t.Fatalf("credit pid: %v", err)
+	defer closing.Rollback(ctx) //nolint:errcheck
+	var closePID int
+	if err := closing.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&closePID); err != nil {
+		t.Fatalf("close pid: %v", err)
 	}
-	_, err = credit.Exec(ctx, `
-		INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
-		VALUES
-		  ($1, $2, 'merchant_payable',       'credit', 500, now(), 'test manual credit'),
-		  ($1, $2, 'merchant_credit_contra', 'debit',  500, now(), 'test manual credit')
-	`, uuid.New(), merchantID)
+	var batchID uuid.UUID
+	err = closing.QueryRow(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+		VALUES ($1, current_date - 1, 'closed', 500, 0, 500, now())
+		RETURNING id
+	`, merchantID).Scan(&batchID)
 	if err != nil {
-		t.Fatalf("credit ledger legs: %v", err)
+		t.Fatalf("close batch row: %v", err)
 	}
-	_, err = credit.Exec(ctx, `
-		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
-		VALUES ($1, 500, now())
-		ON CONFLICT (merchant_id) DO UPDATE
-		  SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils,
-		      updated_at = now()
-	`, merchantID)
-	if err != nil {
-		t.Fatalf("credit cache upsert: %v", err)
+	if err := balances.ApplyBatchClose(ctx, closing, merchantID, batchID, 500); err != nil {
+		t.Fatalf("close cache upsert: %v", err)
 	}
 
 	done := make(chan error, 1)
@@ -310,9 +307,9 @@ func TestRebuildAllBalances_KeepsConcurrentCreditWithoutCacheRow(t *testing.T) {
 		done <- err
 	}()
 
-	waitUntilBlockedBy(t, pool, creditPID)
-	if err := credit.Commit(ctx); err != nil {
-		t.Fatalf("commit credit: %v", err)
+	waitUntilBlockedBy(t, pool, closePID)
+	if err := closing.Commit(ctx); err != nil {
+		t.Fatalf("commit close: %v", err)
 	}
 
 	select {
@@ -321,7 +318,7 @@ func TestRebuildAllBalances_KeepsConcurrentCreditWithoutCacheRow(t *testing.T) {
 			t.Fatalf("RebuildAllBalances: %v", err)
 		}
 	case <-time.After(30 * time.Second):
-		t.Fatal("RebuildAllBalances did not finish after the credit committed")
+		t.Fatal("RebuildAllBalances did not finish after the close committed")
 	}
 
 	var cached int64
@@ -330,7 +327,7 @@ func TestRebuildAllBalances_KeepsConcurrentCreditWithoutCacheRow(t *testing.T) {
 		t.Fatalf("read cache: %v", err)
 	}
 	if cached != 10500 {
-		t.Errorf("cached_payable_fils = %d, want 10500 (the ledger after the credit); the rebuild overwrote the credit", cached)
+		t.Errorf("cached_payable_fils = %d, want 10500 (both closed batches); the rebuild overwrote the close", cached)
 	}
 }
 
@@ -344,7 +341,7 @@ func TestRebuildAllBalances_DoesNotDeadlockWithAdjustment(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
 	merchantID := insertActiveMerchant(t, pool)
-	postLedgerLeg(t, pool, merchantID, "credit", 10000)
+	insertBatch(t, pool, merchantID, 1, "closed", 10000)
 	if _, err := RebuildMerchantBalance(ctx, pool, merchantID); err != nil {
 		t.Fatalf("seed cache: %v", err)
 	}
@@ -395,14 +392,14 @@ func TestRebuildAllBalances_DoesNotDeadlockWithAdjustment(t *testing.T) {
 	}
 
 	// The adjustment is cache-only (ADR-0006), so the rebuild that ran after
-	// it puts the cache back on the ledger.
+	// it puts the cache back on the closed, unpaid batches.
 	var cached int64
 	err = pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached)
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
 	}
 	if cached != 10000 {
-		t.Errorf("cached_payable_fils = %d, want 10000 (the ledger sum)", cached)
+		t.Errorf("cached_payable_fils = %d, want 10000 (the closed, unpaid batch)", cached)
 	}
 }
 

@@ -353,6 +353,7 @@ export interface AdjustmentImportResult {
   importId: string;
   rowCount: number;
   totalPostedFils: number;
+  alreadyApplied: boolean;
 }
 
 /** One row of `GET /v1/admin/adjustment-imports`. */

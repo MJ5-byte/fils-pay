@@ -146,7 +146,6 @@ interface PostableCredit {
  */
 async function postCreditToLedger(client: PoolClient, credit: PostableCredit): Promise<string> {
   const entryGroupId = randomUUID();
-  const postedAmountFils = addFils(credit.baseAmountFils, credit.feeReversalFils);
 
   // Both legs post at Asia/Bahrain midnight of the credit's effective date —
   // the same business-day anchor settlement uses — so a credit shows up in
@@ -175,20 +174,10 @@ async function postCreditToLedger(client: PoolClient, credit: PostableCredit): P
     );
   }
 
-  // Keep the cache in step with what we just journaled, in the same
-  // transaction. ledger_entries is authoritative and rebuild-balances
-  // recomputes from it; without this the cache would silently disagree with
-  // the ledger by the credited amount until the next rebuild. This is an
-  // INSERT-first journal with the cache updated as a consequence — never the
-  // other way round.
-  await client.query(
-    `INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
-     VALUES ($1, $2, now())
-     ON CONFLICT (merchant_id) DO UPDATE
-       SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils,
-           updated_at = now()`,
-    [credit.merchantId, postedAmountFils],
-  );
+  // merchant_balances is left alone. It holds closed, unpaid batch nets
+  // (ADR-0007), and the next CloseBatch claims these merchant_payable legs
+  // into its net and adds that net to the cache; adding the credit here as
+  // well counted it twice after a rebuild (BHA-189).
 
   await client.query(
     `UPDATE credit_requests

@@ -128,7 +128,7 @@ test("applyAdjustmentImport reverses leg direction for a negative amount", async
   );
 });
 
-test("applyAdjustmentImport updates the merchant balance cache", async () => {
+test("applyAdjustmentImport leaves the merchant balance cache untouched", async () => {
   const adminUserId = await createAdminUser();
   const merchantId = await createMerchant();
 
@@ -145,7 +145,17 @@ test("applyAdjustmentImport updates the merchant balance cache", async () => {
     `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`,
     [merchantId],
   );
-  assert.equal(Number(balance.rows[0]!.cached_payable_fils), 5000);
+  assert.equal(balance.rows.length, 0, "posting does not create a cache row before close");
+  const groups = await pool.query<{ entry_group_id: string; net: string; payable: string }>(
+    `SELECT entry_group_id,
+            SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE -amount_fils END)::text AS net,
+            SUM(amount_fils) FILTER (WHERE account_id = 'merchant_payable' AND direction = 'credit')::text AS payable
+       FROM ledger_entries WHERE merchant_id = $1 GROUP BY entry_group_id`,
+    [merchantId],
+  );
+  assert.equal(groups.rows.length, 2);
+  assert.deepEqual(groups.rows.map((row) => Number(row.payable)).sort((a, b) => a - b), [1000, 4000]);
+  for (const group of groups.rows) assert.equal(Number(group.net), 0);
 });
 
 test("applyAdjustmentImport links each row to its ledger group", async () => {
@@ -219,6 +229,38 @@ test("applyAdjustmentImport rolls the whole batch back when one row fails", asyn
     [merchantId],
   );
   assert.equal(Number(legs.rows[0]!.n), 0, "the first row's posting must roll back with the batch");
+});
+
+// BHA-191: a retried upload of the same file must not pay every merchant in it again.
+test("applyAdjustmentImport posts a resent file once and replays the first result", async () => {
+  const adminUserId = await createAdminUser();
+  const merchantA = await createMerchant();
+  const merchantB = await createMerchant();
+  const rows = [
+    { merchantId: merchantA, amount: "4.750", reason: "statement correction" },
+    { merchantId: merchantB, amount: "-1.000" },
+  ];
+
+  const first = await applyAdjustmentImport(pool, { adminUserId, originalFilename: "march.csv", rows });
+  const resent = await applyAdjustmentImport(pool, { adminUserId, originalFilename: "march (1).csv", rows });
+
+  assert.equal(first.alreadyApplied, false);
+  assert.equal(resent.alreadyApplied, true);
+  assert.deepEqual(resent, { ...first, alreadyApplied: true });
+  const posted = await pool.query<{ merchant_id: string; n: string }>(
+    `SELECT merchant_id, COUNT(*)::text AS n FROM adjustment_import_rows
+      WHERE merchant_id = ANY($1::uuid[]) GROUP BY merchant_id`,
+    [[merchantA, merchantB]],
+  );
+  assert.equal(posted.rowCount, 2);
+  for (const row of posted.rows) {
+    assert.equal(row.n, "1", `merchant ${row.merchant_id} was posted more than once`);
+  }
+  const legs = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM ledger_entries WHERE merchant_id = ANY($1::uuid[])`,
+    [[merchantA, merchantB]],
+  );
+  assert.equal(legs.rows[0]!.n, "4", "one balanced pair per row, once");
 });
 
 test("listAdjustmentImports returns newest first and paginates", async () => {
