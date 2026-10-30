@@ -7,13 +7,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 \"src/**/*.test.ts\"",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/cors": "^11.3.1",
+    "@fastify/multipart": "^10.1.1",
     "@filspay/events": "*",
     "@filspay/money": "*",
-    "@fastify/cookie": "^11.1.2",
-    "@fastify/multipart": "^10.1.1",
     "argon2": "^0.45.1",
     "chalk": "^4.1.2",
     "dotenv": "^16.4.5",

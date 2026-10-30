@@ -6,6 +6,8 @@ package splits
 
 import (
 	"context"
+	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -95,14 +97,15 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 			rows.Close()
 			return SplitPayoutResult{}, err
 		}
-		share := money.ApplyRateFils(money.Fils(netPayout), weightBps)
-		shares = append(shares, ChildShare{ChildMerchantID: childID, WeightBps: weightBps, AllocatedFils: share})
+		shares = append(shares, ChildShare{ChildMerchantID: childID, WeightBps: weightBps})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return SplitPayoutResult{}, err
 	}
 	rows.Close()
+
+	allocateByWeight(shares, money.Fils(netPayout))
 
 	var totalAllocated money.Fils
 	for _, s := range shares {
@@ -134,7 +137,11 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 	// Bring the parent's cached balance down by what the legs above actually
 	// debited from its merchant_payable account, same as PayoutBatch does
 	// for a non-split merchant.
-	// am: should pass netPayout here not totalAllocated, otherwise the cache drifts from the batch
+	// Allocation is exact (shares sum to netPayout), so the cache moves by the
+	// batch's full net payout.
+	if totalAllocated != money.Fils(netPayout) {
+		return SplitPayoutResult{}, fmt.Errorf("splits: PayoutSplitBatch: allocated %d fils of %d net payout (child weights must sum to 10000 bps)", totalAllocated, netPayout)
+	}
 	if err := balances.ApplyPayout(ctx, tx, parentMerchantID, batchID, totalAllocated); err != nil {
 		return SplitPayoutResult{}, err
 	}
@@ -148,4 +155,38 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 		return SplitPayoutResult{}, err
 	}
 	return SplitPayoutResult{BatchID: batchID, ParentMerchantID: parentMerchantID, Shares: shares}, nil
+}
+
+// allocateByWeight fills in AllocatedFils for every share so that they sum to
+// exactly total, using the largest-remainder method (ties broken by position,
+// i.e. by child merchant id, so the result is reproducible). Applying each
+// weight independently with ApplyRateFils rounds every share on its own and
+// leaves the shares a few fils off the parent's payout.
+func allocateByWeight(shares []ChildShare, total money.Fils) {
+	var sumWeights int64
+	for _, s := range shares {
+		sumWeights += s.WeightBps
+	}
+	if len(shares) == 0 || sumWeights <= 0 || total <= 0 {
+		return
+	}
+	type rem struct {
+		idx int
+		r   int64
+	}
+	rems := make([]rem, len(shares))
+	var allocated int64
+	for i := range shares {
+		product := int64(total) * shares[i].WeightBps
+		base := product / sumWeights
+		shares[i].AllocatedFils = money.Fils(base)
+		rems[i] = rem{idx: i, r: product % sumWeights}
+		allocated += base
+	}
+	leftover := int64(total) - allocated
+	sort.SliceStable(rems, func(a, b int) bool { return rems[a].r > rems[b].r })
+	for k := 0; leftover > 0 && k < len(rems); k++ {
+		shares[rems[k].idx].AllocatedFils++
+		leftover--
+	}
 }
