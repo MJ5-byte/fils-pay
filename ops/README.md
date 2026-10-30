@@ -8,8 +8,12 @@ demo instance uses the same compose file with a different `.env`.
 
 ```
 docker compose -f ops/docker-compose.yml up -d postgres
+# podman-compose can race postgres readiness; wait before migrating.
+until docker compose -f ops/docker-compose.yml exec -T postgres pg_isready -U filspay >/dev/null 2>&1; do sleep 1; done
 docker compose -f ops/docker-compose.yml run --rm migrate
 docker compose -f ops/docker-compose.yml run --rm seed
+# Only after migrate+seed — the services boot against an empty database and
+# fail every DB call until the schema exists.
 docker compose -f ops/docker-compose.yml up api settlement reporting
 ```
 

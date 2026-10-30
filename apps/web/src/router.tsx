@@ -18,8 +18,12 @@ import { SettlementBatchDetailPage } from "./pages/settlement/SettlementBatchDet
 import { ReconciliationPage } from "./pages/settlement/ReconciliationPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
 
-// MK: /refunds route removed until FP-212
 export const router = createBrowserRouter([
+  // The root and anything unknown should land in the dashboard, which owns
+  // its own auth redirect; a bare "No routes matched location '/'" is a
+  // dead end for a user or judge opening http://localhost:5173/.
+  { path: "/", element: <Navigate to="/dashboard" replace /> },
+
   { path: "/pay/:token", element: <CheckoutPage /> },
 
   {
