@@ -659,6 +659,13 @@
 - **Breaks:** No batch containing a large capture could be closed; settlement stalled for that merchant and day. The float copy also disagreed with `amount_fils` by up to 9 fils (it rounded the untruncated gross), against ADR-0002's "amount must be exactly amount_fils / 1000 formatted to two decimals".
 - **Fix:** Stop writing the overflow-prone float column at close (it is nullable and no reader needs it) and format the exported BD figure from the `BIGINT` `amount_fils` with the existing `formatFilsAsTwoDecimalString`, which is exact and cannot overflow. Removed the now-unused `SchemeAmountBD` float helper. No schema change. Test added: a 100,000,000.00 BD capture now closes and exports "100000000.00".
 
+### Bug: Fee schedule MDR has no upper bound (BHA-118)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** A fat-fingered MDR such as 25000 bps (250%) is accepted into a merchant's fee schedule, then prices settlements at an absurd rate.
+- **Cause:** `fee_schedules.mdr_bps` (migration `0048_fee_schedules.sql`) is only checked for `mdr_bps >= 0`, with no upper bound. The sibling rate column `merchants.negotiated_discount_bps` (migration `0047`) already caps at 10000 bps, so the ceiling was dropped only here. No application route inserts a fee schedule, so the database constraint is the write-time boundary.
+- **Breaks:** A nonsense rate can enter the table unchecked and is later applied at capture and settlement, producing nonsense fees and payouts.
+- **Fix:** Additive migration `0077_fee_schedules_mdr_upper_bound.sql` adds a named CHECK `mdr_bps <= 10000` alongside the existing `>= 0` check, matching the 10000 bps cap on `negotiated_discount_bps`. No data rewrite: every existing row is a normal rate. Test added that an insert of 25000 bps is rejected with a check-constraint violation.
 ### Bug: Platform volume counter overflows int32 (BHA-48)
 - **Status:** Fixed
 - **Type:** Money, medium
