@@ -12,12 +12,41 @@ pre-existing doc that contradicted it was corrected as part of the work.
 
 ## 1. What FilsPay is, in one paragraph
 
-FilsPay is a payment platform for Bahrain. A merchant signs up, goes through KYC,
-takes card payments in Bahraini Dinar (BD), and is settled — the money lands in
+FilsPay is a payment platform for Bahrain. A merchant signs up, goes through KYC
+(KYC = "know your customer": the identity + business checks a company must pass
+before it is allowed to take payments), takes card payments in Bahraini Dinar (BD), and is settled — the money lands in
 their account — on a daily schedule. Every amount is stored and computed as an
 **integer number of fils**, where `1 BD = 1000 fils`. Three services around one
 Postgres database make this happen: an HTTP API, a Go settlement daemon, and a
 reporting worker — plus a merchant dashboard and an ops console written in React.
+
+### Vocabulary — words the rest of this document assumes
+
+| Term | Plain meaning |
+|---|---|
+| merchant | The shop/business that sells through FilsPay and gets paid. |
+| BD / fils | Bahraini Dinar and its minor unit — `1 BD = 1000 fils` (three decimals, like `4.750 BD`). |
+| acquirer | The bank/processor that actually moves card money. In dev it is a simulator. |
+| KYC | "Know your customer": identity + business checks before payments are allowed. |
+| authorize | Check the card and reserve the money without taking it yet. |
+| capture | Take the money after authorization (post the actual sale). |
+| void | Release an authorization without charging (only before capture). |
+| refund | Give captured money back, plus the fee that was taken on it. |
+| hold | The reserved-but-not-yet-taken funds row created by an authorization. |
+| MDR / bps | Merchant discount rate: the fee per sale, in basis points — 100 bps = 1%; FilsPay's rates are ~225 bps (2.25%). |
+| basis point (bp) | 1/100th of a percent. |
+| scheme / card network | Visa/Mastercard-style rails; the network's settlement files only take two decimals, which is why rounding residue exists. |
+| ledger | The double-entry book: every money move is two legs that must balance to zero. |
+| liability | Money you owe (e.g. what we owe a merchant = that merchant's balance with us). |
+| asset | Money you own (clearing funds at the network, or cash in the bank). |
+| suspense | A holding account for money that is real but not yet assigned (e.g. rounding residue awaiting reconciliation). |
+| settlement | The nightly job: add up a day's captures, compute fees, freeze (close) the batch, and prepare the payout. |
+| payout / disbursement | The actual payment to the merchant, and its record. |
+| webhook | FilsPay calling the merchant's URL when something happens, signed with a per-endpoint secret. |
+| outbox | A database table of events, written in the same transaction as the change, so notifications are never lost. |
+| idempotency key | A client-supplied string that makes retries safe: same key + body ⇒ same response, never a double write. |
+| OTP | One-time password, the second factor after the merchant's password. |
+| API key | A Bearer token an owner issues for machine-to-machine access. |
 
 ---
 
@@ -71,15 +100,22 @@ blocker, and `toFixed(2)`/`parseFloat` are never correct for BD.
 two or more legs sharing one `entry_group_id`; a deferred constraint trigger
 (migration 0007) refuses to commit any group whose debits ≠ credits. This is a
 hard invariant — a buggy write *fails closed* rather than silently unbalancing.
-The chart of accounts (`chart_of_accounts`, seeded in 0007 + additions):
+The chart of accounts (`chart_of_accounts`, seeded in 0007 + additions) — each
+account is the "pocket" one leg of a move lands in:
 
-- `merchant_payable` (liability) — what we owe the merchants.
-- `platform_fee_revenue` (revenue) — our cut.
-- `card_scheme_clearing` (asset) — the money at the card network.
-- `platform_cash` (asset) — our operating cash.
-- `scheme_rounding_residue` (suspense) — 0–9 fils truncated per line at the
-  scheme, where it is journaled each close (ADR-0002; we implemented the
-  posting that had never existed).
+- `merchant_payable` (liability) — what we owe the merchants: from the merchant's
+  point of view this is their balance with us, like the balance a bank owes you
+  on your account. Capture credits it (we now owe the merchant more); payout
+  debits it (the debt is paid off).
+- `platform_fee_revenue` (revenue) — our cut: every capture books the MDR fee
+  here; refunds debit it back.
+- `card_scheme_clearing` (asset) — the money sitting at the card network between
+  capture (the network now owes us the gross) and settlement (we move it out).
+- `platform_cash` (asset) — money actually in our bank account.
+- `scheme_rounding_residue` (suspense) — the 0–9 fils per line the network's
+  two-decimal format cannot take, journaled here at each close so our ledger
+  still matches the network's statement (ADR-0002; we implemented the posting
+  that had never existed).
 - `fx_rounding_difference`, `chargeback_suspense`, goodwill/manual-adjustment
   accounts for reconciliation lanes.
 
@@ -95,12 +131,13 @@ button read a different (scheme-gross) table and could show 135K → 7K.
 ### 4.1 authorize → capture → void → refund
 
 - **Authorize** (`POST /v1/transactions`): validates the card with the acquirer
-  client (a simulator in dev), books an authorization, holds the amount. A
-  `hold` row records the reserved funds.
+  (the bank that moves card money — a simulator in dev), books an authorization,
+  and reserves the amount: a `hold` row records the reservation, which is *not*
+  a charge yet (like a hotel's pre-auth before the final bill).
 - **Capture** (`POST /v1/transactions/:id/capture`): requires an authorized
   (or partially captured) transaction. It `SELECT … FOR UPDATE`'s the row and
   holds the lock across the acquirer call, computes the fee
-  `applyRateFils(captured, effectiveMdr − volumeTierBonus)`, and posts a balanced
+  `applyRateFils(captured, effectiveMdr − volumeTierBonus)` (MDR = merchant discount rate: the per-sale fee, in basis points), and posts a balanced
   ledger group (clearing credit = gross, fee revenue + merchant payable on the
   other side). Sets `captured_fils` + status.
 - **Void**: releases the hold for an unauthorized transaction. Captured
@@ -150,7 +187,8 @@ stable across retries **and replays** (B17). Eligible types:
   normalises to that zone before taking the date, so close happens on time).
 - **CloseBatch** (per merchant, per day): `SELECT … FOR UPDATE` the eligible
   capture events, compute each event's fee with the effective fee schedule,
-  truncate each scheme line to a multiple of 10 fils, **post the truncation
+  truncate each scheme line (scheme = the card network, e.g. Visa; its export
+  format only takes two decimals) to a multiple of 10 fils, **post the truncation
   residue** to `scheme_rounding_residue` (our B3 fix), then write the batch
   (`settlement_batches`, status `closed`).
 - **PayoutBatch**: flips `closed` → `paid`, posts the payout ledger legs, and
