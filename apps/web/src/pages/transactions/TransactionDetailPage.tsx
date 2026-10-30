@@ -17,7 +17,7 @@ import { RequireRole } from "../../auth/RequireRole.js";
 import { Money } from "../../components/Money.js";
 import { StatusBadge } from "../../components/StatusBadge.js";
 import { IconArrowLeft } from "../../components/icons.js";
-import { dash, dateTime, parseRefundAmount, refundedFilsFromEvents } from "../../format.js";
+import { actorLabel, dash, dateTime, parseRefundAmount, refundedFilsFromEvents } from "../../format.js";
 import { RefundDrawer } from "./RefundDrawer.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 
@@ -256,7 +256,7 @@ export function TransactionDetailPage() {
           {events.map((event) => (
             <li key={event.id}>
               <div><StatusBadge status={event.eventType}>{label(event.eventType)}</StatusBadge>
-                <div className="fp-timeline-meta">{label(event.actorType)}{event.actorId ? <> <code>{event.actorId}</code></> : null}</div>
+                <div className="fp-timeline-meta">{actorLabel(event.actorType)}</div>
               </div>
               <time>{dateTime(event.occurredAt)}</time>
               <div>{event.amountFils === null ? dash(null) : <Money fils={event.amountFils} />}</div>

@@ -1532,6 +1532,11 @@
 - **Why it shipped:** Nothing is wrong with the data, but the popover is the only way to filter a table and it can be unreachable on short screens. The disabled controls break the focus trap, and the undeclared import breaks installs that do not hoist `react-dom`.
 - **Change:** `ColumnFilter` flips above its trigger when it would overflow the bottom and clamps vertically, `FOCUSABLE` excludes disabled `select` and `textarea`, and `react-dom` is a peer dependency of `packages/ui` (lockfile entry only).
 
+### Improvement: Transaction timeline names its actors; admin shows a readable business type (BHA-253)
+- **Type:** UX
+- **Before:** Each timeline event showed `Merchant Session` followed by a raw UUID, and the admin merchant page showed the business type as `sole_proprietorship`. The data was right; it just read like a database dump.
+- **Why it shipped:** The timeline is what a merchant opens to see who captured or refunded a payment, and a session or API key UUID tells them nothing.
+- **Change:** New `actorLabel` in `apps/web/src/format.ts` (Dashboard user, API key, System) replaces the type and ID on the timeline; the admin business type goes through the existing `statusLabel`. Test added in `dashboard.test.ts`.
 ### Bug: Reconciliation shows a false gap on a day with a refund that is not batched yet
 - **Status:** Fixed
 - **Type:** Money, medium

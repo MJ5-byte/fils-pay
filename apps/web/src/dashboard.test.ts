@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildQuery } from "./api/query.js";
-import { bhd, dash, dayStartIso, localDateTimeToIso, parseBhdAmount, parseRefundAmount, refundedFilsFromEvents, statusLabel } from "./format.js";
+import { bhd, dash, dayStartIso, localDateTimeToIso, parseBhdAmount, parseRefundAmount, refundedFilsFromEvents, statusLabel, actorLabel } from "./format.js";
 import type { TransactionEventDto } from "./types.js";
 
 /**
@@ -130,4 +130,11 @@ test("statusLabel turns a raw status or reason code into readable text", () => {
   assert.equal(statusLabel(null), "");
   assert.equal(statusLabel(undefined), "");
   assert.equal(statusLabel(""), "");
+});
+
+test("actorLabel names the actor instead of showing a raw id", () => {
+  assert.equal(actorLabel("merchant_session"), "Dashboard user");
+  assert.equal(actorLabel("merchant_api_key"), "API key");
+  assert.equal(actorLabel("system"), "System");
+  assert.equal(actorLabel("admin_impersonation"), "Admin impersonation");
 });

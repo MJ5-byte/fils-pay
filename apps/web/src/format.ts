@@ -20,6 +20,17 @@ export function statusLabel(value: string | null | undefined): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+const ACTOR_LABELS: Record<string, string> = {
+  merchant_session: "Dashboard user",
+  merchant_api_key: "API key",
+  system: "System",
+};
+
+/** Who acted on a timeline event, in words. The raw `actor_id` is a session or API key UUID that means nothing to a merchant. */
+export function actorLabel(actorType: string): string {
+  return ACTOR_LABELS[actorType] ?? statusLabel(actorType);
+}
+
 /**
  * An amount typed in BHD as integer fils, via the shared parser (3 decimals, no
  * floats): "0.5" is 500, "12" is 12000, "1.250" is 1250. Blank, zero,

@@ -30,6 +30,7 @@ import { parseAdjustmentBhd } from "../../lib/adjustmentAmount.js";
 import { issueCredit } from "../../api/credits.js";
 import { rotateApiKey } from "../../api/apiKeys.js";
 import { startImpersonation } from "../../api/impersonation.js";
+import { statusLabel } from "../../format.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
@@ -343,7 +344,7 @@ export function MerchantDetailPage() {
               <div className="dash-fact"><dt>Registration number</dt>
                 <dd>{profile.registrationNumber}</dd></div>
               <div className="dash-fact"><dt>Business type</dt>
-                <dd>{profile.businessType}</dd></div>
+                <dd>{statusLabel(profile.businessType)}</dd></div>
               <div className="dash-fact"><dt>Contact</dt>
                 <dd>
                   {profile.contactEmail} / {profile.contactPhone}
