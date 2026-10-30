@@ -1531,3 +1531,11 @@
 - **Before:** A column filter opened near the bottom of the window could run off-screen, `select` and `textarea` inside it were reachable by keyboard even when disabled, and `@filspay/ui` imported `react-dom` without declaring it.
 - **Why it shipped:** Nothing is wrong with the data, but the popover is the only way to filter a table and it can be unreachable on short screens. The disabled controls break the focus trap, and the undeclared import breaks installs that do not hoist `react-dom`.
 - **Change:** `ColumnFilter` flips above its trigger when it would overflow the bottom and clamps vertically, `FOCUSABLE` excludes disabled `select` and `textarea`, and `react-dom` is a peer dependency of `packages/ui` (lockfile entry only).
+
+### Bug: Reconciliation shows a false gap on a day with a refund that is not batched yet
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** On a day with a refund, the merchant Reconciliation page showed an unexplained gap (-56.207 BHD for a 57.500 refund) until that day's settlement batch closed.
+- **Cause:** `processRefund` posts the refund's `merchant_payable` legs at once, but `getReconciliationReport` (`apps/api/src/settlement/query.ts:331`) only counted unbatched captures as pending, so an unbatched refund was in the ledger figure and in neither settlement nor pending.
+- **Breaks:** Merchants and finance saw a shortfall every day that had a refund, and the report marked a correct book as unexplained.
+- **Fix:** The report now subtracts the net (amount minus reversed fee) of succeeded, not yet batched refunds in the window from the pending figure ([PR #193](https://github.com/SilentYsf/fils-pay/pull/193)). Test added in `apps/api/src/routes/settlement.test.ts`.

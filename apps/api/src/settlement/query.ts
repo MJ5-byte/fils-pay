@@ -298,7 +298,8 @@ export async function listBatchTransactions(
 /**
  * gapFils = ledgerMerchantPayableNetFils - settlementNetPayoutFils -
  * pendingUnbatchedFils. Refund legs are included both in the ledger figure
- * and in pending, so a period with refunds still explains to zero.
+ * and, until a batch claims the refund, in pending (net of the reversed
+ * fee), so a period with refunds still explains to zero.
  */
 export interface ReconciliationReport {
   periodFrom: string;
@@ -334,8 +335,15 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, merchantResult, feeSchedule, volumeTierBonusBps] =
-    await Promise.all([
+  const [
+    ledgerResult,
+    settlementResult,
+    pendingResult,
+    pendingRefundResult,
+    merchantResult,
+    feeSchedule,
+    volumeTierBonusBps,
+  ] = await Promise.all([
     // Payout legs (batch.go PayoutBatch, splits/allocate.go) are left out:
     // settlementNetPayoutFils already subtracts every closed or paid batch.
     pool.query<{ net: string }>(
@@ -360,6 +368,16 @@ export async function getReconciliationReport(
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
           AND te.settlement_batch_id IS NULL
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
+      [input.merchantId, windowStart, windowEnd],
+    ),
+    // processRefund posts a refund's merchant_payable legs (gross debit,
+    // fee-reversal credit) straight away; until CloseBatch claims it, the
+    // refund's net sits in the ledger figure and must be pending too.
+    pool.query<{ net: string }>(
+      `SELECT COALESCE(SUM(amount_fils - fee_reversed_fils), 0) AS net
+         FROM refunds
+        WHERE merchant_id = $1 AND status = 'succeeded' AND settlement_batch_id IS NULL
+          AND occurred_at >= $2 AND occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
     ),
     pool.query<{ mdr_bps: number; negotiated_discount_bps: number }>(
@@ -388,6 +406,7 @@ export async function getReconciliationReport(
     const netFeeFils = estimateFeeFils(amountFils, effectiveMdrBps, discountBps);
     pendingUnbatchedFils += amountFils - netFeeFils;
   }
+  pendingUnbatchedFils -= Number(pendingRefundResult.rows[0]?.net ?? 0);
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);
   const settlementNetPayoutFils = Number(settlementResult.rows[0]?.total ?? 0);

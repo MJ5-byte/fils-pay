@@ -491,6 +491,45 @@ test("GET /v1/settlement/reconciliation with an unbatched capture reports it as 
   assert.equal(report.explained, true);
 });
 
+// BHA-246: a refund posts its merchant_payable legs (gross debit, fee-reversal
+// credit) at once, but stays unbatched until the next CloseBatch. Until then
+// it has to count as pending, or the day shows a gap of exactly
+// -(amount - feeReversed).
+test("GET /v1/settlement/reconciliation counts an unbatched refund as pending, not an unexplained gap (BHA-246)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("reconciliation-refund", 250);
+  const txn = await authorize(rawKey, 2_000);
+  await capture(rawKey, txn.id);
+  const refundRes = await app.inject({
+    method: "POST",
+    url: "/v1/refunds",
+    headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+    payload: { transactionId: txn.id, amountFils: 500 },
+  });
+  assert.equal(refundRes.statusCode, 200, refundRes.body);
+  const refundRow = await pool.query<{ fee_reversed_fils: string }>(
+    `SELECT fee_reversed_fils FROM refunds WHERE transaction_id = $1`,
+    [txn.id],
+  );
+  const feeReversedFils = Number(refundRow.rows[0]?.fee_reversed_fils);
+  assert.ok(feeReversedFils > 0, "the refund reverses part of the fee, so both refund legs are exercised");
+
+  const businessDate = todayBahrainDateString();
+  const nextDay = addOneCalendarDay(businessDate);
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${nextDay}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; pendingUnbatchedFils: number };
+
+  const captureNet = 2_000 - Number(applyRateFils(toFils(2_000), 250));
+  assert.equal(report.pendingUnbatchedFils, captureNet - (500 - feeReversedFils));
+  assert.equal(report.gapFils, 0);
+  assert.equal(report.explained, true);
+});
+
 // BHA-107: the pending fee must be priced with the same integer applyRateFils
 // path capture.ts uses, not float math. 20 fils at 250 bps is exactly 0.5 fils:
 // bankers rounding (applyRateFils, and so capture.ts's ledger) gives 0, while
