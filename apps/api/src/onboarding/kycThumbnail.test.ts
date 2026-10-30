@@ -6,7 +6,9 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import * as zlib from "node:zlib";
 import sharp from "sharp";
+import { UnprocessableEntityError } from "../lib/errors.js";
 import { detectFileType } from "./fileSignature.js";
 import { generateKycThumbnail } from "./kycThumbnail.js";
 
@@ -65,4 +67,34 @@ test("a PDF returns null rather than throwing or attempting a conversion", async
   const pdf = Buffer.from("%PDF-1.4\n1 0 obj\n<< >>\nendobj\n%%EOF");
   assert.equal(detectFileType(pdf), "pdf");
   assert.equal(await generateKycThumbnail(pdf, "pdf"), null);
+});
+
+test("a PNG declaring more than 40 megapixels is refused with a 422 before it is decoded", async () => {
+  function chunk(type: string, data: Buffer): Buffer {
+    const name = Buffer.from(type);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(Buffer.concat([name, data])));
+    return Buffer.concat([length, name, data, crc]);
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(8000, 0);
+  ihdr.writeUInt32BE(8000, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const rows = Buffer.concat(Array.from({ length: 8000 }, () => Buffer.alloc(1 + 8000 * 3)));
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(rows)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+
+  assert.equal(detectFileType(png), "png");
+  await assert.rejects(
+    generateKycThumbnail(png, "png"),
+    (err) => err instanceof UnprocessableEntityError && err.statusCode === 422 && err.code === "image_too_large",
+  );
 });

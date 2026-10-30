@@ -1104,6 +1104,14 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: KYC thumbnailer decodes images of any declared size (BHA-232)
+- **Status:** Fixed
+- **Type:** Security, high
+- **Problem:** A 2 MB PNG declaring 256 MP reached 554 MB peak RSS during thumbnail generation against a 512 MB API container.
+- **Cause:** Sharp's default input limit is about 268 MP, so the 8 MiB upload cap did not bound decoded pixels, and the original was written before the thumbnail was generated.
+- **Breaks:** One merchant upload could OOM-kill an API replica, and a thumbnail failure left an original file with no database row.
+- **Fix:** Thumbnail generation now has a 40 MP input limit and returns a 422 `image_too_large` through the existing error shape only for pixel-limit failures. Other sharp errors are rethrown unchanged. The thumbnail is generated before anything is written, so rejected images leave no original file. One test builds a valid 64 MP PNG in process and asserts the 422 error.
+
 ### Bug: Admin settlement errors show internal paths and raw error text
 - **Status:** Fixed
 - **Type:** Security, low
