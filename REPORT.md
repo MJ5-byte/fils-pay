@@ -1576,3 +1576,9 @@
 - **Before:** The Reconciliation result range showed raw `2026-10-01 to 2026-10-31`, and the Overview chart labels showed `10-29`, while the tables on the same pages showed formatted dates. Nothing broke, but one page mixed formats.
 - **Why it shipped:** Judges open these pages first, and a mixed format reads as a data error.
 - **Change:** Both now call the existing `formatBusinessDate` from `@filspay/ui`; the unused `shortDate` helper is removed.
+
+### Improvement: The login coin tilts under a finger on phones
+- **Type:** UX
+- **Before:** On a computer the sign-in coin leans toward the mouse; on a phone it stayed flat, because the tilt only listened to a mouse.
+- **Why it shipped:** Judges open the live site on their phones from the slides' QR code, and the coin is the first thing they see.
+- **Change:** `CoinLogin` now also tilts the coin while a finger drags on it and lets it spring back when the finger lifts; a touch on the form's fields, buttons or links is ignored, so typing and tapping work as before. `touch-action: pan-y pinch-zoom` on the coin alone turns a sideways drag into a tilt, while an up or down drag still scrolls the stacked phone layout and pinch zoom stays available. Reduced motion still keeps the coin flat.

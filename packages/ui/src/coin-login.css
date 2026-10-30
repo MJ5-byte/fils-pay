@@ -8,7 +8,8 @@
    render (50% across, 49.8% down, 59.2% of the image), so the two stay locked
    at every size. Behind it the page is cut on the diagonal through the coin's
    centre, ink below left and the brand red above right, and the coin leans
-   toward a mouse pointer near it with a highlight that follows the key light. */
+   toward a mouse pointer near it, or a finger dragging on it, with a highlight
+   that follows the key light. */
 .fp-coin-login {
   /* The coin itself is 91.8% of its image, so at the full short side it keeps
      a 4% margin; on a narrow tablet the image runs a little past the width. */
@@ -23,6 +24,9 @@
   background-image: image-set(url("./assets/fils-coin-1000.webp") 1x, url("./assets/fils-coin.webp") 2x);
   transform: rotateX(var(--fp-tilt-x, 0deg)) rotateY(var(--fp-tilt-y, 0deg));
   transition: transform 600ms var(--fp-ease);
+  /* A sideways drag on the coin tilts it; an up or down drag still scrolls the
+     stacked phone layout, and pinch zoom stays available. */
+  touch-action: pan-y pinch-zoom;
 }
 .fp-coin-disc[data-tilting] { transition-duration: 160ms; }
 /* The moving light on the metal, only while a mouse tilts the coin: a warm

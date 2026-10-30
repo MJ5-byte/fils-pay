@@ -20,11 +20,14 @@ const GLARE_TRAVEL = 18;
 export function CoinLogin({ eyebrow, heading, children }: { eyebrow: string; heading: string; children: ReactNode }) {
   const discRef = useRef<HTMLDivElement>(null);
 
-  // Mouse only: a touch has no hover, and reduced motion keeps the coin flat
-  // (the CSS also drops the transform there).
+  // A mouse tilts the coin by hovering; a finger tilts it by dragging on the
+  // coin, never on the form, so typing and tapping work as before. Reduced
+  // motion keeps the coin flat (the CSS also drops the transform there).
   function tiltToward(event: PointerEvent): void {
     const disc = discRef.current;
-    if (!disc || event.pointerType !== "mouse") return;
+    if (!disc) return;
+    const onForm = event.target instanceof Element && event.target.closest("input, textarea, select, button, a, label") !== null;
+    if (event.pointerType !== "mouse" && onForm) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const box = disc.getBoundingClientRect();
     const half = box.width / 2;
@@ -63,8 +66,13 @@ export function CoinLogin({ eyebrow, heading, children }: { eyebrow: string; hea
     }
   }
 
+  // A finger lifting lets the coin spring back flat; a mouse keeps its lean.
+  function settleTouch(event: PointerEvent): void {
+    if (event.pointerType !== "mouse") settle();
+  }
+
   return (
-    <main className="fp-coin-login" onPointerMove={tiltToward} onPointerLeave={settle}>
+    <main className="fp-coin-login" onPointerMove={tiltToward} onPointerLeave={settle} onPointerUp={settleTouch} onPointerCancel={settle}>
       <div className="fp-coin-disc" ref={discRef}>
         <div className="fp-coin-field">
           <header className="fp-coin-title">
