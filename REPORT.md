@@ -1104,6 +1104,14 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: A slow CSV export download buffers the whole history in memory
+- **Status:** Fixed
+- **Type:** Performance, high
+- **Problem:** A client that downloads `GET /v1/transactions/export` slowly, or stops reading, makes the api read every page of the merchant's history into memory anyway. With 50,000 rows and a client paused after 295 bytes, the server ran all 51 page queries in under 3 seconds and buffered about 4.8 MB.
+- **Cause:** `streamTransactionsExportCsv` pushed every page into a `PassThrough` and the route ignored the return value of `stream.write`, so the keyset loop never waited for the client to drain.
+- **Breaks:** A few slow or stalled downloads of a large merchant's history could exhaust a 256 MB replica (about 95 MB per million rows, per download).
+- **Fix:** The page loop is now an async generator wrapped in `Readable.from`, so the next page is only queried once the client has read the previous one, and a client disconnect ends the loop with no further queries. The CSV output is unchanged. Test added.
+
 ### Improvement: Settlement batch lookups scan whole tables
 - **Type:** Performance
 - **Before:** Lookups by settlement batch read every row of their table: the batch detail event count (`apps/api/src/settlement/query.ts:191`), MDR recalculation (`recalculate_mdr.go:192`, `:219`, `:249`) and the payout notifier's `NOT EXISTS` on `outbox_events` (`payout_notify.go:39-42`, every daemon tick, and its re-check at `:118`). The only indexes on these columns were partial `IS NULL` ones (`0023`, `0042`), which cannot serve `settlement_batch_id = $1`.

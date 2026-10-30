@@ -6,7 +6,6 @@ import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize
 import { captureTransaction } from "../payments/capture.js";
 import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
 import { voidTransaction } from "../payments/void.js";
-import { PassThrough } from "node:stream";
 import { streamTransactionsExportCsv } from "../transactions/exportCsv.js";
 import { getTransactionById, listTransactions } from "../transactions/query.js";
 import { listTransactionEvents } from "../transactions/events.js";
@@ -228,24 +227,13 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         status,
       };
 
-      // Stream the export page by page (streamTransactionsExportCsv keyset-
-      // paginates), so the whole result is never held in memory at once.
-      const stream = new PassThrough();
-      reply
+      // streamTransactionsExportCsv keyset-paginates and only queries the next
+      // page once the client has read the previous one, so a slow download
+      // never buffers the whole history in memory.
+      return reply
         .header("content-type", "text/csv; charset=utf-8")
-        .header("content-disposition", 'attachment; filename="transactions.csv"');
-
-      void streamTransactionsExportCsv(app.db, filters, (chunk) => {
-        stream.write(chunk);
-      })
-        .then(() => {
-          stream.end();
-        })
-        .catch((err: unknown) => {
-          stream.destroy(err instanceof Error ? err : new Error("transactions_export_failed"));
-        });
-
-      return reply.send(stream);
+        .header("content-disposition", 'attachment; filename="transactions.csv"')
+        .send(streamTransactionsExportCsv(app.db, filters));
     },
   );
 

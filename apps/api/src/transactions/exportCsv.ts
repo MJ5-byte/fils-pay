@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import type { Pool } from "pg";
 import { formatBhd, toFils } from "@filspay/money";
 import type { TransactionRow } from "./serialize.js";
@@ -49,13 +50,11 @@ export async function buildTransactionsExportCsv(
 }
 
 
-/** Cursor-paginated export for large date ranges. */
-export async function streamTransactionsExportCsv(
+async function* transactionsExportCsvChunks(
   pool: Pool,
   filters: TransactionsExportFilters,
-  write: (chunk: string) => void,
-): Promise<void> {
-  write("id,status,amount_bhd,captured_bhd,reference,occurred_at\n");
+): AsyncGenerator<string> {
+  yield "id,status,amount_bhd,captured_bhd,reference,occurred_at\n";
 
   // Keyset on (occurred_at, id) using Postgres's own text rendering of
   // occurred_at, never a JS Date: timestamptz has microsecond precision a
@@ -89,12 +88,19 @@ export async function streamTransactionsExportCsv(
       ],
     );
 
-    for (const row of result.rows) {
-      write(toCsvRow(row) + "\n");
-    }
+    if (result.rows.length > 0) yield result.rows.map((row) => toCsvRow(row) + "\n").join("");
 
     if (result.rows.length < PAGE_SIZE) break;
     const lastRow = result.rows[result.rows.length - 1]!;
     cursor = { occurredAtText: lastRow.occurred_at_text, id: lastRow.id };
   }
+}
+
+/**
+ * Cursor-paginated export for large date ranges. The stream pulls one page
+ * at a time: the next page is only queried once the client has drained the
+ * previous one, and destroying the stream (client disconnect) ends the loop.
+ */
+export function streamTransactionsExportCsv(pool: Pool, filters: TransactionsExportFilters): Readable {
+  return Readable.from(transactionsExportCsvChunks(pool, filters), { objectMode: false });
 }
