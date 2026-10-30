@@ -1,5 +1,7 @@
 # Hackathon bug tracker
 
+Latest review: [2026-10-30 fork review](docs/reviews/2026-10-30-fork-review.md), based on `0b3d3c3`. New fixes below were tested with injected dependencies, not a live database.
+
 Status: 🔴 open · 🟡 in progress · ✅ fixed · ❓ lead (unverified) · ➖ not a bug
 
 Confidence tags (Evidence column): **[verified live]** reproduced against the running app/DB or by executing the code · **[code-confirmed]** traced in the code against the spec, not yet reproduced · **[failing test]** a test fails, root cause not yet known. Anything weaker stays ❓. Red herrings that turned out fine are marked ➖ rather than deleted.
@@ -39,7 +41,7 @@ Keep both files in sync (same bug numbers).
 
 | # | Status | Bug | Where | Evidence | Fix |
 |---|---|---|---|---|---|
-| 14 | 🔴 | Signature computed by `signPayload(row.payload)` but body sent is a separate `JSON.stringify(row.payload)` — sign the exact bytes sent | `apps/api/src/webhooks/dispatcher.ts:158,172` | **[code-confirmed]** lost branch `ya/sign-raw`; Beta signature complaint | |
+| 14 | ✅ | Signature computed by `signPayload(row.payload)` but body sent is a separate `JSON.stringify(row.payload)` — sign the exact bytes sent | `apps/api/src/webhooks/dispatcher.ts:158,172` | **[code-confirmed]** lost branch `ya/sign-raw`; Beta signature complaint | Both dispatcher and send-test serialize the canonical body once, sign that exact string, and send it unchanged. Independent receiver-HMAC regression checks cover both paths; see fork review. |
 
 ## Balances / ledger
 
@@ -65,7 +67,7 @@ Keep both files in sync (same bug numbers).
 | 22 | ✅ | Impersonation maps super_admin→merchant `owner`, finance→`finance` (spec: always `support`, read-only). Grant lookup doesn't check admin is still active; the "admin-disable trigger" FH cites doesn't exist | `apps/api/src/admin/impersonation.ts:86-90,113` | **[code-confirmed]** HANDOVER; ARCH §8 | All admin roles map to merchant `support`; grant lookup requires `au.status = 'active'`; new `impersonation.new.test.ts` |
 | 23 | ❓ | 403 instead of 404 for another merchant's resource | `apps/api/src/routes/apiKeys.ts:18` | ARCHITECTURE: 404 everywhere | |
 | 24 | ➖ | (Not a bug — admin re-set just refreshes TTL; admin lookup checks `authenticated`) Admin cookie set twice | `apps/api/src/routes/adminAuth.ts:179` | | |
-| 25 | 🔴 | Credit self-approval check compares **display name**, not admin user id (confirmed vs HANDOVER). Threshold ignoring fee reversal is only supported by an FH comment, not the spec — treat that half as a lead | `apps/api/src/admin/creditApproval.ts:9`, `creditThreshold.ts` | **[code-confirmed]** HANDOVER; FH comment `credits.ts:226` | |
+| 25 | ✅ | Credit self-approval check compares **display name**, not admin user id (confirmed vs HANDOVER). Threshold ignoring fee reversal is only supported by an FH comment, not the spec — treat that half as a lead | `apps/api/src/admin/creditApproval.ts:9`, `creditThreshold.ts` | **[code-confirmed]** HANDOVER; FH comment `credits.ts:226` | Compare immutable adminUserId, not displayName. Regression cases reject same ID/changed name and accept distinct IDs/same name. Principal-only threshold follows ADMIN.md and is unchanged. |
 | 26 | 🔴 | `ops/.env.docker` committed with acquirer signing secret (`.gitignore` `.env` doesn't match it) | `ops/.env.docker` | **[code-confirmed]** `git ls-files` | |
 
 ## Infra / reliability
@@ -83,7 +85,7 @@ Keep both files in sync (same bug numbers).
 | 44 | ✅ | Dashboard fee display picks newest **created** fee_schedules row (`ORDER BY created_at DESC`); billing uses newest **effective_from ≤ now**. Backfills/backdated rows show wrong rate. Go `LoadFeeSchedules` lacks `created_at` tie-break so same-day corrections can differ from API | `apps/api/src/fees/currentFeeScheduleDisplay.ts`, `apps/settlement/internal/settlement/fee_schedule.go:32` | **[code-confirmed]** Memo: shows 245bps, charges 225bps | Display query now `effective_from <= now() ORDER BY effective_from DESC, created_at DESC` (same as billing); display test corrected (asserted 245) + future-dated case; Go `LoadFeeSchedules` tie-break `created_at ASC` |
 | 45 | ✅ | Cross-merchant payment link cancel: route checks path merchant = caller, but `cancelPaymentLink` filters by link id only → A cancels B's link via `/merchants/A/payment-links/<B's id>` | `apps/api/src/paymentLinks/cancel.ts`, `routes/paymentLinks.ts:105` | **[code-confirmed]** Memo | Scope `cancelPaymentLink` by `merchant_id` (UPDATE and lookup); route passes path merchant; new `paymentLinks/cancel.new.test.ts` (other merchant → not_found, link stays active; owner → canceled). 10/10 pass |
 | 46 | ✅ | **Over-refund on partial captures**: refundable = `amount_fils` (authorized) − refunded instead of `captured_fils` − refunded → 10 BD auth / 4 BD capture can refund 10 BD | `apps/api/src/payments/processRefund.ts:90` | **[code-confirmed]** Code read; validateRefundRequest trusts the passed `refundableFils` | Refundable = captured − refunded; new `processRefund.fixes.new.test.ts` (fails on old code) |
-| 47 | 🔴 | Admin API key **rotation never revokes the old key** (AM's "it does, around line 47" is false); `revoke_after` column (0056) is never read and no sweep job exists → rotated keys stay valid forever | `apps/api/src/admin/apiKeys.ts`, `apiKeys/verify.ts:19`, `db/migrations/0056_api_keys_revoke_after.sql` | **[code-confirmed]** Commit 3d9b223 "rotated everything **again**" | |
+| 47 | ✅ | Admin API key **rotation never revokes the old key** (AM's "it does, around line 47" is false); `revoke_after` column (0056) is never read and no sweep job exists → rotated keys stay valid forever | `apps/api/src/admin/apiKeys.ts`, `apiKeys/verify.ts:19`, `db/migrations/0056_api_keys_revoke_after.sql` | **[code-confirmed]** Commit 3d9b223 "rotated everything **again**" | Revoke the locked predecessor in the same transaction as replacement issuance and audit. Unit checks cover commit, rollback on audit failure and ownership rejection. No grace period is introduced. |
 | 48 | 🔴 | Payment link expiry trusts client `submittedAt` with no bound — anyone can pay an expired link by sending an old timestamp. **Note:** ARCHITECTURE.md documents client-clock expiry for offline terminals, so this is a design risk, not a spec violation | `apps/api/src/paymentLinks/pay.ts:34-38,60` | **[code-confirmed]** Support ticket FP-187: buyer saw "expired" yet was charged; ARCHITECTURE documents client-clock expiry for offline terminals, but the public endpoint applies it to anyone, unbounded | |
 | 49 | ❓ | API-key actors bypass `requireMerchantRole` entirely (MK: "by design") — keys can hit owner-only routes; impersonation writes recorded as `merchant_session` (audit can't tell admin from merchant) | `apps/api/src/auth/requireMerchantAuth.ts:128-155` | FH/AM comments | |
 | 50 | ✅ | **Concurrent refunds pay out twice**: `processRefund` reads the transaction without `FOR UPDATE`, calls the acquirer, then writes `refunded_fils = <snapshot> + amount`. Two simultaneous refunds (different idempotency keys) both validate against the same snapshot, both hit the acquirer, and the second write overwrites the first. Capture/void lock the row; refunds don't. **Latent**: `POST /v1/refunds` is still a 501 stub | `apps/api/src/payments/processRefund.ts:72-76,200+` | **[code-confirmed]** Support ticket FP-209 | Step 1 locks the row `FOR UPDATE` and reserves `refunded_fils += amount` before the acquirer call; decline/error releases it; journal re-reads under lock. Test: two concurrent 6,000 refunds on 10,000 → one 200, one 422 |
@@ -208,3 +210,11 @@ Assigned ticket: finish the missing feature end to end (API → ledger → fees/
 | 2026-10-30 | `docs/API.md` (cited by MK and FH for the refund path) does not exist in the repo |
 | 2026-10-30 | Webhook URL check only requires https in production and explicitly allows localhost ("removed for the local receiver — am") — possible SSRF lead, not investigated |
 | 2026-10-30 | Live E2E left an API key "fp-300 e2e", a webhook endpoint to 127.0.0.1:8099 and a refunded transaction (ref `fp-300-e2e`) on Alpha in the local DB |
+
+## 2026-10-30 follow-up review
+
+| # | Status | Bug | Where | Evidence | Fix |
+|---|---|---|---|---|---|
+| 59 | ✅ | Reporting scope allowed any caller to read a merchant that was any marketplace child, without checking parent ownership | `apps/api/src/reporting/scope.ts` | Code trace plus injected-query regression; no live DB verification | Require child and authenticated parent in the same relationship query; preserve caller-only fallback |
+
+See [review report](docs/reviews/2026-10-30-fork-review.md) for validation limits and newly identified refund/settlement risks that remain open.

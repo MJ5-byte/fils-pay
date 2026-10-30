@@ -3,7 +3,7 @@
 This is the plain-language version of [BUGS.md](BUGS.md). Each bug keeps the
 same number in both files, so you can look up the technical details there.
 
-**Total: 57 items** · ✅ 24 fixed · 🔴 15 confirmed, not fixed · ❓ 14 suspected · 🟡 1 worked around · ➖ 3 not a bug
+**Total: 58 items** · ✅ 28 fixed · 🔴 12 confirmed, not fixed · ❓ 14 suspected · 🟡 1 worked around · ➖ 3 not a bug
 
 Each heading starts with a running count (1, 2, 3 …). The number in brackets at the end, like (#15), is the bug's ID in [BUGS.md](BUGS.md); IDs were given in the order bugs were found, so they aren't in sequence.
 
@@ -228,14 +228,15 @@ The bank sends signed "fraud review" messages. FilsPay accepts messages
 payment was accepted and saved. Old signed messages can also be re-sent
 forever.
 
-### 33. 🔴 Replaced API keys keep working (#47)
+### 33. ✅ Replaced API keys kept working (#47)
 When staff "rotate" a shop's API key, a new key is created but the old one is
-never switched off. Every key ever rotated still works.
+never switched off.
+**Fixed in the fork follow-up:** the previous key is revoked atomically with the replacement and audit record. Validated with injected database calls; live database validation remains pending.
 
-### 34. 🔴 Staff can approve their own large credits (#25)
+### 34. ✅ Credit approval checked names instead of identities (#25)
 Big credits need a second person to approve them. The system checks this by
-comparing *display names* instead of user IDs. The size check also ignores
-part of the amount, so some large credits skip approval entirely.
+comparing *display names* instead of user IDs.
+**Fixed in the fork follow-up:** approval now compares user IDs, so renaming cannot bypass this check and two different staff members may share a name. The principal-only size threshold is documented policy, not a confirmed bug.
 
 ### 35. 🔴 A secret key is saved in the code repository (#26)
 A real signing secret was committed to the code where anyone with access can
@@ -283,10 +284,11 @@ Checked: the date calculation is actually correct.
 
 ## Webhooks (automatic notifications to shops)
 
-### 44. 🔴 Webhook signatures don't match the message sent (#14)
+### 44. ✅ Webhook signatures did not match the message sent (#14)
 FilsPay signs each notification so shops can trust it, but it signs one copy
 of the message and sends a separately-built copy. If the two differ, the
-shop's check fails. A fix existed on Yousif's deleted branch `ya/sign-raw`.
+shop's check fails. The handover referred to a fix on `ya/sign-raw`; that claim alone did not prove a code change.
+**Fixed in the fork follow-up:** serialize once, sign those exact bytes, then send them. Both delivery and send-test paths are covered by independent receiver-HMAC checks.
 
 ### 45. 🔴 Shops get two "your payout is on the way" messages (#52)
 Two parts of the system can check "has this payout been announced yet?" at
@@ -386,3 +388,8 @@ and never finished. **Status: built and working end to end, except hosting.**
   to a bug number in [BUGS.md](BUGS.md).
 - **Test data:** running the automated tests adds hundreds of fake shops to the
   local database. `npm run seed` resets it.
+
+### 58. ✅ Reports could expose another marketplace’s child shop (#59)
+A shop could request a report for any marketplace child, even one belonging to another parent. The relationship check now requires that child to belong to the authenticated parent.
+
+Validation details and remaining risks: [fork review](docs/reviews/2026-10-30-fork-review.md).

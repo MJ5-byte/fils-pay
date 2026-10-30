@@ -28,6 +28,13 @@ export async function rotateApiKeyAsAdmin(
       throw new ConflictError("api_key_already_revoked");
     }
 
+    // Retire the locked key in the same transaction as replacement and audit.
+    // Any failure below rolls back revocation as well as issuance.
+    await client.query(`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND merchant_id = $2`, [
+      input.apiKeyId,
+      input.merchantId,
+    ]);
+
     const issued = await issueApiKeyInTx(client, config, {
       merchantId: input.merchantId,
       createdByAdminUserId: input.adminUserId,
