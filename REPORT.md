@@ -1503,3 +1503,9 @@
 - **Before:** Settlement batches, transactions, payment links, webhook deliveries and the admin merchant list put a row of status chips, and on two pages From and To date fields, above the table, away from the column they narrow.
 - **Why it shipped:** The design system puts filters on the column they restrict, and the chip rows pushed the rows a merchant came for below the fold on a phone.
 - **Change:** A shared `ColumnFilter` in `@filspay/ui` turns a column title into a button with a brand red funnel that opens a small popover, with a dot while the filter is on. The Status column holds the same multi-select statuses as badges, and the date column holds the same two date pickers, "To (exclusive)" included. State, query parameters and results are unchanged; search stays top left. The popover closes on Escape or an outside click, hands focus back to the column title and fits a 390px screen.
+
+### Improvement: Primary buttons meet WCAG AA text contrast (BHA-249)
+- **Type:** UX
+- **Before:** The cream label on the red primary buttons (Sign in, Create, Save) measured 4.33:1, just under the 4.5:1 that WCAG AA asks for at this text size. Everything worked; the label was a little hard to read.
+- **Why it shipped:** Judges and low-vision users read the main action first, and the shared design system already has a darker red that passes.
+- **Change:** One rule in `packages/ui/src/theme.css`: `.dash-button-primary` fills with the existing `--fp-brand-strong` (6.02:1) and its hover darkens it further (7.5:1). `--fp-brand` is unchanged, so links, focus rings and the logo keep their red.

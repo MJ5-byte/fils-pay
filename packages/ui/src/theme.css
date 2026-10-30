@@ -116,8 +116,8 @@ input[type="date"]::-webkit-calendar-picker-indicator, input[type="datetime-loca
 }
 .dash-button::after, .dash-button-link::after, .dash-button-ghost::after { content: ""; position: absolute; inset: -2px 0; }
 .dash-button:hover, .dash-button-link:hover { background: var(--fp-ink); color: var(--fp-page); text-decoration: none; }
-.dash-button-primary { background: var(--fp-brand); border-color: transparent; color: var(--fp-on-brand); font: 400 15px/22px var(--fp-display); letter-spacing: .04em; }
-@media (hover: hover) { .dash-button-primary:not(:disabled):hover { background: var(--fp-brand-strong); color: var(--fp-on-brand); } }
+.dash-button-primary { background: var(--fp-brand-strong); border-color: transparent; color: var(--fp-on-brand); font: 400 15px/22px var(--fp-display); letter-spacing: .04em; }
+@media (hover: hover) { .dash-button-primary:not(:disabled):hover { background: color-mix(in srgb, var(--fp-brand-strong) 85%, var(--fp-dark)); color: var(--fp-on-brand); } }
 .dash-button-primary .dash-amount, .dash-button-primary .fp-money-fils, .dash-button-primary .dash-ccy { color: inherit; }
 .dash-button-danger { background: var(--fp-brand-strong); color: var(--fp-light); border-color: transparent; }
 .dash-button-danger:hover { background: color-mix(in srgb, var(--fp-brand-strong) 85%, var(--fp-dark)); color: var(--fp-light); }
