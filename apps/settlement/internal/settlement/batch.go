@@ -58,6 +58,10 @@ type eligibleEvent struct {
 	transactionID uuid.UUID
 	amountFils    money.Fils
 	occurredAt    time.Time
+	// journaledFeeFils is the MDR fee capture.ts posted for this event
+	// (metadata.feeFils), or nil when the event carries none or carries
+	// something other than a whole, non-negative number of fils.
+	journaledFeeFils *int64
 }
 
 // CloseBatch computes and freezes settlement figures for one merchant's
@@ -159,7 +163,10 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// incremental delta capture.ts already recorded for that one real
 	// event — never from transactions.captured_fils (a running total).
 	rows, err := tx.Query(ctx, `
-		SELECT te.id, te.transaction_id, te.amount_fils, te.occurred_at
+		SELECT te.id, te.transaction_id, te.amount_fils, te.occurred_at,
+		       CASE WHEN jsonb_typeof(te.metadata->'feeFils') = 'number'
+		             AND te.metadata->>'feeFils' ~ '^[0-9]+$'
+		            THEN (te.metadata->>'feeFils')::bigint END
 		  FROM transaction_events te
 		  JOIN transactions t ON t.id = te.transaction_id
 		 WHERE t.merchant_id = $1
@@ -179,7 +186,7 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	for rows.Next() {
 		var e eligibleEvent
 		var amountFils int64
-		if err := rows.Scan(&e.id, &e.transactionID, &amountFils, &e.occurredAt); err != nil {
+		if err := rows.Scan(&e.id, &e.transactionID, &amountFils, &e.occurredAt, &e.journaledFeeFils); err != nil {
 			rows.Close()
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: scan eligible event: %w", err)
 		}
@@ -202,6 +209,42 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		grouped[e.transactionID] = append(grouped[e.transactionID], e)
 	}
 
+	// The negotiated-discount rebates discountAdjustment.ts actually credited
+	// back on this batch's captures, summed per transaction. Reading the
+	// posted amounts, rather than recomputing them from today's discount
+	// rate, keeps the batch equal to the ledger when a rebate never landed
+	// (a failed adjustment call, a payment-link capture, a seeded capture
+	// whose feeFils is already net of the discount) or the rate changed
+	// since. A rebate posts after its capture, so this business day's
+	// rebates fall inside its window and other days' stay out.
+	rebateFils := make(map[uuid.UUID]money.Fils, len(orderedTxnIDs))
+	if len(orderedTxnIDs) > 0 {
+		rebateRows, err := tx.Query(ctx, `
+			SELECT transaction_id, SUM(amount_fils) FROM ledger_entries
+			 WHERE merchant_id = $1 AND occurred_at >= $2 AND occurred_at < $3
+			   AND transaction_id = ANY($4::uuid[])
+			   AND account_id = 'merchant_payable' AND direction = 'credit'
+			   AND description = 'capture: negotiated discount adjustment'
+			 GROUP BY transaction_id
+		`, merchantID, start, end, orderedTxnIDs)
+		if err != nil {
+			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: select discount rebates: %w", err)
+		}
+		for rebateRows.Next() {
+			var txnID uuid.UUID
+			var sum int64
+			if err := rebateRows.Scan(&txnID, &sum); err != nil {
+				rebateRows.Close()
+				return BatchResult{}, fmt.Errorf("settlement: CloseBatch: scan discount rebate: %w", err)
+			}
+			rebateFils[txnID] = money.Fils(sum)
+		}
+		if err := rebateRows.Err(); err != nil {
+			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: iterate discount rebates: %w", err)
+		}
+		rebateRows.Close()
+	}
+
 	// Step 8: for each transaction group, and for the batch as a whole.
 	// Fee is recomputed PER EVENT, then summed — never ApplyRateFils
 	// applied once to the pre-summed total.
@@ -218,13 +261,23 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		var grossForTxn, feeForTxn money.Fils
 		for _, e := range grouped[txnID] {
 			grossForTxn += e.amountFils
+			eventIDs = append(eventIDs, e.id)
+			// The ledger already holds this event's fee: the MDR fee
+			// capture.ts posted. Charging that, less the rebates credited
+			// back below, keeps the payout equal to merchant_payable even
+			// when the volume tier changed between capture and close;
+			// re-deriving it is only for events that carry no journaled fee.
+			if e.journaledFeeFils != nil {
+				feeForTxn += money.Fils(*e.journaledFeeFils)
+				continue
+			}
 			effectiveMdrBps := EffectiveMdrBpsAt(schedules, e.occurredAt, mdrBps)
 			if effectiveMdrBps -= tierBonusBps; effectiveMdrBps < 0 {
 				effectiveMdrBps = 0
 			}
 			feeForTxn += ComputeSettlementFee(e.amountFils, effectiveMdrBps, discountBps)
-			eventIDs = append(eventIDs, e.id)
 		}
+		feeForTxn -= rebateFils[txnID]
 		lines = append(lines, txnLine{txnID, grossForTxn, feeForTxn})
 		batchGross += grossForTxn
 		batchFee += feeForTxn

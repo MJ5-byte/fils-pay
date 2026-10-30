@@ -748,6 +748,146 @@ func TestCloseBatch_RefusesBusinessDayThatHasNotEnded(t *testing.T) {
 	}
 }
 
+// insertJournaledCapture inserts one capture-type transaction_events row the
+// way apps/api's capture.ts writes it, with the fee it posted in
+// metadata.feeFils, plus the ledger legs it posted for that event.
+func insertJournaledCapture(t *testing.T, pool *pgxpool.Pool, merchantID, txnID uuid.UUID, eventType string, amountFils, feeFils money.Fils, occurredAt time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at)
+		VALUES ($1, $2, $3, 'system', jsonb_build_object('feeFils', $4::bigint), $5)
+	`, txnID, eventType, int64(amountFils), int64(feeFils), occurredAt)
+	if err != nil {
+		t.Fatalf("insertJournaledCapture: insert transaction_events: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES
+		  ($1, $2, $3, 'card_scheme_clearing', 'debit',  $4, $6, 'capture: gross'),
+		  ($1, $2, $3, 'merchant_payable',     'credit', $4, $6, 'capture: gross'),
+		  ($1, $2, $3, 'merchant_payable',     'debit',  $5, $6, 'capture: MDR fee'),
+		  ($1, $2, $3, 'platform_fee_revenue', 'credit', $5, $6, 'capture: MDR fee')
+	`, uuid.New(), merchantID, txnID, int64(amountFils), int64(feeFils), occurredAt)
+	if err != nil {
+		t.Fatalf("insertJournaledCapture: insert ledger legs: %v", err)
+	}
+}
+
+// TestCloseBatch_PaysTheFeeJournaledAtCapture covers the night the platform
+// volume counter crosses the tier threshold between capture and close: the
+// captures were journaled at the full rate, so the batch must charge that
+// fee, and its net payout must equal the merchant_payable the ledger holds.
+func TestCloseBatch_PaysTheFeeJournaledAtCapture(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+
+	var originalProcessed int64
+	if err := pool.QueryRow(ctx, `SELECT total_processed_fils FROM platform_stats WHERE id = 1`).Scan(&originalProcessed); err != nil {
+		t.Fatalf("read platform_stats: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, `UPDATE platform_stats SET total_processed_fils = $1 WHERE id = 1`, originalProcessed); err != nil {
+			t.Errorf("restore platform_stats: %v", err)
+		}
+	})
+
+	businessDate := time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+
+	for _, tc := range []struct {
+		name        string
+		discountBps int64
+		// feeNetOfDiscount: feeFils already has the discount taken off and
+		// no rebate is posted, the form db/seed/fixtures/transactions.ts
+		// writes. Otherwise discountAdjustment.ts credits a rebate after
+		// each capture, except the one at index rebateFailed (-1: none),
+		// whose adjustment call threw after the capture committed.
+		feeNetOfDiscount bool
+		rebateFailed     int
+	}{
+		{"no negotiated discount", 0, false, -1},
+		{"negotiated discount rebated after capture", 1250, false, -1},
+		{"negotiated discount already in the journaled fee", 1250, true, -1},
+		{"first partial capture's rebate never posted", 1250, false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			merchantID := insertActiveMerchant(t, pool, mdrBps)
+			if _, err := pool.Exec(ctx, `UPDATE merchants SET negotiated_discount_bps = $2 WHERE id = $1`, merchantID, tc.discountBps); err != nil {
+				t.Fatalf("set negotiated_discount_bps: %v", err)
+			}
+
+			// Captured below the tier threshold: full 250 bps journaled.
+			// One full capture, and one order captured in two parts.
+			var fullTxn, splitTxn uuid.UUID
+			for _, id := range []*uuid.UUID{&fullTxn, &splitTxn} {
+				if err := pool.QueryRow(ctx, `
+					INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+					VALUES ($1, 'captured', 100000, 100000, $2, $3) RETURNING id
+				`, merchantID, "acq-ref-"+uuid.New().String(), start.Add(time.Hour)).Scan(id); err != nil {
+					t.Fatalf("insert transaction: %v", err)
+				}
+			}
+			captures := []struct {
+				txnID     uuid.UUID
+				eventType string
+				amount    money.Fils
+			}{
+				{fullTxn, "captured", 100000},
+				{splitTxn, "partially_captured", 40000},
+				{splitTxn, "captured", 60000},
+			}
+			for i, c := range captures {
+				fee := money.ApplyRateFils(c.amount, mdrBps)
+				rebate := money.ApplyRateFils(fee, tc.discountBps)
+				if tc.feeNetOfDiscount {
+					fee -= rebate
+				}
+				at := start.Add(time.Duration(i+1) * time.Hour)
+				insertJournaledCapture(t, pool, merchantID, c.txnID, c.eventType, c.amount, fee, at)
+				if !tc.feeNetOfDiscount && i != tc.rebateFailed && rebate > 0 {
+					if _, err := pool.Exec(ctx, `
+						INSERT INTO ledger_entries
+						  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+						VALUES
+						  ($1, $2, $3, 'platform_fee_revenue', 'debit',  $4, $5, 'capture: negotiated discount adjustment'),
+						  ($1, $2, $3, 'merchant_payable',     'credit', $4, $5, 'capture: negotiated discount adjustment')
+					`, uuid.New(), merchantID, c.txnID, int64(rebate), at); err != nil {
+						t.Fatalf("insert discount adjustment: %v", err)
+					}
+				}
+			}
+
+			// Another merchant's close earlier that night pushed the
+			// platform past the threshold before this batch closes.
+			if _, err := pool.Exec(ctx, `UPDATE platform_stats SET total_processed_fils = 2000000000 WHERE id = 1`); err != nil {
+				t.Fatalf("set platform_stats: %v", err)
+			}
+
+			result, err := CloseBatch(ctx, pool, merchantID, businessDate)
+			if err != nil {
+				t.Fatalf("CloseBatch: %v", err)
+			}
+
+			var ledgerPayable int64
+			if err := pool.QueryRow(ctx, `
+				SELECT COALESCE(SUM(CASE direction WHEN 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+				  FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+			`, merchantID).Scan(&ledgerPayable); err != nil {
+				t.Fatalf("sum merchant_payable: %v", err)
+			}
+			if result.GrossFils != 200000 {
+				t.Errorf("GrossFils = %d, want 200000", result.GrossFils)
+			}
+			if int64(result.NetPayoutFils) != ledgerPayable {
+				t.Errorf("NetPayoutFils = %d, want %d (the merchant_payable journaled at capture); FeeFils = %d", result.NetPayoutFils, ledgerPayable, result.FeeFils)
+			}
+		})
+	}
+}
+
 // insertPostedCredit writes what apps/api's admin/credits.ts postCreditToLedger
 // leaves behind for a posted manual credit: the credit_requests row, the
 // merchant_credit_contra/merchant_payable base pair, the platform_fee_revenue/
