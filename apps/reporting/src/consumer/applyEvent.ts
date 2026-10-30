@@ -156,18 +156,12 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
 
 
 /**
- * Rolls up a running daily refund summary, keyed by calendar date.
- * Called from the refund event path once refund events are wired into
- * the outbox (the consumer SELECT in runConsumerPass will include
- * "transaction.refunded" once the refund flow lands).
+ * refund.succeeded — counts the refund and its amount against the Asia/Bahrain
+ * business day it happened on, the same bucketing as captures.
  */
-export async function applyDailySummaryRollup(
-  client: PoolClient,
-  merchantId: string,
-  occurredAt: Date,
-  amountFils: number,
-): Promise<void> {
-  const summaryDate = occurredAt.toISOString().slice(0, 10);
+async function applyRefundSucceeded(client: PoolClient, row: OutboxEventRow): Promise<void> {
+  const payload = row.payload as { merchantId: string; amountFils: number };
+  const volumeDate = toBahrainDateString(row.created_at);
   await client.query(
     `INSERT INTO merchant_daily_volume (merchant_id, volume_date, refund_count, refund_gross_fils, last_updated_at)
      VALUES ($1, $2, 1, $3, now())
@@ -175,7 +169,7 @@ export async function applyDailySummaryRollup(
        SET refund_count = merchant_daily_volume.refund_count + 1,
            refund_gross_fils = merchant_daily_volume.refund_gross_fils + EXCLUDED.refund_gross_fils,
            last_updated_at = now()`,
-    [merchantId, summaryDate, amountFils],
+    [payload.merchantId, volumeDate, payload.amountFils],
   );
 }
 
@@ -185,7 +179,7 @@ export async function applyDailySummaryRollup(
  * wired into this switch fails loudly (a thrown error rolls back the whole
  * pass, per runConsumerPass's transactional discipline) rather than
  * silently dropping the event — runConsumerPass's own SELECT already
- * filters to the three types handled below, so this branch should never
+ * filters to the types handled below, so this branch should never
  * actually run against real data.
  */
 export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promise<void> {
@@ -196,6 +190,8 @@ export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promi
       return applyTransactionVoided(client, row);
     case "settlement.batch_closed":
       return applyBatchClosed(client, row);
+    case "refund.succeeded":
+      return applyRefundSucceeded(client, row);
     default:
       throw new Error(`applyEvent: unhandled event_type ${row.event_type}`);
   }

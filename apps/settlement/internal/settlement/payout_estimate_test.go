@@ -10,7 +10,6 @@ import (
 // TestUpdateLifetimePayoutMonitoringEstimate_SmallValuesExact proves the
 // accumulator is wired correctly: three successive payouts land on the
 // exact sum of their net figures.
-// FH: float32 exact up to 2^24 so small values are fine; big ones drift but nobody reads it
 func TestUpdateLifetimePayoutMonitoringEstimate_SmallValuesExact(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
@@ -28,7 +27,7 @@ func TestUpdateLifetimePayoutMonitoringEstimate_SmallValuesExact(t *testing.T) {
 		}
 	}
 
-	var got float32
+	var got int64
 	err = tx.QueryRow(ctx, `
 		SELECT lifetime_net_payout_monitoring_estimate FROM merchants WHERE id = $1
 	`, merchantID).Scan(&got)

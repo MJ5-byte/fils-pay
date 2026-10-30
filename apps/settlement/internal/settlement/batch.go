@@ -47,8 +47,11 @@ type PayoutResult struct {
 type eligibleEvent struct {
 	id            int64
 	transactionID uuid.UUID
+	eventType     string
 	amountFils    money.Fils
 	occurredAt    time.Time
+	// feeReversedFils is set on refund events only (metadata.feeReversedFils).
+	feeReversedFils money.Fils
 }
 
 // CloseBatch computes and freezes settlement figures for one merchant's
@@ -146,11 +149,12 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// incremental delta capture.ts already recorded for that one real
 	// event — never from transactions.captured_fils (a running total).
 	rows, err := tx.Query(ctx, `
-		SELECT te.id, te.transaction_id, te.amount_fils, te.occurred_at
+		SELECT te.id, te.transaction_id, te.event_type, te.amount_fils, te.occurred_at,
+		       COALESCE((te.metadata->>'feeReversedFils')::bigint, 0)
 		  FROM transaction_events te
 		  JOIN transactions t ON t.id = te.transaction_id
 		 WHERE t.merchant_id = $1
-		   AND te.event_type IN ('captured', 'partially_captured')
+		   AND te.event_type IN ('captured', 'partially_captured', 'refunded', 'refund_partial')
 		   AND te.settlement_batch_id IS NULL
 		   AND te.occurred_at >= $2 AND te.occurred_at < $3
 		 ORDER BY te.transaction_id, te.occurred_at
@@ -165,12 +169,13 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	seenTxn := make(map[uuid.UUID]bool)
 	for rows.Next() {
 		var e eligibleEvent
-		var amountFils int64
-		if err := rows.Scan(&e.id, &e.transactionID, &amountFils, &e.occurredAt); err != nil {
+		var amountFils, feeReversedFils int64
+		if err := rows.Scan(&e.id, &e.transactionID, &e.eventType, &amountFils, &e.occurredAt, &feeReversedFils); err != nil {
 			rows.Close()
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: scan eligible event: %w", err)
 		}
 		e.amountFils = money.Fils(amountFils)
+		e.feeReversedFils = money.Fils(feeReversedFils)
 		events = append(events, e)
 		if !seenTxn[e.transactionID] {
 			seenTxn[e.transactionID] = true
@@ -198,12 +203,23 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		feeFils       money.Fils
 	}
 	var lines []txnLine
-	var batchGross, batchFee money.Fils
+	var batchGross, batchFee, batchRefunded, batchFeeReversed money.Fils
 	var eventIDs []int64
 
 	for _, txnID := range orderedTxnIDs {
 		var grossForTxn, feeForTxn money.Fils
+		hasCapture := false
 		for _, e := range grouped[txnID] {
+			// A refund event carries a negative amount and the fee it
+			// reversed; it reduces this batch's payout but is not a scheme
+			// export line (the acquirer returns the money to the card).
+			if e.eventType == "refunded" || e.eventType == "refund_partial" {
+				batchRefunded += -e.amountFils
+				batchFeeReversed += e.feeReversedFils
+				eventIDs = append(eventIDs, e.id)
+				continue
+			}
+			hasCapture = true
 			grossForTxn += e.amountFils
 			effectiveMdrBps := EffectiveMdrBpsAt(schedules, e.occurredAt, mdrBps)
 			if effectiveMdrBps -= tierBonusBps; effectiveMdrBps < 0 {
@@ -212,11 +228,13 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 			feeForTxn += ComputeSettlementFee(e.amountFils, effectiveMdrBps, discountBps)
 			eventIDs = append(eventIDs, e.id)
 		}
-		lines = append(lines, txnLine{txnID, grossForTxn, feeForTxn})
+		if hasCapture {
+			lines = append(lines, txnLine{txnID, grossForTxn, feeForTxn})
+		}
 		batchGross += grossForTxn
 		batchFee += feeForTxn
 	}
-	netPayout := NetPayableFils(batchGross, batchFee)
+	netPayout := NetPayableFils(batchGross, batchFee) - batchRefunded + batchFeeReversed
 
 	// Record this batch's contribution to the platform-wide lifetime
 	// processed-volume counter, in the same transaction that freezes this
@@ -229,9 +247,10 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// Step 10: freeze the batch totals.
 	_, err = tx.Exec(ctx, `
 		UPDATE settlement_batches
-		   SET status = 'closed', gross_fils = $2, fee_fils = $3, net_payout_fils = $4, closed_at = now()
+		   SET status = 'closed', gross_fils = $2, fee_fils = $3, net_payout_fils = $4,
+		       refunded_fils = $5, fee_reversed_fils = $6, closed_at = now()
 		 WHERE id = $1
-	`, batchID, int64(batchGross), int64(batchFee), int64(netPayout))
+	`, batchID, int64(batchGross), int64(batchFee), int64(netPayout), int64(batchRefunded), int64(batchFeeReversed))
 	if err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: freeze batch totals: %w", err)
 	}
@@ -251,8 +270,8 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		truncated := TruncateToSchemeAmount(line.grossFils)
 		_, err = tx.Exec(ctx, `
 			INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
-			VALUES ($1, $2, $3, $4, $5)
-		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(line.grossFils), i+1)
+			VALUES ($1, $2, $3, $4::numeric, $5)
+		`, batchID, line.transactionID, int64(truncated), SchemeAmountText(line.grossFils), i+1)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: insert scheme export line: %w", err)
 		}

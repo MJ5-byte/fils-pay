@@ -274,9 +274,9 @@ function bahrainLocalMidnightUtc(dateStr: string): Date {
 /**
  * @param input.from  inclusive business date (YYYY-MM-DD)
  * @param input.to    exclusive business date (YYYY-MM-DD)
- * @returns explained === true iff gapFils === 0. The pending figure is
- *          computed with the same rate the capture path used, including
- *          the effective-dated fee schedule and the platform volume tier.
+ * @returns explained === true iff gapFils === 0. The pending figure uses
+ *          the fee each capture actually posted (event metadata.feeFils) and,
+ *          for refunds, the amount and fee each refund reversed.
  */
 export async function getReconciliationReport(
   pool: Pool,
@@ -300,11 +300,19 @@ export async function getReconciliationReport(
           AND status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
-    pool.query<{ amount_fils: string | number }>(
-      `SELECT te.amount_fils
+    pool.query<{
+      event_type: string;
+      amount_fils: string | number;
+      fee_fils: string | number | null;
+      fee_reversed_fils: string | number;
+    }>(
+      `SELECT te.event_type, te.amount_fils,
+              (te.metadata->>'feeFils')::bigint AS fee_fils,
+              COALESCE((te.metadata->>'feeReversedFils')::bigint, 0) AS fee_reversed_fils
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
-        WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
+        WHERE t.merchant_id = $1
+          AND te.event_type IN ('captured', 'partially_captured', 'refunded', 'refund_partial')
           AND te.settlement_batch_id IS NULL
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
@@ -315,8 +323,9 @@ export async function getReconciliationReport(
     ),
   ]);
 
-  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
-  // so reading it here is the same as resolving the schedule
+  // Fallback only, for capture events recorded before capture stored its fee
+  // in metadata: merchants.mdr_bps is NOT synced with fee_schedules (there is
+  // no such trigger), so it can differ from what was actually charged.
   const merchant = merchantResult.rows[0];
   const mdrBps = merchant?.mdr_bps ?? 0;
   const discountBps = merchant?.negotiated_discount_bps ?? 0;
@@ -324,7 +333,16 @@ export async function getReconciliationReport(
   let pendingUnbatchedFils = 0;
   for (const row of pendingResult.rows) {
     const amountFils = Number(row.amount_fils);
-    const feeFils = estimateFeeFils(amountFils, mdrBps, discountBps);
+    if (row.event_type === "refunded" || row.event_type === "refund_partial") {
+      // A refund event's amount is negative; it gives back the fee it reversed.
+      // Same arithmetic as CloseBatch applies when the refund is batched.
+      pendingUnbatchedFils += amountFils + Number(row.fee_reversed_fils);
+      continue;
+    }
+    // The fee capture actually posted to the ledger (metadata.feeFils), so
+    // pending matches the ledger exactly; estimate only when it's missing.
+    const feeFils =
+      row.fee_fils === null ? estimateFeeFils(amountFils, mdrBps, discountBps) : Number(row.fee_fils);
     pendingUnbatchedFils += amountFils - feeFils;
   }
 

@@ -114,14 +114,17 @@ Until residue posting is automated (see ARCHITECTURE, "The scheme
 boundary"), finance runs a month-end script modelled on
 `scripts/reconcile_march.ts`:
 
-1. Copy the script, change the window constants at the top to the new
-   month (UTC calendar month, `YYYY-MM-01T00:00Z` to the first of the next
-   month).
-2. Run it once against production with finance on the call.
-3. Attach the log from `scripts/out/` to the month-end ticket.
+1. Copy the script and change the month and description to the new month.
+   The window is the **Asia/Bahrain** calendar month (`monthBounds`), never
+   the UTC month.
+2. Run it without flags first: that is a dry run and posts nothing.
+3. Run it with `--apply` against production with finance on the call.
+4. Attach the log from `scripts/out/` to the month-end ticket.
 
-The script checks for an existing posting with the same description, so a
-second run is a no-op.
+With `--apply`, the script takes an advisory lock and refuses to post if
+any ledger row already carries its description, so a second run is a
+no-op. Residue is posted to `card_scheme_clearing` / `scheme_rounding_residue`
+(ADR-0002), never to the merchant's payable.
 
 > **Huda** (#fp-finance): please don't run anything for April onwards until March (FP-187) is resolved
 

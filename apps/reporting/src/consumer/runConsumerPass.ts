@@ -10,6 +10,7 @@ export const REPORTING_EVENT_TYPES: readonly EventType[] = [
   "transaction.captured",
   "transaction.voided",
   "settlement.batch_closed",
+  "refund.succeeded",
 ];
 
 /**
