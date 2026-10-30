@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { toFils, type Fils } from "@filspay/money";
 import { requireAdminRole, requireAdminSession } from "../adminAuth/middleware.js";
 import { applyBalanceCorrection } from "../admin/balanceAdjustments.js";
@@ -42,6 +42,16 @@ function parseBalanceAdjustmentBody(body: unknown): { deltaFils: Fils; reason: s
   };
 }
 
+/** Same contract as the transactions routes: the header is required on a money-moving POST. */
+function getIdempotencyKey(request: FastifyRequest): string {
+  const header = request.headers["idempotency-key"];
+  const key = Array.isArray(header) ? header[0] : header;
+  if (!key) {
+    throw new BadRequestError("idempotency_key_required", "Idempotency-Key header is required");
+  }
+  return key;
+}
+
 /**
  * Registered with prefix '/v1/admin/merchants', alongside adminMerchantRoutes
  * at the same prefix — each file declares its own sub-paths.
@@ -63,12 +73,14 @@ export async function adminBalanceAdjustmentRoutes(app: FastifyInstance): Promis
       if (!adminAuth) throw new UnauthorizedError("unauthenticated");
       assertUuidParam(request.params.id, "merchant_not_found");
 
+      const idempotencyKey = getIdempotencyKey(request);
       const { deltaFils, reason } = parseBalanceAdjustmentBody(request.body);
       const result = await applyBalanceCorrection(app.db, {
         merchantId: request.params.id,
         adminUserId: adminAuth.adminUserId,
         deltaFils,
         reason,
+        idempotencyKey,
       });
 
       reply.code(200).send(result);

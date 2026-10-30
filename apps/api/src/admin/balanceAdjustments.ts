@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import { toFils, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { NotFoundError } from "../lib/errors.js";
+import { ConflictError, NotFoundError, UnprocessableEntityError } from "../lib/errors.js";
+import { claimIdempotencyKey, completeIdempotencyKey, hashRequest } from "../payments/idempotency.js";
 import { postLedgerAdjustment } from "./ledgerAdjustments.js";
 
 export interface BalanceAdjustmentInput {
@@ -11,7 +12,11 @@ export interface BalanceAdjustmentInput {
   /** A correction can go either way, so this is a signed delta. */
   deltaFils: Fils;
   reason: string;
+  /** The route always sends one; a resend with the same key replays the first result. */
+  idempotencyKey?: string;
 }
+
+const BALANCE_CORRECTION_ENDPOINT = "admin.balance_adjustments.create";
 
 /** Before/after are read under the same row lock as the UPDATE, so the pair is exact. */
 export interface BalanceAdjustmentResult {
@@ -37,6 +42,30 @@ export async function applyBalanceCorrection(
     }
     const before = toFils(Number(row.cached_payable_fils), { allowNegative: true });
 
+    // A delta is not idempotent by itself: a resent correction would move the
+    // balance twice. Claimed after the row lock, which proves the merchant
+    // exists for idempotency_keys' foreign key.
+    const claim = input.idempotencyKey
+      ? await claimIdempotencyKey(client, {
+          merchantId: input.merchantId,
+          endpoint: BALANCE_CORRECTION_ENDPOINT,
+          key: input.idempotencyKey,
+          requestHash: hashRequest({ adminUserId: input.adminUserId, deltaFils: input.deltaFils, reason: input.reason }),
+        })
+      : null;
+    if (claim?.outcome === "conflict_hash_mismatch") {
+      throw new UnprocessableEntityError("idempotency_key_reused");
+    }
+    if (claim?.outcome === "conflict_in_progress") {
+      throw new ConflictError("request_in_progress");
+    }
+    if (claim?.outcome === "replay") {
+      if (!isBalanceAdjustmentResult(claim.row.responseBody)) {
+        throw new Error("applyBalanceCorrection: completed idempotency key has no stored result");
+      }
+      return claim.row.responseBody;
+    }
+
     const updated = await client.query<{ cached_payable_fils: string }>(
       `UPDATE merchant_balances
           SET cached_payable_fils = cached_payable_fils + $2, updated_at = now()
@@ -54,13 +83,28 @@ export async function applyBalanceCorrection(
       metadata: { deltaFils: input.deltaFils, reason: input.reason, before, after },
     });
 
-    return {
+    const result: BalanceAdjustmentResult = {
       merchantId: input.merchantId,
       deltaFils: input.deltaFils,
       cachedPayableFilsBefore: before,
       cachedPayableFilsAfter: after,
     };
+    if (claim) {
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 200, body: result });
+    }
+    return result;
   });
+}
+
+function isBalanceAdjustmentResult(value: unknown): value is BalanceAdjustmentResult {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.merchantId === "string" &&
+    Number.isSafeInteger(v.deltaFils) &&
+    Number.isSafeInteger(v.cachedPayableFilsBefore) &&
+    Number.isSafeInteger(v.cachedPayableFilsAfter)
+  );
 }
 
 /** Journaled variant: posts ledger legs alongside the cache correction. */

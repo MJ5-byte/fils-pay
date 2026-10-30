@@ -124,7 +124,8 @@ export function MerchantDetailPage() {
     setActionError(null);
     setNotice(null);
     try {
-      const result = await adjustBalance(id, { deltaFils, reason: adjustReason.trim() });
+      // A fresh Idempotency-Key per submit, the same discipline as the web capture.
+      const result = await adjustBalance(id, { deltaFils, reason: adjustReason.trim() }, crypto.randomUUID());
       setNotice(
         `Balance adjusted by ${bhd(result.deltaFils)}: ${bhd(
           result.cachedPayableFilsBefore,
@@ -156,7 +157,7 @@ export function MerchantDetailPage() {
         effectiveDate: creditEffectiveDate,
         reverseFee: creditReverseFee,
         memo: creditMemo.trim() ? creditMemo.trim() : undefined,
-      });
+      }, crypto.randomUUID());
       setNotice(
         record.status === "posted"
           ? `Credit of ${bhd(record.postedAmountFils)} posted to the ledger (entry group ${

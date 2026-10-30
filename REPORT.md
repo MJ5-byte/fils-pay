@@ -841,6 +841,13 @@
 - **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
 - **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
 
+### Bug: A resent manual credit or balance adjustment moves the money twice
+- **Status:** Fixed
+- **Type:** Money, high
+- **Problem:** Sending the same admin credit (under the 50 BD approval line) or balance adjustment twice, as a client does when its first request times out, posted it twice: one 5.000 BD credit left two credit requests and 10.000 BD on the balance.
+- **Cause:** `POST /v1/admin/merchants/:id/credits` and `POST /v1/admin/merchants/:id/balance-adjustments` took no Idempotency-Key, and `createCreditRequest` and `applyBalanceCorrection` had nothing that tied a second identical request to the first.
+- **Breaks:** A proxy or client resend of the same request, or two concurrent submits, credited the merchant's balance twice with nobody approving the second. (A fresh click after an error is a new request with a new key, by design.)
+- **Fix:** Both routes now require an Idempotency-Key header, the same contract as authorize and capture. The key is claimed with `claimIdempotencyKey` inside the same transaction as the ledger or balance write and completed with the result, so a resend replays the first answer, a reused key with a different body is a 422, and a concurrent duplicate waits on the key's unique index. The admin console sends a fresh key per submit. Tests added in `adminCredits.test.ts` and `adminBalanceAdjustments.test.ts`; both fail on `main` and pass with the change.
 ### Bug: Our totals are always a few fils under the scheme statement
 - **Status:** Fixed
 - **Type:** Money, high

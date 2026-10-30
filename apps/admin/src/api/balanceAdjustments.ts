@@ -10,9 +10,11 @@ import type { BalanceAdjustmentResult } from "../types.js";
 export function adjustBalance(
   merchantId: string,
   input: { deltaFils: number; reason: string },
+  idempotencyKey: string,
 ): Promise<BalanceAdjustmentResult> {
   return request(`/v1/admin/merchants/${merchantId}/balance-adjustments`, {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
   });
 }
