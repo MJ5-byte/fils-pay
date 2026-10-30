@@ -109,6 +109,21 @@ test("a well-formed date that is not a real calendar day is rejected, not rolled
   }
 });
 
+test("an effective date after today in Bahrain is a 422", () => {
+  // Two UTC days ahead is after Bahrain's today at any hour (Bahrain is UTC+3).
+  for (const offset of [2, 30]) {
+    assert.throws(
+      () => parseCreditRequestInput({ ...VALID, effectiveDate: isoDaysFromToday(offset) }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 422);
+        assert.equal(err.code, "effective_date_in_future");
+        return true;
+      },
+    );
+  }
+});
+
 // YA: there's a 'not older than 35 days' test right below this one
 test("the effective date is carried through exactly as given", () => {
   for (const offset of [0, -2]) {

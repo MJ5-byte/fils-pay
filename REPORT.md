@@ -1026,6 +1026,13 @@
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
 
+### Bug: Credit fee reversal uses the list MDR, not the rate the merchant is charged
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** An admin credit with "Also reverse the MDR" handed back the list rate (Alpha Retail: 2.50%) of the amount with no discount, while the merchant was charged its negotiated rate (2.25%) less its negotiated discount.
+- **Cause:** `createCreditRequest` (`apps/api/src/admin/credits.ts:214-250`) priced the reversal at `merchants.mdr_bps` alone; capture uses the `fee_schedules` rate from `getEffectiveMdrBps` (`fees/feeSchedule.ts:62`) and then rebates `negotiated_discount_bps` of the fee (`payments/discountAdjustment.ts`).
+- **Breaks:** Every fee-reversing credit for a merchant with a negotiated rate or discount over-credited: 50 fils too many on 20.000 BD for Alpha Retail, 69 for Delta Marketplace.
+- **Fix:** The reversal is now the net fee capture charges: the rate in force at Bahrain midnight of the credit's effective date, less the discount; a future effective date gets a 422. Tests added in `credits.test.ts` and `creditRequestValidation.test.ts` (the 422). PR: https://github.com/SilentYsf/fils-pay/pull/138
 ### Bug: Per-merchant balance rebuild can overwrite a batch close
 - **Status:** Fixed
 - **Type:** Concurrency, low

@@ -403,7 +403,7 @@ export function MerchantDetailPage() {
               checked={creditReverseFee}
               onChange={(e) => setCreditReverseFee(e.target.checked)}
             />{" "}
-            Also reverse the MDR on this amount ({(merchant.mdrBps / 100).toFixed(2)}%)
+            Also reverse the MDR on this amount ({((detail.currentFeeSchedule?.mdrBps ?? merchant.mdrBps) / 100).toFixed(2)}% today, before any negotiated discount)
           </label>
           <label>
             Memo (optional)

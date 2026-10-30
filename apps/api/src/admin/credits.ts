@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { addFils, toFils, ZERO_FILS, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
+import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
 import { ConflictError, NotFoundError, UnprocessableEntityError } from "../lib/errors.js";
 import { claimIdempotencyKey, completeIdempotencyKey, hashRequest } from "../payments/idempotency.js";
 import { assertDistinctApprover } from "./creditApproval.js";
@@ -200,8 +201,8 @@ export async function createCreditRequest(
   const draft = parseCreditRequestInput(input.body);
 
   return withTransaction(pool, async (client) => {
-    const merchantResult = await client.query<{ mdr_bps: number }>(
-      `SELECT mdr_bps FROM merchants WHERE id = $1`,
+    const merchantResult = await client.query<{ mdr_bps: number; negotiated_discount_bps: number }>(
+      `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     );
     const merchant = merchantResult.rows[0];
@@ -233,10 +234,22 @@ export async function createCreditRequest(
       return readRecord(client, claim.row.resourceId);
     }
 
-    // Never operator-supplied: the reversal is the merchant's own contracted
-    // rate applied to the amount they asked to credit.
+    // Never operator-supplied: the reversal is the net fee capture charges,
+    // the negotiated rate from the same fee-schedule lookup capture.ts uses
+    // less the merchant's discount, as of the Asia/Bahrain midnight the
+    // ledger legs are anchored to. A credit names no capture, so its
+    // effective date is the only instant it has.
     const feeReversalFils = draft.reverseFee
-      ? calculateCreditFeeReversal(draft.baseAmountFils, merchant.mdr_bps)
+      ? calculateCreditFeeReversal(
+          draft.baseAmountFils,
+          await getEffectiveMdrBps(
+            client,
+            input.merchantId,
+            new Date(`${draft.effectiveDate}T00:00:00+03:00`),
+            merchant.mdr_bps,
+          ),
+          merchant.negotiated_discount_bps,
+        )
       : ZERO_FILS;
     // FH: threshold compares base + reversal, so a 50.000 BD credit with a fee reversal needs a second approver
     // MK: no — base only. fee reversal is mechanical. intended.
