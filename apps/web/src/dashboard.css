@@ -83,7 +83,7 @@
 .fp-coin-field .dash-form input::placeholder { color: var(--fp-ink-2); }
 /* The engraving is never the only focus cue: a solid ring outside the well. */
 .fp-coin-field .dash-form input:focus-visible {
-  border-color: transparent; outline: 2px solid var(--fp-brand-strong); outline-offset: 2px;
+  border-color: transparent; outline: 2px solid var(--fp-dark); outline-offset: 2px;
   box-shadow: inset 2px 2px 3px rgb(21 20 20 / .42), inset -1px -1px 0 rgb(255 252 246 / .75);
 }
 .fp-coin-title > .fp-eyebrow, .fp-coin-title > .fp-auth-heading, .fp-coin-field .dash-form label { text-shadow: 1px 1px 0 rgb(255 252 246 / .6); }
@@ -99,12 +99,13 @@
   transform: translate(1px, 1px);
   box-shadow: inset 2px 2px 3px rgb(21 20 20 / .5), inset -1px -1px 0 rgb(255 255 255 / .2);
 }
-.fp-coin-field .dash-button-primary:focus-visible { outline: 2px solid var(--fp-brand-strong); outline-offset: 3px; }
+.fp-coin-field .dash-button-primary:focus-visible { outline: 2px solid var(--fp-dark); outline-offset: 3px; }
 .fp-coin-field .dash-actions { justify-content: center; }
-/* The message line under the last field always holds its one line of height,
-   so an error appearing never pushes the button down. */
-.fp-coin-message { margin: 0; min-height: 18px; font-size: 13px; line-height: 18px; text-align: start; }
-.fp-coin-message-error { color: var(--fp-brand-strong); }
+/* The message sits in the gap under the last field and takes no height, so an
+   error appearing never moves the button and an empty line never pushes it down. */
+.fp-coin-last { position: relative; }
+.fp-coin-message { position: absolute; top: calc(100% + 1px); left: 0; right: 0; margin: 0; font-size: 13px; line-height: 16px; text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fp-coin-message-error { color: #8a1022; }
 /* Short laptop windows keep the form on the coin with fewer, tighter pieces:
    no eyebrow and one 4, 8, 16 scale; the image runs a little past the height
    to give the silver room (the coin keeps a 2% margin). */
@@ -115,7 +116,7 @@
   .fp-coin-title > .fp-auth-heading::after { margin-top: 6px; }
   .fp-coin-field .dash-form { gap: 8px; }
   .fp-coin-field .dash-form label { gap: 4px; }
-  .fp-coin-field .dash-button-primary { min-height: 44px; padding-block: 10px; margin-top: 8px; }
+  .fp-coin-field .dash-button-primary { min-height: 44px; padding-block: 10px; margin-top: 12px; }
 }
 /* Phones, and windows too short even for that: the whole coin fits the width
    with a margin and keeps the title on its silver, and the form stacks under
@@ -150,5 +151,6 @@
   .fp-coin-field .dash-form input:focus-visible, .fp-coin-field .dash-button-primary:focus-visible { outline-color: var(--fp-brand); }
   .fp-coin-field .dash-button-primary { width: 100%; }
   .fp-coin-field .dash-button-ghost { min-height: 44px; }
-  .fp-coin-field .dash-form > .fp-coin-message-error { color: #ff8a96; }
+  .fp-coin-field .fp-coin-message { color: var(--fp-light); }
+  .fp-coin-field .fp-coin-message-error { color: #ff8a96; }
 }

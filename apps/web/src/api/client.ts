@@ -68,10 +68,10 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
 /** Plain-language copy for the error codes the API answers with. */
 const ERROR_COPY: Record<string, string> = {
   invalid_credentials: "Those details do not match an account.",
-  invalid_code: "That code is wrong or has expired. Check it and try again.",
-  too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
-  too_many_login_attempts: "Too many failed sign-in attempts. Wait 15 minutes and try again.",
-  resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
+  invalid_code: "That code is wrong or has expired.",
+  too_many_attempts: "Too many wrong codes. Start over.",
+  too_many_login_attempts: "Too many tries. Wait 15 minutes.",
+  resend_too_soon: "A code was just sent. Wait a few seconds.",
   authorization_expired: "This authorization's hold has expired, so it can no longer be captured.",
   refund_exceeds_refundable: "That's more than is left to refund on this payment.",
   refund_amount_invalid: "Enter a refund amount above zero.",

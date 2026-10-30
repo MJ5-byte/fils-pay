@@ -210,19 +210,21 @@ export function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </label>
-              <label>
-                Password
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </label>
-              <p className={error ? "fp-coin-message fp-coin-message-error" : "fp-coin-message"} role="status">
-                {error ?? notice}
-              </p>
+              <div className="fp-coin-last">
+                <label>
+                  Password
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </label>
+                <p className={error ? "fp-coin-message fp-coin-message-error" : "fp-coin-message"} role="status">
+                  {error ?? notice}
+                </p>
+              </div>
               <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
                 {submitting ? "Signing in" : "Continue"}
               </button>
@@ -237,20 +239,22 @@ export function LoginPage() {
                   Development code: <code>{step.challenge.devOtpCode}</code>
                 </p>
               ) : null}
-              <label>
-                One-time code
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  required
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                />
-              </label>
-              <p className={error ? "fp-coin-message fp-coin-message-error" : "fp-coin-message"} role="status">
-                {error ?? notice}
-              </p>
+              <div className="fp-coin-last">
+                <label>
+                  One-time code
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                </label>
+                <p className={error ? "fp-coin-message fp-coin-message-error" : "fp-coin-message"} role="status">
+                  {error ?? notice}
+                </p>
+              </div>
               <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
                 {submitting ? "Verifying" : "Verify"}
               </button>
