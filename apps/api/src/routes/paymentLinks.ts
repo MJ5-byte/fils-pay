@@ -32,9 +32,8 @@ interface CreatePaymentLinkBody {
 }
 
 /**
- * card: simulated card input. submittedAt: optional ISO-8601 instant from an
- * offline terminal; ignored unless the request is authenticated with an API
- * key.
+ * card: simulated card input. submittedAt: sent by the checkout page but
+ * ignored; expiry always uses the server's clock (this route is public).
  */
 interface PayPaymentLinkBody {
   card?: SimulatedCardInput;
@@ -154,7 +153,11 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
 
   app.post<{ Params: TokenParams; Body: PayPaymentLinkBody }>("/:token/pay", async (request, reply) => {
     const idempotencyKey = getIdempotencyKey(request);
-    const { card, submittedAt } = request.body ?? {};
+    
+    // Expiry is judged by the server's clock only. submittedAt comes from the
+    // buyer's browser, so trusting it let anyone pay an expired link by
+    // sending an old timestamp. It is accepted in the body but ignored.
+    const { card } = request.body ?? {};
     if (!card) {
       throw new BadRequestError("invalid_request", "card is required");
     }
@@ -163,7 +166,7 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
       app.db,
       app.acquirer,
       { paymentLinkReservationTimeoutSeconds: app.config.paymentLinkReservationTimeoutSeconds },
-      { token: request.params.token, card, idempotencyKey, submittedAt },
+      { token: request.params.token, card, idempotencyKey },
     );
     reply.code(result.statusCode).send(result.body);
   });
