@@ -56,7 +56,7 @@ export function LoginPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const discRef = useRef<HTMLDivElement>(null);
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/transactions";
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/overview";
 
   // Mouse only: a touch has no hover, and reduced motion keeps the coin flat
   // (the CSS also drops the transform there).
