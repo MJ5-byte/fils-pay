@@ -494,6 +494,13 @@
 - **Breaks:** Finance could not open the per-row detail of any import beyond the 25 most recent, which is the page's audit purpose.
 - **Fix:** The page keeps `nextCursor`, shows a "Load more" button while one exists and appends the next page, the same way `CreditsPage` does. A small `appendImports` helper skips ids already shown. Test added in `appendImports.test.ts`.
 
+### Bug: Recent ledger activity double-counts the boundary day
+- **Status:** Fixed (BHA-103)
+- **Type:** Data, medium
+- **Problem:** The recent ledger activity widget counted a transaction on the boundary business day in two adjacent date windows at once, so the same activity showed up twice when the dashboard sat two windows side by side.
+- **Cause:** `getRecentLedgerActivity` (`apps/api/src/analytics/query.ts:306`) matched the day with `BETWEEN $2::date AND $3::date`, inclusive on both ends, while `to` is exclusive everywhere else (`parseDateRange`, `getVolumes`, `getTopLinks` all use `< $3`). The boundary day was the `to` day of one window and the `from` day of the next, so both windows claimed it.
+- **Breaks:** An off-by-one at the boundary day overcounted a merchant's ledger activity; the boundary day's entries appeared in two windows instead of one. The day boundary is already computed in Asia/Bahrain per ADR-0003, so only the range ends were wrong.
+- **Fix:** Replaced the inclusive `BETWEEN` with a half-open range in Asia/Bahrain, `(occurred_at AT TIME ZONE 'Asia/Bahrain')::date >= $2::date AND < $3::date`, so each business day belongs to exactly one window. Test added in `analytics/recentLedgerActivityBoundary.new.test.ts`.
 ### Bug: Transaction list and export crash on an invalid date range (BHA-82)
 - **Status:** Fixed
 - **Type:** UX, low
