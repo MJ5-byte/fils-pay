@@ -493,6 +493,13 @@
 - **Cause:** `loadHistory` in `apps/admin/src/pages/adjustments/AdjustmentImportPage.tsx` kept `page.items` and dropped the API's `nextCursor`, so the page never asked for a second page although `GET /v1/admin/adjustment-imports` returns the cursor and accepts it.
 - **Breaks:** Finance could not open the per-row detail of any import beyond the 25 most recent, which is the page's audit purpose.
 - **Fix:** The page keeps `nextCursor`, shows a "Load more" button while one exists and appends the next page, the same way `CreditsPage` does. A small `appendImports` helper skips ids already shown. Test added in `appendImports.test.ts`.
+### Bug: An expired payment link with a stale reservation tells the buyer to retry
+- **Status:** Fixed
+- **Type:** UX, medium
+- **Problem:** Paying an expired payment link whose reservation was never cleaned up answered `409 payment_link_processing`, which the checkout reads as "a payment is in flight, try again", instead of reporting the link as expired. The buyer keeps retrying a link that can never be paid.
+- **Cause:** In `apps/api/src/paymentLinks/pay.ts`, `classifyClaimFailure` gated its expiry check on `row.status === "active"`. A link that expired while still stored as `reserved` (its hold not swept) skipped that check and fell through to the `reserved` branch, which returns `payment_link_processing`.
+- **Breaks:** Expired links that hold a stale reservation give buyers a misleading retry prompt rather than a clear expired state, so a dead link looks like a transient glitch.
+- **Fix:** The expiry check now runs before the `reserved` branch and independently of the stored status, after the `paid` and `canceled` checks, so any link past its expiry answers `410 payment_link_expired` whether it is still `active` or holds an uncleaned reservation. Backend only; the checkout page (`apps/web`) is owned by an in-flight redesign and its copy was left untouched. Test added.
 
 ### Bug: Recent ledger activity double-counts the boundary day
 - **Status:** Fixed (BHA-103)

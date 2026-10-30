@@ -238,6 +238,26 @@ test("expired link is rejected: read reports 'expired', pay is rejected 410", as
   assert.equal(payRes.json().error, "payment_link_expired");
 });
 
+test("expired link holding a stale reservation pays as expired, not processing (BHA-60)", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired-stale-reservation");
+  const link = await createLink(rawKey, merchantId, {
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+  });
+  // The link expired while still 'reserved' by an attempt that never cleaned
+  // up its hold: reserved_at is old enough that the reservation has
+  // self-expired, and expires_at is in the past.
+  await pool.query(
+    `UPDATE payment_links
+        SET status = 'reserved', reserved_at = now() - interval '2 minutes', expires_at = now() - interval '1 minute'
+      WHERE token = $1`,
+    [link.token],
+  );
+
+  const payRes = await pay(link.token, APPROVED_CARD);
+  assert.equal(payRes.statusCode, 410, payRes.body);
+  assert.equal(payRes.json().error, "payment_link_expired");
+});
+
 test("expired link stays unpaid when the buyer sends an old submittedAt (BHA-7)", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired-old-submitted-at");
   const link = await createLink(rawKey, merchantId, {

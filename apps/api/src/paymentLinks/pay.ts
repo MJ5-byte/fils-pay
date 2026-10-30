@@ -219,14 +219,20 @@ async function classifyClaimFailure(
   if (row.status === "canceled") {
     return { statusCode: 409, body: { error: "payment_link_canceled" } };
   }
-  if (row.status === "active" && row.expires_at.getTime() <= expiryCheckTime.getTime()) {
+  // Expiry is decided before the 'reserved' branch and independently of the
+  // stored status. A link past its expiry is expired whether it is still
+  // 'active' or holds a reservation that was never cleaned up. Gating this on
+  // status === 'active' let an expired link with a stale reservation fall
+  // through to the 'reserved' branch below and report 'processing', telling
+  // the buyer to retry a link that can never be paid (BHA-60).
+  if (row.expires_at.getTime() <= expiryCheckTime.getTime()) {
     return { statusCode: 410, body: { error: "payment_link_expired" } };
   }
   if (row.status === "reserved") {
     // A concurrent claim attempt raced us and won between our own UPDATE's
-    // failure and this SELECT. It's still within the timeout (if it
-    // weren't, our claim UPDATE would have matched it) — reachable only in
-    // a genuine race, not a stale read.
+    // failure and this SELECT. The link is unexpired (checked above) and still
+    // within the timeout (if it weren't, our claim UPDATE would have matched
+    // it), so this is a genuine race, not a stale read.
     return { statusCode: 409, body: { error: "payment_link_processing" } };
   }
   // Defensive fallback, should be unreachable given the claim UPDATE's
