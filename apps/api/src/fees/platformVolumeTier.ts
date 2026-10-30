@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 // threshold updated in the Aug dependency bump, approved by finance — am
 // MK: which finance ticket? cant find one. Huda didnt know about it when i asked
@@ -21,8 +21,8 @@ const VOLUME_TIER_BONUS_BPS = 15; // 0.15%
  * just before the tier flips and the batch closing after it can be priced
  * differently on the two sides.
  */
-export async function getVolumeTierBonusBps(client: PoolClient): Promise<number> {
-  const result = await client.query<{ total_processed_fils: number }>(
+export async function getVolumeTierBonusBps(db: Pool | PoolClient): Promise<number> {
+  const result = await db.query<{ total_processed_fils: number }>(
     `SELECT total_processed_fils FROM platform_stats WHERE id = 1`,
   );
   const total = result.rows[0]?.total_processed_fils ?? 0;

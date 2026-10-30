@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 import { estimateFeeFils } from "../fees/estimate.js";
+import { loadFeeSchedule, resolveMdrBps } from "../fees/feeSchedule.js";
+import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
 import { BadRequestError } from "../lib/errors.js";
 
 const DEFAULT_LIMIT = 25;
@@ -294,7 +296,8 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, merchantResult] = await Promise.all([
+  const [ledgerResult, settlementResult, pendingResult, merchantResult, feeSchedule, volumeTierBonusBps] =
+    await Promise.all([
     // Payout legs (batch.go PayoutBatch, splits/allocate.go) are left out:
     // settlementNetPayoutFils already subtracts every closed or paid batch.
     pool.query<{ net: string }>(
@@ -312,8 +315,8 @@ export async function getReconciliationReport(
           AND status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
-    pool.query<{ amount_fils: string | number }>(
-      `SELECT te.amount_fils
+    pool.query<{ amount_fils: string | number; occurred_at: Date }>(
+      `SELECT te.amount_fils, te.occurred_at
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
@@ -325,19 +328,27 @@ export async function getReconciliationReport(
       `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     ),
+    loadFeeSchedule(pool, input.merchantId),
+    getVolumeTierBonusBps(pool),
   ]);
 
-  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
-  // so reading it here is the same as resolving the schedule
+  // Price each pending capture the way capture.ts priced it: the
+  // effective-dated fee schedule in force at that capture's own instant
+  // (fee_schedules, falling back to merchants.mdr_bps when none applies),
+  // net of the platform volume-tier bonus, through the same integer
+  // applyRateFils path. merchants.mdr_bps alone is only the fallback rate,
+  // not an authoritative stand-in for the schedule.
   const merchant = merchantResult.rows[0];
-  const mdrBps = merchant?.mdr_bps ?? 0;
+  const fallbackMdrBps = merchant?.mdr_bps ?? 0;
   const discountBps = merchant?.negotiated_discount_bps ?? 0;
 
   let pendingUnbatchedFils = 0;
   for (const row of pendingResult.rows) {
     const amountFils = Number(row.amount_fils);
-    const feeFils = estimateFeeFils(amountFils, mdrBps, discountBps);
-    pendingUnbatchedFils += amountFils - feeFils;
+    const scheduledMdrBps = resolveMdrBps(feeSchedule, row.occurred_at, fallbackMdrBps);
+    const effectiveMdrBps = Math.max(0, scheduledMdrBps - volumeTierBonusBps);
+    const netFeeFils = estimateFeeFils(amountFils, effectiveMdrBps, discountBps);
+    pendingUnbatchedFils += amountFils - netFeeFils;
   }
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);

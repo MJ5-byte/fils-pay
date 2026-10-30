@@ -370,6 +370,21 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Reconciliation prices pending captures with float math
+- **Status:** Fixed (BHA-107)
+- **Type:** Money, medium
+- **Problem:** `GET /v1/settlement/reconciliation` reports a spurious non-zero gap (`explained: false`) on correctly settled books whenever a pending (unbatched) capture rounds differently under float than under the integer fee math the capture actually used. A 20-fil capture at 250 bps is a clean example: the gap comes out as 1 fil.
+- **Cause:** `fees/estimate.ts` priced the pending fee with JS float basis points (`amountFils * mdrBps / 10_000`, then `Math.round`), violating ADR-0001's integer half-to-even rule and disagreeing with `applyRateFils`, the primitive `payments/capture.ts` charges the real fee with. 20 x 250 / 10000 is exactly 0.5 fil: banker's rounding (and so the ledger) gives 0, the old `Math.round` gave 1.
+- **Breaks:** Finance sees a reconciliation that does not explain to zero on books that are in fact correct, eroding trust in the one report meant to prove the ledger and the settlement agree.
+- **Fix:** `estimateFeeFils` now prices through the same integer `applyRateFils` path as capture (gross fee, then the discount reversal, each banker's-rounded independently), so no float ever touches a money value. `settlement/query.ts` feeds it the resolved rate. Test added: an unbatched 20-fil capture now reconciles to a zero gap.
+
+### Bug: Reconciliation ignores the tier bonus and dated fee schedules
+- **Status:** Fixed (BHA-108)
+- **Type:** Money, medium
+- **Problem:** `GET /v1/settlement/reconciliation` prices pending captures off the merchant's flat current `mdr_bps` and `negotiated_discount_bps`, so a merchant on a dated fee schedule or the volume tier shows a false reconciliation gap even though every capture was priced correctly.
+- **Cause:** `settlement/query.ts` read `merchants.mdr_bps` directly, trusting a comment that a `0046` trigger keeps it in sync with `fee_schedules`. No such trigger exists, and even if it did the column holds only the current rate, not the rate in force when each past capture was taken. The capture path (`capture.ts`) instead resolves the effective-dated schedule (`getEffectiveMdrBps`) net of the platform volume-tier bonus (`getVolumeTierBonusBps`).
+- **Breaks:** Any merchant whose rate changed over time, or who crossed the platform volume tier, reconciles with a gap that is pure artefact, hiding a real gap if one ever appeared.
+- **Fix:** `settlement/query.ts` now loads the merchant's fee-schedule history once and resolves each pending capture's rate at its own `occurred_at` (new `loadFeeSchedule` + pure `resolveMdrBps` in `fees/feeSchedule.ts`, same point-in-time rule `getEffectiveMdrBps` runs in SQL), subtracts the volume-tier bonus, and prices through the integer path, matching CloseBatch and the ledger. Test added: a capture on a merchant with a dated 180 bps schedule and a negotiated discount reconciles to a zero gap.
 ### Bug: Acquirer callback stores an unvalidated outcome string
 - **Status:** Fixed
 - **Type:** Data, medium

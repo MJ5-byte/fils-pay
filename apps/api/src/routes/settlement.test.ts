@@ -438,6 +438,77 @@ test("GET /v1/settlement/reconciliation with an unbatched capture reports it as 
   assert.equal(report.explained, true);
 });
 
+// BHA-107: the pending fee must be priced with the same integer applyRateFils
+// path capture.ts uses, not float math. 20 fils at 250 bps is exactly 0.5 fils:
+// bankers rounding (applyRateFils, and so capture.ts's ledger) gives 0, while
+// the old float Math.round gave 1, a spurious 1-fil gap on a correctly
+// settled book.
+test("GET /v1/settlement/reconciliation prices the pending fee with integer rounding, not float (BHA-107)", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("reconciliation-float", 250);
+  const txn = await authorize(rawKey, 20);
+  await capture(rawKey, txn.id);
+  // Left unbatched on purpose, so the pending-pricing path runs.
+
+  const businessDate = todayBahrainDateString();
+  const nextDay = addOneCalendarDay(businessDate);
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${nextDay}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; pendingUnbatchedFils: number };
+
+  // applyRateFils(20, 250) === 0, so capture.ts posts no fee leg and the
+  // merchant_payable movement is the full 20 fils gross.
+  assert.equal(Number(applyRateFils(toFils(20), 250)), 0);
+  assert.equal(report.pendingUnbatchedFils, 20);
+  assert.equal(report.gapFils, 0);
+  assert.equal(report.explained, true);
+});
+
+// BHA-108: the pending fee must be priced off the effective-dated fee schedule
+// in force at capture time (and the volume-tier bonus), exactly as capture.ts
+// resolves it, not off the merchant's flat current mdr_bps. This merchant's
+// schedule rate (180) differs from its mdr_bps (250), and it carries a
+// negotiated discount, so the old flat+float path produced an unexplained gap.
+test("GET /v1/settlement/reconciliation prices the pending fee off the dated schedule and discount (BHA-108)", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("reconciliation-schedule", 250);
+  await pool.query(`UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, [merchantId]);
+  await pool.query(
+    `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES ($1, 180, now() - interval '1 day')`,
+    [merchantId],
+  );
+
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id);
+  // Left unbatched on purpose.
+
+  const businessDate = todayBahrainDateString();
+  const nextDay = addOneCalendarDay(businessDate);
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/reconciliation?from=${businessDate}&to=${nextDay}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const report = res.json() as { gapFils: number; explained: boolean; pendingUnbatchedFils: number };
+
+  // The authoritative ledger movement: gross - MDR fee (priced at the 180bps
+  // schedule rate, tier bonus 0 in this DB) + negotiated discount reversal,
+  // each step bankers-rounded independently, exactly as capture.ts +
+  // applyCaptureDiscountAdjustment post it.
+  const feeFils = Number(applyRateFils(toFils(10_000), 180));
+  const discountFils = Number(applyRateFils(toFils(feeFils), 1000));
+  const expectedPending = 10_000 - feeFils + discountFils;
+
+  assert.equal(report.pendingUnbatchedFils, expectedPending);
+  assert.equal(report.gapFils, 0);
+  assert.equal(report.explained, true);
+});
+
 test("GET /v1/settlement/summary sums captured amounts for transactions with a single capture event", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("summary-single-event", 250);
   const txn1 = await authorize(rawKey, 10_000);
