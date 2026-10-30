@@ -442,6 +442,67 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
   assert.equal(rows.rows.length, 0);
 });
 
+test("refund.succeeded: one delivery per active endpoint with the documented body, and a later event is not stalled", async () => {
+  const merchantId = await createMerchant("refund-succeeded");
+  const urlA = `http://refund-a.test/webhook-${randomUUID()}`;
+  const urlB = `http://refund-b.test/webhook-${randomUUID()}`;
+  const urlOff = `http://refund-off.test/webhook-${randomUUID()}`;
+  const endpointA = await createEndpoint(merchantId, urlA);
+  const endpointB = await createEndpoint(merchantId, urlB);
+  const disabled = await createEndpoint(merchantId, urlOff);
+  await pool.query(`UPDATE webhook_endpoints SET status = 'disabled' WHERE id = $1`, [disabled.id]);
+
+  const transactionId = randomUUID();
+  const refundId = randomUUID();
+  const refundEvent = await enqueueEvent(pool, {
+    eventType: "refund.succeeded",
+    aggregateType: "transaction",
+    aggregateId: transactionId,
+    payload: {
+      merchantId,
+      refundId,
+      amountFils: 300,
+      feeReversedFils: 8,
+      refundedTotalFils: 300,
+      newStatus: "refund_partial",
+    },
+  });
+  const laterCapture = await enqueueCaptured(merchantId);
+
+  const captured: WebhookTransportRequest[] = [];
+  const transport: WebhookTransport = async (req) => {
+    if ([urlA, urlB, urlOff].includes(req.url)) captured.push(req);
+    return { statusCode: 200, body: "ok" };
+  };
+  await Promise.all([runDispatchPass(pool, transport, config), runDispatchPass(pool, transport, config)]);
+
+  const refundBodies = captured
+    .map((req) => ({ url: req.url, body: JSON.parse(req.body) as { type: string; data: Record<string, unknown> } }))
+    .filter((c) => c.body.type === "refund.succeeded");
+  assert.deepEqual(refundBodies.map((c) => c.url).sort(), [urlA, urlB].sort());
+  for (const { body } of refundBodies) {
+    assert.deepEqual(body.data, {
+      refundId,
+      transactionId,
+      merchantId,
+      amountFils: 300,
+      feeReversedFils: 8,
+      refundedTotalFils: 300,
+      transactionStatus: "refund_partial",
+    });
+  }
+
+  for (const endpoint of [endpointA, endpointB]) {
+    assert.equal((await getDelivery(String(refundEvent.id), endpoint.id)).status, "succeeded");
+    assert.equal((await getDelivery(String(laterCapture.id), endpoint.id)).status, "succeeded");
+  }
+  const none = await pool.query(`SELECT 1 FROM webhook_deliveries WHERE outbox_event_id = $1 AND endpoint_id = $2`, [
+    String(refundEvent.id),
+    disabled.id,
+  ]);
+  assert.equal(none.rows.length, 0);
+});
+
 // Settlement's notify step records the disbursement with the settlement.paid
 // event (BHA-130); webhook delivery, per endpoint or replayed, must write none (BHA-140).
 test("settlement.paid: delivery to two endpoints and a replay writes no disbursement", async () => {
