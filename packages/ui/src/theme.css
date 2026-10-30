@@ -26,12 +26,14 @@
   --fp-copper-rail: var(--fp-brand);
   --fp-copper-ink: var(--fp-brand-ink);
   --fp-copper-wash: var(--fp-brand-wash);
-  --fp-positive: var(--fp-ink);
-  --fp-positive-wash: var(--fp-surface-2);
+  /* Status tones read at a glance: succeeded green, in flight amber, failed
+     brand red. The inks hold 4.5:1 on their own washes. */
+  --fp-positive: #1d6b45;
+  --fp-positive-wash: color-mix(in oklab, #2f9e66 14%, var(--fp-surface));
   --fp-neutral: var(--fp-ink-2);
   --fp-neutral-wash: var(--fp-surface-2);
-  --fp-pending: var(--fp-ink-2);
-  --fp-pending-wash: var(--fp-surface-2);
+  --fp-pending: #8a5800;
+  --fp-pending-wash: color-mix(in oklab, #e0a000 16%, var(--fp-surface));
   --fp-negative: var(--fp-brand-ink);
   --fp-negative-wash: color-mix(in oklab, var(--fp-negative) 12%, var(--fp-surface));
   --fp-brand: #d7263d;
@@ -518,6 +520,10 @@ h3 { font-size: 20px; font-weight: 400; }
   --fp-surface: var(--fp-dark);
   --fp-surface-2: color-mix(in srgb, var(--fp-light) 10%, var(--fp-dark));
   --fp-brand-ink: var(--fp-red-soft);
+  --fp-positive: #7fd6a3;
+  --fp-positive-wash: color-mix(in oklab, #2f9e66 22%, var(--fp-dark));
+  --fp-pending: #f0bd5a;
+  --fp-pending-wash: color-mix(in oklab, #e0a000 18%, var(--fp-dark));
   --fp-spark: var(--fp-red-soft);
   --fp-rule: var(--fp-rail-border);
   background: var(--fp-dark);
