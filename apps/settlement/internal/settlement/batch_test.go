@@ -472,6 +472,118 @@ func TestPayoutBatch_IdempotentRePay(t *testing.T) {
 	}
 }
 
+// TestPayoutBatch_MissingBalanceRowSeededFromClosedBatches pays out a closed
+// batch whose merchant has no merchant_balances row, the state the seed
+// leaves every merchant in. The payout must still reach the cache, starting
+// from the merchant's other closed, unpaid batches, so that once the next
+// day closes the cache agrees with the ledger.
+func TestPayoutBatch_MissingBalanceRowSeededFromClosedBatches(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	day1 := time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC)
+	day2 := day1.AddDate(0, 0, 1)
+	start1, _ := BusinessDayWindow(day1)
+	start2, _ := BusinessDayWindow(day2)
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start1.Add(time.Hour))
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 4000, start2.Add(time.Hour))
+
+	first, err := CloseBatch(ctx, pool, merchantID, day1)
+	if err != nil {
+		t.Fatalf("CloseBatch day 1: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM merchant_balances WHERE merchant_id = $1`, merchantID); err != nil {
+		t.Fatalf("drop the balance row: %v", err)
+	}
+
+	if _, err := PayoutBatch(ctx, pool, first.BatchID); err != nil {
+		t.Fatalf("PayoutBatch: %v", err)
+	}
+	var cached int64
+	err = pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached)
+	if err != nil {
+		t.Fatalf("query merchant_balances after payout (the payout never reached the cache): %v", err)
+	}
+	if cached != 0 {
+		t.Errorf("cached_payable_fils after payout = %d, want 0 (no other batch closed and unpaid)", cached)
+	}
+
+	// Day 2's capture was already in the ledger at payout time; its close
+	// must bring the cache to the ledger figure, not past it.
+	if _, err := CloseBatch(ctx, pool, merchantID, day2); err != nil {
+		t.Fatalf("CloseBatch day 2: %v", err)
+	}
+	var ledger int64
+	err = pool.QueryRow(ctx, `
+		SELECT (SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1),
+		       COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+		  FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+	`, merchantID).Scan(&cached, &ledger)
+	if err != nil {
+		t.Fatalf("query cache and ledger after day 2 close: %v", err)
+	}
+	if cached != 3900 || ledger != 3900 {
+		t.Errorf("after day 2 close cached = %d, ledger = %d, want both 3900 (4000 less its 100 fee)", cached, ledger)
+	}
+}
+
+// TestCloseBatch_MissingBalanceRowSeededFromClosedBatches is the daily
+// order: RunDailyBatch closes before it pays, so for a merchant with closed,
+// unpaid batches and no merchant_balances row the close creates the row.
+// It must count those batches, or the later payout drives the cache
+// negative while money is still owed.
+func TestCloseBatch_MissingBalanceRowSeededFromClosedBatches(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	day1 := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
+	day2 := day1.AddDate(0, 0, 1)
+	day3 := day1.AddDate(0, 0, 2)
+	start1, _ := BusinessDayWindow(day1)
+	start2, _ := BusinessDayWindow(day2)
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 6000, start1.Add(time.Hour))
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 15000, start2.Add(time.Hour))
+
+	first, err := CloseBatch(ctx, pool, merchantID, day1)
+	if err != nil {
+		t.Fatalf("CloseBatch day 1: %v", err)
+	}
+	second, err := CloseBatch(ctx, pool, merchantID, day2)
+	if err != nil {
+		t.Fatalf("CloseBatch day 2: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM merchant_balances WHERE merchant_id = $1`, merchantID); err != nil {
+		t.Fatalf("drop the balance row: %v", err)
+	}
+
+	readCache := func() int64 {
+		t.Helper()
+		var cached int64
+		err := pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached)
+		if err != nil {
+			t.Fatalf("query merchant_balances: %v", err)
+		}
+		return cached
+	}
+
+	// Day 3 has no captures: an empty batch that still creates the row.
+	if _, err := CloseBatch(ctx, pool, merchantID, day3); err != nil {
+		t.Fatalf("CloseBatch day 3: %v", err)
+	}
+	if got, want := readCache(), int64(first.NetPayoutFils+second.NetPayoutFils); got != want {
+		t.Errorf("cached_payable_fils after empty close = %d, want %d (days 1 and 2 closed and unpaid)", got, want)
+	}
+
+	if _, err := PayoutBatch(ctx, pool, second.BatchID); err != nil {
+		t.Fatalf("PayoutBatch day 2: %v", err)
+	}
+	if got, want := readCache(), int64(first.NetPayoutFils); got != want {
+		t.Errorf("cached_payable_fils after paying day 2 = %d, want %d (day 1 still closed and unpaid)", got, want)
+	}
+}
+
 // TestCloseBatchNetPayoutIsWholeFils pins what CloseBatch promises about
 // the payout figure: the BD amount the payout instruction quotes is
 // converted back to the column's own unit before it is stored, so

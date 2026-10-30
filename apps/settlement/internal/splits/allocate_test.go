@@ -118,3 +118,54 @@ func TestPayoutSplitBatch_LegsMatchNetPayout(t *testing.T) {
 		t.Errorf("parent cached_payable_fils after payout = %d, want 0", cached)
 	}
 }
+
+// TestPayoutSplitBatch_MissingBalanceRowExcludesPaidBatch pays a split
+// parent that has no merchant_balances row. PayoutSplitBatch marks the batch
+// paid only after the cache update, so the batch is still 'closed' when the
+// row is seeded: the seed must leave it out, keeping only the parent's other
+// closed, unpaid batch.
+func TestPayoutSplitBatch_MissingBalanceRowExcludesPaidBatch(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	parentID := insertMerchant(t, pool)
+	for _, w := range []int64{6000, 4000} {
+		childID := insertMerchant(t, pool)
+		_, err := pool.Exec(ctx, `
+			INSERT INTO merchant_split_children (parent_merchant_id, child_merchant_id, split_weight_bps)
+			VALUES ($1, $2, $3)
+		`, parentID, childID, w)
+		if err != nil {
+			t.Fatalf("insert split child: %v", err)
+		}
+	}
+
+	insertClosed := func(date string, netPayout int64) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		err := pool.QueryRow(ctx, `
+			INSERT INTO settlement_batches (merchant_id, batch_date, status, net_payout_fils, closed_at)
+			VALUES ($1, $2::date, 'closed', $3, now())
+			RETURNING id
+		`, parentID, date, netPayout).Scan(&id)
+		if err != nil {
+			t.Fatalf("insert closed batch: %v", err)
+		}
+		return id
+	}
+	paidID := insertClosed("2026-03-21", 1000)
+	insertClosed("2026-03-22", 500)
+
+	if _, err := PayoutSplitBatch(ctx, pool, paidID); err != nil {
+		t.Fatalf("PayoutSplitBatch: %v", err)
+	}
+
+	var cached int64
+	err := pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, parentID).Scan(&cached)
+	if err != nil {
+		t.Fatalf("read merchant balance: %v", err)
+	}
+	if cached != 500 {
+		t.Errorf("parent cached_payable_fils after payout = %d, want 500 (only the unpaid batch)", cached)
+	}
+}
