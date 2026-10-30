@@ -43,31 +43,43 @@ export async function applyCaptureDiscountAdjustment(
     const discountBps = merchantRow.rows[0]?.negotiated_discount_bps ?? 0;
     if (discountBps === 0) return;
 
-    // Exactly one adjustment per capture event. A replayed (idempotent)
-    // capture returns its cached 200 without writing a new
-    // transaction_events row, so the caller re-enters this path with
-    // nothing new to adjust — reversing the same fee a second time would
+    // Exactly one adjustment per capture event that actually rebates a fee.
+    // A replayed (idempotent) capture returns its cached 200 without writing
+    // a new transaction_events row, so the caller re-enters this path with
+    // nothing new to adjust; reversing the same fee a second time would
     // credit the merchant twice for one capture. The row lock serializes
     // this count against a concurrent capture's own adjustment.
     await client.query(`SELECT id FROM transactions WHERE id = $1 FOR UPDATE`, [input.transactionId]);
-    const countRow = await client.query<{ capture_events: string; adjustments: string }>(
-      `SELECT (SELECT count(*) FROM transaction_events
-                WHERE transaction_id = $1 AND event_type IN ('captured', 'partially_captured')) AS capture_events,
-              (SELECT count(*) FROM ledger_entries
-                WHERE transaction_id = $1 AND direction = 'credit'
-                  AND description = 'capture: negotiated discount adjustment') AS adjustments`,
-      [input.transactionId],
-    );
-    const counts = countRow.rows[0];
-    if (counts && Number(counts.adjustments) >= Number(counts.capture_events)) return;
 
-    const eventRow = await client.query<{ metadata: { feeFils?: number } }>(
+    // Newest capture event first, and the whole set. The guard cannot count
+    // raw capture events: a capture whose rebate rounds to zero posts no
+    // ledger row (ledger_entries has CHECK amount_fils > 0), so counting it
+    // leaves the adjustment tally permanently short of the capture-event
+    // tally, and a later capture's adjustment then replays a second time.
+    // Count instead the capture events whose rebate actually rounds above
+    // zero, computed with the same `applyRateFils` rounding used below.
+    const eventRows = await client.query<{ metadata: { feeFils?: number } }>(
       `SELECT metadata FROM transaction_events
         WHERE transaction_id = $1 AND event_type IN ('captured', 'partially_captured')
-        ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+        ORDER BY occurred_at DESC, id DESC`,
       [input.transactionId],
     );
-    const feeBeforeDiscount = toFils(eventRow.rows[0]?.metadata?.feeFils ?? 0);
+
+    let rebatableEvents = 0;
+    for (const row of eventRows.rows) {
+      const fee = toFils(row.metadata?.feeFils ?? 0);
+      if (fee > 0 && applyRateFils(fee, discountBps) > 0) rebatableEvents += 1;
+    }
+
+    const adjustmentRow = await client.query<{ adjustments: string }>(
+      `SELECT count(*) AS adjustments FROM ledger_entries
+        WHERE transaction_id = $1 AND direction = 'credit'
+          AND description = 'capture: negotiated discount adjustment'`,
+      [input.transactionId],
+    );
+    if (Number(adjustmentRow.rows[0]?.adjustments ?? 0) >= rebatableEvents) return;
+
+    const feeBeforeDiscount = toFils(eventRows.rows[0]?.metadata?.feeFils ?? 0);
     if (feeBeforeDiscount <= 0) return;
 
     const discountFils = applyRateFils(feeBeforeDiscount, discountBps);

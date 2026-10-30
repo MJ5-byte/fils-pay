@@ -370,6 +370,21 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Concurrent retries of a failed idempotency key both move money
+- **Status:** Fixed (BHA-146)
+- **Type:** Concurrency, high
+- **Problem:** Two retries of the same request fired at once, after an earlier attempt left the idempotency key in `failed`, both run the capture, refund or authorize money operation, so the money moves twice.
+- **Cause:** In `apps/api/src/payments/idempotency.ts`, the read of the existing `failed` row took no row lock and the UPDATE back to `in_progress` matched on `id` alone. Under READ COMMITTED both retries read `failed` before either updated, so both passed the guard and both executed; the UPDATE could even overwrite a claim another retry had already marked `completed`.
+- **Breaks:** A client retry during a failed attempt could capture, refund or authorize the same amount twice, over-charging or over-crediting with no sign it ran twice.
+- **Fix:** The existing-row read now takes `FOR UPDATE`. The second retry blocks on the row lock until the first retry's transaction commits, then reads the committed status: `completed` replays the stored result, `failed` means it is the single retry that proceeds. One row lock, no check-then-act (ADR-0002). This is the shared claim path every money endpoint routes through. Concurrency test added (`idempotencyClaim.test.ts`): two parallel retries of a failed key leave exactly one proceeding and the other replaying.
+
+### Bug: Capture discount credited twice on a zero-rebate replay
+- **Status:** Fixed (BHA-145)
+- **Type:** Money, high
+- **Problem:** For a merchant with a negotiated discount, once any capture's rebate rounded down to zero fils, replaying a later successful capture credited that later capture's discount to the merchant a second time.
+- **Cause:** `applyCaptureDiscountAdjustment` in `apps/api/src/payments/discountAdjustment.ts` guarded against double-posting by comparing the count of adjustment ledger credits to the count of capture events, assuming one adjustment per capture. A capture whose rebate rounds to zero writes no ledger row (`ledger_entries` has `CHECK (amount_fils > 0)`), so the adjustment tally stayed permanently below the capture-event tally and the guard never tripped; a replay of a later, non-zero capture then posted its discount again.
+- **Breaks:** Merchant payable rose above the ledger's truth by the discount share of a fee per affected transaction, and settlement pays it out.
+- **Fix:** The guard now counts only the capture events whose rebate actually rounds above zero, computed with the same `applyRateFils` rounding used to post, and compares that to the adjustments already posted. A zero-rebate capture no longer leaves the guard short, so each capture's discount posts exactly once regardless of rounding. Integer fils throughout (ADR-0001). Regression test added in `discountAdjustment.test.ts`: a zero-rebate capture followed by a non-zero one, replayed, credits once.
 ### Bug: Reconciliation prices pending captures with float math
 - **Status:** Fixed (BHA-107)
 - **Type:** Money, medium

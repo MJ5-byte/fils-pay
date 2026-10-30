@@ -129,11 +129,16 @@ export async function claimIdempotencyKey(
     return { outcome: "fresh", row: toRow(insertedRow) };
   }
 
-  // The UNIQUE (merchant_id, endpoint, key) index already has an entry. By
-  // the time this SELECT runs, the winner's row (or its absence, if it
-  // rolled back) is visible under read-committed.
+  // The UNIQUE (merchant_id, endpoint, key) index already has an entry.
+  // Take the row lock before reading its status, so two concurrent retries
+  // of the same key serialize here instead of both reading 'failed' and both
+  // running the UPDATE below. FOR UPDATE blocks the second reader until the
+  // first retry's transaction commits, after which it reads the committed
+  // status ('completed' -> replay, or 'failed' again -> it is the single
+  // retry that proceeds). Without the lock the failed-row read and the
+  // UPDATE are a check-then-act race that moves the money twice.
   const existingResult = await client.query<IdempotencyKeyDbRow>(
-    `SELECT * FROM idempotency_keys WHERE merchant_id = $1 AND endpoint = $2 AND key = $3`,
+    `SELECT * FROM idempotency_keys WHERE merchant_id = $1 AND endpoint = $2 AND key = $3 FOR UPDATE`,
     [input.merchantId, input.endpoint, input.key],
   );
   const existing = existingResult.rows[0];

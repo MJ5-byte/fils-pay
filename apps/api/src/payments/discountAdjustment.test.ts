@@ -124,3 +124,47 @@ test("re-running against the same capture event does not rebate the fee twice", 
 
   assert.equal((await adjustmentLegs(transactionId)).length, 2);
 });
+
+// BHA-145 regression: a capture whose rebate rounds to zero posts no ledger
+// row, so a guard that counts raw capture events stays permanently short and a
+// later capture's discount replays a second time. The guard must count only
+// the capture events whose rebate actually rounds above zero.
+test("a zero-rebate capture does not make a later capture's discount credit twice on replay", async () => {
+  // discount 100bps: a 7-fil fee rebates bankersRoundDiv(700, 10000) = 0 (no
+  // leg written), a 200-fil fee rebates bankersRoundDiv(20000, 10000) = 2.
+  const merchantResult = await pool.query<{ id: string }>(
+    `INSERT INTO merchants (display_name, mdr_bps, negotiated_discount_bps)
+     VALUES ($1, 275, 100) RETURNING id`,
+    [`Discount Replay ${randomUUID()}`],
+  );
+  const merchantId = merchantResult.rows[0]!.id;
+
+  const txnResult = await pool.query<{ id: string }>(
+    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
+     VALUES ($1, 'captured', 1000, 1000, $2) RETURNING id`,
+    [merchantId, `acq_${randomUUID()}`],
+  );
+  const transactionId = txnResult.rows[0]!.id;
+
+  // Earlier partial capture: rebate rounds to zero, writes no adjustment leg.
+  await pool.query(
+    `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata)
+     VALUES ($1, 'partially_captured', 250, 'system', $2)`,
+    [transactionId, JSON.stringify({ feeFils: 7 })],
+  );
+  // Later capture: rebate rounds to 2 fils. Higher id, so it is the latest.
+  await pool.query(
+    `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata)
+     VALUES ($1, 'captured', 750, 'system', $2)`,
+    [transactionId, JSON.stringify({ feeFils: 200 })],
+  );
+
+  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
+  // Replay of the later capture (cached 200, no new event) must be a no-op.
+  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
+
+  assert.deepEqual(await adjustmentLegs(transactionId), [
+    { account_id: "merchant_payable", direction: "credit", amount_fils: "2" },
+    { account_id: "platform_fee_revenue", direction: "debit", amount_fils: "2" },
+  ]);
+});
