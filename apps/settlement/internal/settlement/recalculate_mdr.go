@@ -152,8 +152,61 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 // total, so this recomputation can never itself diverge from what a fresh
 // CloseBatch would have produced at today's rate.
 func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, mdrBps, discountBps int64) (money.Fils, error) {
+	// A capture journaled with its own 'capture: MDR fee' leg gets its
+	// negotiated discount afterwards, as the rebate discountAdjustment.ts
+	// posts, and that rebate can post short or not at all (a failed call, a
+	// refund that landed first). CloseBatch charges such a capture its fee
+	// less the rebates actually posted in the batch's business day, so it is
+	// priced at the MDR alone here and those same rebates come off below;
+	// pricing the full discount would pay back a rebate that never posted. A
+	// capture without that leg, as the seed writes it, has the discount taken
+	// off inside its fee and keeps it priced in.
+	var merchantID uuid.UUID
+	var batchDate time.Time
+	err := tx.QueryRow(ctx, `SELECT merchant_id, batch_date FROM settlement_batches WHERE id = $1`, batchID).
+		Scan(&merchantID, &batchDate)
+	if err != nil {
+		return 0, fmt.Errorf("settlement: RecalculateMDR: read batch %s: %w", batchID, err)
+	}
+	start, end := BusinessDayWindow(batchDate)
+
+	rebateRows, err := tx.Query(ctx, `
+		SELECT transaction_id,
+		       COALESCE(SUM(amount_fils) FILTER (
+		         WHERE account_id = 'merchant_payable' AND direction = 'credit'
+		           AND description = 'capture: negotiated discount adjustment'
+		           AND occurred_at >= $3 AND occurred_at < $4), 0),
+		       bool_or(account_id = 'platform_fee_revenue' AND direction = 'credit'
+		           AND description = 'capture: MDR fee')
+		  FROM ledger_entries
+		 WHERE merchant_id = $2
+		   AND transaction_id IN (SELECT transaction_id FROM transaction_events WHERE settlement_batch_id = $1)
+		 GROUP BY transaction_id
+	`, batchID, merchantID, start, end)
+	if err != nil {
+		return 0, fmt.Errorf("settlement: RecalculateMDR: select discount rebates for %s: %w", batchID, err)
+	}
+	rebatedLater := make(map[uuid.UUID]bool)
+	var rebateFils money.Fils
+	for rebateRows.Next() {
+		var txnID uuid.UUID
+		var sum int64
+		var hasFeeLeg bool
+		if err := rebateRows.Scan(&txnID, &sum, &hasFeeLeg); err != nil {
+			rebateRows.Close()
+			return 0, fmt.Errorf("settlement: RecalculateMDR: scan discount rebate for %s: %w", batchID, err)
+		}
+		rebatedLater[txnID] = hasFeeLeg
+		rebateFils += money.Fils(sum)
+	}
+	if err := rebateRows.Err(); err != nil {
+		rebateRows.Close()
+		return 0, fmt.Errorf("settlement: RecalculateMDR: iterate discount rebates for %s: %w", batchID, err)
+	}
+	rebateRows.Close()
+
 	rows, err := tx.Query(ctx, `
-		SELECT amount_fils FROM transaction_events WHERE settlement_batch_id = $1 ORDER BY id
+		SELECT transaction_id, amount_fils FROM transaction_events WHERE settlement_batch_id = $1 ORDER BY id
 	`, batchID)
 	if err != nil {
 		return 0, fmt.Errorf("settlement: RecalculateMDR: select batch events for %s: %w", batchID, err)
@@ -162,17 +215,23 @@ func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, mdrBps
 
 	var fee money.Fils
 	for rows.Next() {
+		var txnID uuid.UUID
 		var amountFils int64
-		if err := rows.Scan(&amountFils); err != nil {
+		if err := rows.Scan(&txnID, &amountFils); err != nil {
 			return 0, fmt.Errorf("settlement: RecalculateMDR: scan batch event for %s: %w", batchID, err)
 		}
 		// FH: sums every event with this batch id -- incl. refund events once FP-212 lands? need an event_type filter?
 		// MK: refunds won't carry settlement_batch_id on transaction_events, they live in their own table. non-issue
-		fee += ComputeSettlementFee(money.Fils(amountFils), mdrBps, discountBps)
+		eventDiscountBps := discountBps
+		if rebatedLater[txnID] {
+			eventDiscountBps = 0
+		}
+		fee += ComputeSettlementFee(money.Fils(amountFils), mdrBps, eventDiscountBps)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("settlement: RecalculateMDR: iterate batch events for %s: %w", batchID, err)
 	}
+	fee -= rebateFils
 
 	// CloseBatch stores fee_fils net of the fee its refunds reversed, so the
 	// recomputed fee has to be net of them too, or an unchanged rate posts

@@ -190,6 +190,61 @@ func TestRecalculateMDR_UnchangedRateAdjustsNothing(t *testing.T) {
 	}
 }
 
+// BHA-183: a capture whose negotiated-discount rebate posted short was
+// charged at close only the rebate actually posted, so recomputing at the
+// same rate must not price the full discount back in. 10 000 at 250 bps is a
+// 250 fee; a 9 500 refund lands before the 1000 bps discount, so the rebate
+// is 1, not 25 (BHA-169), and the last 500 refund reverses the 11 still held.
+// The batch fee is 250 - 1 - 238 - 11 = 0; full-discount pricing made it -24.
+func TestRecalculateMDR_ShortRebateUnchangedRateAdjustsNothing(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	if _, err := pool.Exec(ctx, `UPDATE merchants SET negotiated_discount_bps = 1000 WHERE id = $1`, merchantID); err != nil {
+		t.Fatalf("set negotiated_discount_bps: %v", err)
+	}
+
+	businessDate := time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+	var txnID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, occurred_at)
+		VALUES ($1, 'captured', 10000, 10000, $2, $3) RETURNING id
+	`, merchantID, "acq-ref-"+uuid.New().String(), start.Add(time.Hour)).Scan(&txnID); err != nil {
+		t.Fatalf("insert transaction: %v", err)
+	}
+	insertJournaledCapture(t, pool, merchantID, txnID, "captured", 10000, 250, start.Add(time.Hour))
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 9500, 238, start.Add(2*time.Hour))
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES
+		  ($1, $2, $3, 'platform_fee_revenue', 'debit',  1, $4, 'capture: negotiated discount adjustment'),
+		  ($1, $2, $3, 'merchant_payable',     'credit', 1, $4, 'capture: negotiated discount adjustment')
+	`, uuid.New(), merchantID, txnID, start.Add(3*time.Hour)); err != nil {
+		t.Fatalf("insert discount adjustment: %v", err)
+	}
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 500, 11, start.Add(4*time.Hour))
+
+	closed, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+	if closed.FeeFils != 0 {
+		t.Fatalf("CloseBatch FeeFils = %d, want 0", closed.FeeFils)
+	}
+
+	from, to := recalcWindow(businessDate)
+	result, err := RecalculateMDR(ctx, pool, merchantID, from, to)
+	if err != nil {
+		t.Fatalf("RecalculateMDR: %v", err)
+	}
+	if len(result.Adjusted) != 0 {
+		t.Errorf("unchanged rate adjusted %d batch(es): %+v", len(result.Adjusted), result.Adjusted)
+	}
+}
+
 func TestRecalculateMDR_OutOfRangeBatchUntouched(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()

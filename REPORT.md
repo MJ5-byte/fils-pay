@@ -841,6 +841,13 @@
 - **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
 - **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
 
+### Bug: MDR recalculation pays back discount rebates that were never posted
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** Running `POST /internal/recalculate-mdr` at an unchanged rate credited a merchant fils they were never owed when a batch held a capture whose negotiated-discount rebate posted short or not at all. Capture 10 000 at 250 bps with a 1000 bps discount, refund 9 500 before the discount posts (BHA-169 then rebates 1, not 25), then refund the last 500: the batch closes at a fee of 250 - 1 - 249 = 0, but the recalculation priced it at 225 - 249 = -24 and posted a 24 fils `MDR recalculation adjustment` to the merchant.
+- **Cause:** `recomputeBatchFee` in `apps/settlement/internal/settlement/recalculate_mdr.go` priced every event with the full negotiated discount, while `CloseBatch` (`batch.go`) charges a capture's fee less the rebates `discountAdjustment.ts` actually posted. The two disagree whenever a rebate did not post in full: a failed discount call, a payment-link capture whose discount failed, or a refund that landed before the discount.
+- **Breaks:** Every recalculation moved the batch fee and the merchant's balance away from the ledger by the rebate that never posted, and a later payout paid it out.
+- **Fix:** `recomputeBatchFee` now reads the same posted `capture: negotiated discount adjustment` rebates `CloseBatch` reads, for the batch's transactions in its business day, and subtracts them. A transaction whose capture posted its own `capture: MDR fee` leg (the leg the rebate is computed from) is priced at the MDR alone; one without it, such as a seeded capture whose fee already has the discount taken off, keeps the discount priced in as before. Test added: `TestRecalculateMDR_ShortRebateUnchangedRateAdjustsNothing` replays the example and fails on `main` with a -24 adjustment.
 ### Bug: A resent manual credit or balance adjustment moves the money twice
 - **Status:** Fixed
 - **Type:** Money, high
