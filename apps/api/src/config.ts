@@ -78,6 +78,10 @@ export interface Config {
    *  has no other reason to know where apps/web is hosted, and no route
    *  redirects there. Default matches Vite's own default dev port. */
   checkoutBaseUrl: string;
+  /** Extra browser origins allowed to call the API with credentials (the
+   *  deployed web/admin URLs), from CORS_ALLOWED_ORIGINS (comma separated). The
+   *  localhost dev origins are always allowed outside production. */
+  corsAllowedOrigins: string[];
   /** How long a payment link stays 'reserved' (claimed by an in-flight pay
    *  attempt) before it self-expires back to claimable, closing the gap
    *  between claim and finalize without a sweep job. */
@@ -244,6 +248,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     settlementInternalRequestTimeoutMs: parseIntEnv(env.SETTLEMENT_INTERNAL_REQUEST_TIMEOUT_MS, 30_000),
 
     checkoutBaseUrl: env.CHECKOUT_BASE_URL ?? "http://localhost:5173",
+    corsAllowedOrigins: (env.CORS_ALLOWED_ORIGINS ?? "")
+      .split(",")
+      .map((o) => o.trim().replace(/\/+$/, ""))
+      .filter((o) => o !== ""),
     paymentLinkReservationTimeoutSeconds: parseIntEnv(env.PAYMENT_LINK_RESERVATION_TIMEOUT_SECONDS, 60),
 
     webhookSecretEncryptionKey: parseWebhookSecretEncryptionKey(
@@ -256,6 +264,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
 
     acquirerCallbackSigningSecret,
-    acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, false),
+    acquirerCallbackRequireSignature: parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, env.NODE_ENV === "production"),
   };
 }
