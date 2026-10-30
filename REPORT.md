@@ -784,3 +784,10 @@
 - **Cause:** `createFetchTransport` in `apps/api/src/webhooks/transport.ts` appended every chunk to a string with no limit, although the dispatcher and test-send only keep the first 2000 characters of it.
 - **Breaks:** A fast receiver could push hundreds of MB into one delivery's memory on the 2 GB host, and a string past V8's limit throws a RangeError inside the data listener, which can take the API process down.
 - **Fix:** The transport stops reading at 64 KiB (`MAX_RESPONSE_BODY_BYTES`), destroys the response and resolves with the status code and the truncated body, once. The whole-exchange timeout is unchanged. Test added: a local receiver streams without end and the transport resolves in milliseconds, not at the timeout.
+### Bug: The webhook backoff test failed on every run (BHA-182)
+- **Status:** Fixed
+- **Type:** Time, low
+- **Problem:** The dispatcher test "failing endpoint: backoff/exhaustion sequence" failed on `main` even when run alone, with a different value each run (`1009 !== 1000`, `1078 !== 1000`), so the suite was red and hid real regressions.
+- **Cause:** `backoffDelayMs` applies ±10 % random jitter on purpose (`apps/api/src/webhooks/dispatcher.ts:48-58`, with an injectable `jitter` parameter), but the test asserted an exact 1000 and 2000 from the unseeded call (`dispatcher.test.ts:198-199`, `:218-219`). `ARCHITECTURE.md:63` only requires exponential backoff, so no doc rules jitter out and the code is right.
+- **Breaks:** A permanently red test that taught the team to ignore webhook failures, and a real retry-schedule regression would not have stood out.
+- **Fix:** The test now passes `() => 0.5` for the exact base delay and asserts the 900 and 1100 jitter bounds with `() => 0` and `() => 1`. No production code changed and no assertion was weakened. Test updated in `dispatcher.test.ts`; it failed before and passes 3 of 3 runs after.
