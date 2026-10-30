@@ -11,6 +11,7 @@ import type {
   MdrRecalcSummary,
   RunBatchSummary,
 } from "../../types.js";
+import { statusLabel } from "../../format.js";
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
@@ -382,7 +383,7 @@ export function SettlementPage() {
                 {mdrAdjusted.map((adjustment) => (
                   <tr key={adjustment.batchId}>
                     <td>{adjustment.batchDate}</td>
-                    <td>{adjustment.status}</td>
+                    <td>{statusLabel(adjustment.status)}</td>
                     <td>{bhd(adjustment.oldFeeFils)}</td>
                     <td>{bhd(adjustment.newFeeFils)}</td>
                     <td>{bhd(adjustment.diffFils)}</td>

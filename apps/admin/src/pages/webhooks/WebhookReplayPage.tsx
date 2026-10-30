@@ -9,6 +9,7 @@ import type {
   BatchReplayResult,
   WebhookDeliveryStatus,
 } from "../../types.js";
+import { statusLabel } from "../../format.js";
 
 const REPLAYABLE_STATUSES: WebhookDeliveryStatus[] = [
   "exhausted",
@@ -176,7 +177,7 @@ export function WebhookReplayPage() {
             </option>
             {endpoints.map((endpoint) => (
               <option key={endpoint.id} value={endpoint.id}>
-                {endpoint.url} ({endpoint.status})
+                {endpoint.url} ({statusLabel(endpoint.status)})
               </option>
             ))}
           </select>

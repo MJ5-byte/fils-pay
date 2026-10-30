@@ -9,6 +9,7 @@ import {
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { CreditRequestDto, CreditRequestStatus } from "../../types.js";
+import { statusLabel } from "../../format.js";
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
@@ -160,7 +161,7 @@ export function CreditsPage() {
                   </Link>
                 </td>
                 <td>
-                  {item.reasonCode}
+                  {statusLabel(item.reasonCode)}
                   {item.memo ? <div className="admin-muted">{item.memo}</div> : null}
                 </td>
                 <td>{bhd(item.baseAmountFils)}</td>
@@ -192,7 +193,7 @@ export function CreditsPage() {
                       </button>
                     </RequireRole>
                   ) : (
-                    item.status
+                    STATUS_TABS.find((tab) => tab.value === item.status)?.label ?? statusLabel(item.status)
                   )}
                 </td>
               </tr>

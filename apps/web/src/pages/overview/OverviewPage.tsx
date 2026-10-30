@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { getPayoutTrends, getTopLinks, getVolumes } from "../../api/analytics.js";
 import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import { formatCount } from "../../utils/helpers.js";
 import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "../../types.js";
 
@@ -165,7 +165,7 @@ export function OverviewPage() {
               <td>
                 <Link to={`/dashboard/settlement/${point.settlementBatchId}`}>{point.batchDate}</Link>
               </td>
-              <td>{point.status}</td>
+              <td>{statusLabel(point.status)}</td>
               <td>{bhd(point.grossFils)}</td>
               <td>{bhd(point.feeFils)}</td>
               <td>{bhd(point.netPayoutFils)}</td>

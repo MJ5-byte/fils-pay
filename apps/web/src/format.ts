@@ -13,6 +13,12 @@ export function bhd(amountFils: number): string {
   return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
 }
 
+/** A raw status or reason code (`partially_captured`) as readable text. Display only: CSS classes and filters keep the raw value. */
+export function statusLabel(value: string | null | undefined): string {
+  const text = (value ?? "").replace(/_/g, " ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /**
  * An amount typed in BHD as integer fils, via the shared parser (3 decimals, no
  * floats): "0.5" is 500, "12" is 12000, "1.250" is 1250. Blank, zero,

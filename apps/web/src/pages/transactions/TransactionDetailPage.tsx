@@ -8,7 +8,7 @@ import {
 } from "../../api/transactions.js";
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd, dash, dateTime, parseRefundAmount, refundedFilsFromEvents } from "../../format.js";
+import { bhd, dash, dateTime, parseRefundAmount, refundedFilsFromEvents, statusLabel } from "../../format.js";
 import { RefundDrawer } from "./RefundDrawer.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 
@@ -145,7 +145,7 @@ export function TransactionDetailPage() {
       <dl className="dash-dl">
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${txn.status}`}>{txn.status}</span>
+          <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
         </dd>
         <dt>Authorized amount</dt>
         <dd>{bhd(txn.amountFils)}</dd>
@@ -240,7 +240,7 @@ export function TransactionDetailPage() {
           {events.map((event) => (
             <tr key={event.id}>
               <td>{dateTime(event.occurredAt)}</td>
-              <td>{event.eventType}</td>
+              <td>{statusLabel(event.eventType)}</td>
               <td>{event.amountFils === null ? "—" : bhd(event.amountFils)}</td>
               <td>
                 {event.actorType}

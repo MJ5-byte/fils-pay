@@ -5,6 +5,7 @@ import { bulkApproveKyc } from "../../api/merchantsBulk.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantSummary, MerchantOnboardingStatus } from "../../types.js";
+import { statusLabel } from "../../format.js";
 
 const ONBOARDING_STATUSES: MerchantOnboardingStatus[] = [
   "submitted",
@@ -192,8 +193,8 @@ export function MerchantListPage() {
                   <code>{merchant.id}</code>
                 </div>
               </td>
-              <td>{merchant.status}</td>
-              <td>{merchant.onboardingStatus}</td>
+              <td>{statusLabel(merchant.status)}</td>
+              <td>{statusLabel(merchant.onboardingStatus)}</td>
               <td>{merchant.kycPassed ? "passed" : "not passed"}</td>
               <td>{(merchant.mdrBps / 100).toFixed(2)}%</td>
               <td>{merchant.testMode ? "test" : "live"}</td>

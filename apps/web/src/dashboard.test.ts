@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildQuery } from "./api/query.js";
-import { bhd, dash, dayStartIso, localDateTimeToIso, parseBhdAmount, parseRefundAmount, refundedFilsFromEvents } from "./format.js";
+import { bhd, dash, dayStartIso, localDateTimeToIso, parseBhdAmount, parseRefundAmount, refundedFilsFromEvents, statusLabel } from "./format.js";
 import type { TransactionEventDto } from "./types.js";
 
 /**
@@ -120,4 +120,14 @@ test("localDateTimeToIso rejects garbage instead of sending Invalid Date", () =>
   const iso = localDateTimeToIso("2026-09-12T14:30");
   assert.notEqual(iso, null);
   assert.equal(new Date(iso ?? "").getTime(), new Date("2026-09-12T14:30").getTime());
+});
+
+test("statusLabel turns a raw status or reason code into readable text", () => {
+  assert.equal(statusLabel("captured"), "Captured");
+  assert.equal(statusLabel("partially_captured"), "Partially captured");
+  assert.equal(statusLabel("refund_partial"), "Refund partial");
+  assert.equal(statusLabel("dispute_resolution"), "Dispute resolution");
+  assert.equal(statusLabel(null), "");
+  assert.equal(statusLabel(undefined), "");
+  assert.equal(statusLabel(""), "");
 });

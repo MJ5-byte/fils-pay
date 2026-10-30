@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSettlementBatch, getSettlementBatchTransactions } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { SettlementBatchDetailDto, SettlementBatchTransactionDto } from "../../types.js";
 
 type LoadState =
@@ -150,7 +150,7 @@ export function SettlementBatchDetailPage() {
                 </Link>
               </td>
               <td>{dash(line.reference)}</td>
-              <td>{line.status}</td>
+              <td>{statusLabel(line.status)}</td>
               <td>{bhd(line.authorizedFils)}</td>
               <td>{bhd(line.capturedFils)}</td>
               <td>{bhd(line.schemeAmountFils)}</td>

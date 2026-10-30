@@ -10,6 +10,7 @@ import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
+import { statusLabel } from "../../format.js";
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
@@ -256,7 +257,7 @@ export function MerchantDetailPage() {
         <dt>Status</dt>
         <dd>{merchant.status}</dd>
         <dt>Onboarding status</dt>
-        <dd>{merchant.onboardingStatus}</dd>
+        <dd>{statusLabel(merchant.onboardingStatus)}</dd>
         <dt>KYC</dt>
         <dd>{merchant.kycPassed ? "passed" : "not passed"}</dd>
         <dt>MDR</dt>
@@ -579,7 +580,7 @@ export function MerchantDetailPage() {
             {webhookEndpoints.map((endpoint) => (
               <tr key={endpoint.id}>
                 <td>{endpoint.url}</td>
-                <td>{endpoint.status}</td>
+                <td>{statusLabel(endpoint.status)}</td>
                 <td>
                   <code>{endpoint.secretPrefix}</code>
                 </td>
@@ -611,7 +612,7 @@ export function MerchantDetailPage() {
             {batches.map((batch) => (
               <tr key={batch.id}>
                 <td>{batch.batchDate}</td>
-                <td>{batch.status}</td>
+                <td>{statusLabel(batch.status)}</td>
                 <td>{bhd(batch.grossFils)}</td>
                 <td>{bhd(batch.feeFils)}</td>
                 <td>{bhd(batch.netPayoutFils)}</td>
