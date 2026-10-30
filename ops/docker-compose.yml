@@ -60,6 +60,7 @@ services:
       dockerfile: ops/Dockerfile.node
     command: ["npm", "run", "seed"]
     environment:
+      NODE_ENV: development
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     depends_on:
       postgres:
@@ -69,9 +70,11 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
-    # NODE_ENV is unset here, so the api runs in development mode: it uses a
-    # built-in dev WEBHOOK_SECRET_ENCRYPTION_KEY and does not require
-    # ACQUIRER_CALLBACK_SIGNING_SECRET (apps/api/src/config.ts).
+    # Dockerfile.node defaults NODE_ENV=production; every Node service here
+    # overrides it to development, so the api uses a built-in dev
+    # WEBHOOK_SECRET_ENCRYPTION_KEY, doesn't require
+    # ACQUIRER_CALLBACK_SIGNING_SECRET, and allows non-https cookies
+    # (apps/api/src/config.ts).
     command: ["npx", "tsx", "apps/api/src/index.ts"]
     ports:
       - "3000:3000"
@@ -81,6 +84,7 @@ services:
       # above, authenticate as that same role, which keeps local
       # onboarding to a single password instead of provisioning per-service
       # grants by hand.
+      NODE_ENV: development
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
       # TODO(YA, Jan): give the api its own role before anything is hosted.
       SETTLEMENT_INTERNAL_URL: http://settlement:8091
@@ -114,6 +118,7 @@ services:
       dockerfile: ops/Dockerfile.node
     command: ["npx", "tsx", "apps/reporting/src/index.ts"]
     environment:
+      NODE_ENV: development
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     depends_on:
       postgres:
