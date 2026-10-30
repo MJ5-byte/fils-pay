@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { ZERO_FILS, addFils, applyRateFils, subtractFils, toFils, type Fils } from "@filspay/money";
 import { enqueueEvent } from "@filspay/events";
-import type { Pool, PoolClient } from "pg";
+import { Client, type ClientConfig, type Pool, type PoolClient } from "pg";
 import { MERCHANT_FIXTURES } from "./fixtures/merchants.js";
 import { generateMarchReconciliationFixtures } from "./fixtures/marchReconciliation.js";
 import {
@@ -164,6 +164,26 @@ interface InsertedMerchant {
   displayName: string;
 }
 
+// `postgres` is the Compose service name in ops/docker-compose.yml.
+const LOCAL_SEED_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "postgres"]);
+
+/**
+ * The seed TRUNCATEs merchants, transactions, the ledger and more, so it
+ * refuses any database that is not on the allowlist above unless
+ * SEED_ALLOW_TRUNCATE=1 says the wipe is meant. The host is the one `pg`
+ * resolves from the pool options (connection string, `?host=`, PGHOST), not
+ * a second parse of the URL, so the check and the connection cannot differ.
+ */
+export function assertSeedTargetAllowed(options: ClientConfig, env: NodeJS.ProcessEnv): void {
+  if (env.SEED_ALLOW_TRUNCATE === "1") return;
+  const host = new Client(options).host;
+  if (host !== undefined && LOCAL_SEED_HOSTS.has(host.toLowerCase())) return;
+  throw new Error(
+    `seed: refusing to TRUNCATE the database at host '${host ?? "unknown"}' because it is not local. ` +
+      "Point DATABASE_URL at localhost or the Docker postgres service, or set SEED_ALLOW_TRUNCATE=1 if wiping it is intended.",
+  );
+}
+
 /**
  * Truncates every seed table (FK-safe: one multi-table TRUNCATE ... CASCADE,
  * so table order doesn't matter, and RESTART IDENTITY resets the BIGSERIAL
@@ -181,6 +201,7 @@ interface InsertedMerchant {
  * connection.
  */
 export async function generate(pool: Pool): Promise<SeedSummary> {
+  assertSeedTargetAllowed(pool.options, process.env);
   const rng = createRng(SEED);
   const config = loadConfig(process.env);
   const passwordHash = await hashPassword(SEED_USER_PASSWORD, config);
@@ -759,6 +780,20 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           ledgerEntryCount += 1;
         }
         ledgerGroupCount += 1;
+
+        // The capture event CloseBatch reads; without it the March batch
+        // closes at zero gross. The fee is the group's fee leg, as in
+        // capture.ts.
+        const gross = group.legs.find((l) => l.accountId === "card_scheme_clearing");
+        const fee = group.legs.find((l) => l.accountId === "platform_fee_revenue");
+        if (gross) {
+          await client.query(
+            `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at)
+             VALUES ($1, 'captured', $2, 'system', $3, $4)`,
+            [group.transactionId, gross.amountFils, JSON.stringify({ feeFils: fee?.amountFils ?? 0 }), group.occurredAt],
+          );
+          transactionEventCount += 1;
+        }
       }
 
       // Sub-merchant split configuration, inserted after every merchant

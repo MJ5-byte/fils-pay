@@ -915,6 +915,13 @@
 - **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
 - **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
 
+### Bug: The seed wipes any database it is pointed at, and the March batch closes at zero
+- **Status:** Fixed
+- **Type:** Data, high
+- **Problem:** Running `npm run seed` against a hosted or shared database erased merchants, transactions, the ledger and admin users with no warning. Separately, the seeded March captures had no `captured` events, so closing the March settlement batch showed zero gross.
+- **Cause:** `db/seed/generate.ts` ran `TRUNCATE ... CASCADE` with no check of the target (the comment called it safe for shared databases). The March block inserted transactions and ledger postings but no `transaction_events`, which is the only thing `CloseBatch` reads.
+- **Breaks:** One wrong `DATABASE_URL` destroys live data; a March reconciliation built on the seed starts from an empty batch.
+- **Fix:** `generate()` now calls `assertSeedTargetAllowed`, which refuses unless the host `pg` resolves is localhost, 127.0.0.1, ::1 or the Compose `postgres` service, or `SEED_ALLOW_TRUNCATE=1` is set (the `?host=` override is covered because it checks pg's resolved host). The March loop writes a `captured` event per ledger group with `feeFils` from its fee leg, as `capture.ts` does. Ledger rows and checksum are unchanged. Tests in `db/seed/generate.test.ts`. Covers BHA-157.
 ### Bug: Webhook archive create and replay are unbounded
 - **Status:** Fixed
 - **Type:** Concurrency, medium
