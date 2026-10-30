@@ -1073,6 +1073,13 @@
 - **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
 - **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.
 
+### Bug: A flood of new checkouts from one address starves the ones already under way
+- **Status:** Fixed
+- **Type:** Performance, high
+- **Problem:** From one client address at 75 checkouts a second, only 3.3 checkouts a second completed: 2,423 link opens and 1,514 pays of checkouts already started were refused with 429.
+- **Cause:** `ops/nginx.conf` counted every api request from an address against one zone, `api_per_ip` (100 a second). A checkout is three requests (create link, open, pay), so new creates used up the allowance and the open and pay of checkouts in progress were turned away.
+- **Breaks:** A capacity test driven from one machine sees the stack collapse instead of serving what it can and refusing only the excess.
+- **Fix:** Opening a public payment link and paying it now count against their own per-address zone, `checkout_per_ip`, with the same 100 a second and burst of 200; creating new work stays on `api_per_ip`. The in-flight caps from #112 are unchanged and still shed the excess. Rerun of the same load against a local stack: 36.7 checkouts a second completed, no 429, and the excess turned away as 2,225 create 503s with Retry-After. No unit test, because it is config; `nginx -t` passes in the nginx image.
 ### Bug: Every ledger insert scans the whole ledger
 - **Status:** Fixed
 - **Type:** Performance, high

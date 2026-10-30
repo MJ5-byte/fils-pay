@@ -138,7 +138,10 @@ pages keep serving either way.
 **Rate limits.** `web` also caps each client address: every api route at
 100 requests a second (bursts to 200), and the three routes that send or
 check a login code (`login`, `otp/verify`, `otp/resend`, merchant and
-admin) at 10 a minute (bursts to 10). Past a cap the client gets `429`
+admin) at 10 a minute (bursts to 10). Opening a payment link and paying it
+have their own allowance of 100 requests a second per address (bursts to
+200), so new work from one address can never use up the allowance of
+checkouts already under way. Past a cap the client gets `429`
 `rate_limited` with `Retry-After`. The client address comes from
 `X-Forwarded-For` past the private-range proxies in front of `web`.
 
