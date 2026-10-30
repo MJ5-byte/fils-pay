@@ -31,7 +31,9 @@ extract_and_up() {
     $COMPOSE up -d --no-deps migrate &&
     [ "$(sudo docker wait "$($COMPOSE ps -aq migrate)")" = 0 ] &&
     $COMPOSE up -d --no-deps --wait --remove-orphans api &&
-    if $COMPOSE config --services | grep -qx api-2; then $COMPOSE up -d --no-deps --wait api-2; fi &&
+    # grep reads the whole list: with pipefail, grep -q exiting early can kill
+    # compose with SIGPIPE and silently skip api-2.
+    if $COMPOSE config --services | grep -x api-2 >/dev/null; then $COMPOSE up -d --no-deps --wait api-2; fi &&
     $COMPOSE up -d --no-deps settlement reporting &&
     $COMPOSE up -d --no-deps --wait web
   } >"$TARS/$1.build.log" 2>&1)
