@@ -1,8 +1,13 @@
+import {
+  IconLinks,
+  PageHeader,
+} from "@filspay/ui";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createPaymentLink } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
+import { IconArrowLeft } from "../../components/icons.js";
 import { localDateTimeToIso, parseBhdAmount } from "../../format.js";
 
 /**
@@ -67,12 +72,13 @@ export function PaymentLinkCreatePage() {
   }
 
   return (
-    <section>
-      <h1>New payment link</h1>
+    <section className="fp-page fp-stagger">
+      <PageHeader title="New payment link" lede={<> Create a reusable checkout link with a fixed amount and expiry. </>} back={<Link to="/dashboard/payment-links"><IconArrowLeft /> Back</Link>} />
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <form className="dash-form" onSubmit={(e) => void handleSubmit(e)}>
+      <form className="dash-form fp-form-card" onSubmit={(e) => void handleSubmit(e)}>
+        <p className="fp-eyebrow"><IconLinks />Payment details</p>
         <label>
           Amount in BHD
           <input
@@ -101,14 +107,12 @@ export function PaymentLinkCreatePage() {
             onChange={(e) => setExpiresAt(e.target.value)}
           />
         </label>
-        <button type="submit" className="dash-button" disabled={submitting}>
-          {submitting ? "Creating..." : "Create payment link"}
-        </button>
+        <div className="fp-form-actions"><Link className="dash-button-ghost" to="/dashboard/payment-links">Cancel</Link>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+            {submitting ? "Creating" : "Create payment link"}
+          </button>
+        </div>
       </form>
-
-      <p>
-        <Link to="/dashboard/payment-links">Back to payment links</Link>
-      </p>
     </section>
   );
 }

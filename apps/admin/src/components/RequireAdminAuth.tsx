@@ -38,8 +38,8 @@ export function RequireAdminAuth({ children }: { children: ReactNode }) {
     };
     return (
       <main className="admin-centered">
-        <p className="admin-error">The server could not be reached, so your session could not be checked.</p>
-        <button type="button" disabled={retrying} onClick={() => void retry()}>
+        <p className="dash-error">The server could not be reached, so your session could not be checked.</p>
+        <button type="button" className="dash-button" disabled={retrying} onClick={() => void retry()}>
           {retrying ? "Retrying..." : "Retry"}
         </button>
       </main>

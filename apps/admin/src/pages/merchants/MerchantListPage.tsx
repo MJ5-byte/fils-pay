@@ -1,11 +1,27 @@
+import {
+  ColumnHead,
+  EmptyState,
+  IconCalendar,
+  IconClock,
+  IconDoc,
+  IconLive,
+  IconPercent,
+  IconSearch,
+  IconShield,
+  IconStore,
+  IconUser,
+  PageHeader,
+  SkeletonRows,
+  StatusBadge,
+  Tag, formatDate } from "@filspay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listMerchants } from "../../api/merchants.js";
 import { bulkApproveKyc } from "../../api/merchantsBulk.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+
 import type { AdminMerchantSummary, MerchantOnboardingStatus } from "../../types.js";
-import { statusLabel } from "../../format.js";
 
 const ONBOARDING_STATUSES: MerchantOnboardingStatus[] = [
   "submitted",
@@ -81,7 +97,7 @@ export function MerchantListPage() {
     );
   }
 
-  // only approves the under_review ones (filtered) — am
+  // only approves the under_review ones (filtered), am
   // FH: sends every selected id, the server doesn't check status
   async function approveSelected(): Promise<void> {
     setBulkBusy(true);
@@ -102,120 +118,144 @@ export function MerchantListPage() {
   const allLoadedSelected = merchants.length > 0 && selectedIds.size === merchants.length;
 
   return (
-    <section>
-      <h1>Merchants</h1>
+    <section className="fp-page fp-stagger">
+      <PageHeader title="Merchants" lede={<> Find merchants, review onboarding and manage KYC approvals. </>} />
 
-      <form
-        className="admin-form admin-form-inline"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setAppliedQuery(query.trim());
-        }}
-      >
-        <label>
-          Search
-          <input
-            type="search"
-            placeholder="Display name, merchant id, or contact email"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </label>
-        <button type="submit">Search</button>
-      </form>
-
-      <fieldset className="admin-filters">
-        <legend>Onboarding status</legend>
-        {ONBOARDING_STATUSES.map((status) => (
-          <label key={status}>
+      <div className="fp-list-card">
+        <form
+          className="dash-form dash-form-inline"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setAppliedQuery(query.trim());
+          }}
+        >
+          <label>
+            Search
             <input
-              type="checkbox"
-              checked={statuses.includes(status)}
-              onChange={() => toggleStatus(status)}
+              type="search"
+              placeholder="Display name, merchant id, or contact email"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
             />
-            {status}
           </label>
-        ))}
-      </fieldset>
+          <button className="dash-button dash-button-primary" type="submit"><IconSearch /> Search</button>
+        </form>
 
-      {error ? <p className="admin-error">{error}</p> : null}
-      {bulkNotice ? <p className="admin-muted">{bulkNotice}</p> : null}
-
-      {selectedIds.size > 0 ? (
-        <div className="admin-form admin-form-inline">
-          <span>{selectedIds.size} selected</span>
-          <RequireRole allow={["finance", "super_admin"]}>
-            <button type="button" disabled={bulkBusy} onClick={() => void approveSelected()}>
-              Bulk approve KYC
-            </button>
-          </RequireRole>
-          <button type="button" disabled={bulkBusy} onClick={() => setSelectedIds(new Set())}>
-            Clear selection
-          </button>
+        <div className="dash-toolbar">
+          <div>
+            <span className="dash-field-label">Onboarding status</span>
+            <div className="dash-chips">
+              {ONBOARDING_STATUSES.map((status) => (
+                <label key={status} className={`dash-chip${statuses.includes(status) ? " dash-chip-on" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={statuses.includes(status)}
+                    onChange={() => toggleStatus(status)}
+                  />
+                  <StatusBadge status={status} />
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
-      ) : null}
 
-      <table className="admin-table">
-        <thead>
-          <tr>
-            <th>
-              <input
-                type="checkbox"
-                aria-label="Select all loaded merchants"
-                checked={allLoadedSelected}
-                disabled={merchants.length === 0}
-                onChange={toggleSelectAllLoaded}
-              />
-            </th>
-            <th>Merchant</th>
-            <th>Status</th>
-            <th>Onboarding</th>
-            <th>KYC</th>
-            <th>MDR</th>
-            <th>Mode</th>
-            <th>Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {merchants.map((merchant) => (
-            <tr key={merchant.id}>
-              <td>
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${merchant.displayName}`}
-                  checked={selectedIds.has(merchant.id)}
-                  onChange={() => toggleSelected(merchant.id)}
-                />
-              </td>
-              <td>
-                <Link to={`/merchants/${merchant.id}`}>{merchant.displayName}</Link>
-                <div className="admin-muted">
-                  <code>{merchant.id}</code>
-                </div>
-              </td>
-              <td>{statusLabel(merchant.status)}</td>
-              <td>{statusLabel(merchant.onboardingStatus)}</td>
-              <td>{merchant.kycPassed ? "passed" : "not passed"}</td>
-              <td>{(merchant.mdrBps / 100).toFixed(2)}%</td>
-              <td>{merchant.testMode ? "test" : "live"}</td>
-              <td>{new Date(merchant.createdAt).toLocaleDateString()}</td>
-            </tr>
-          ))}
-          {merchants.length === 0 && !loading ? (
-            <tr>
-              <td colSpan={8}>No merchants match this search.</td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+        {error ? <p className="dash-error">{error}</p> : null}
+        {bulkNotice ? <p className="dash-notice">{bulkNotice}</p> : null}
 
-      {loading ? <p>Loading...</p> : null}
+        {selectedIds.size > 0 ? (
+          <div className="dash-form dash-form-inline">
+            <span>{selectedIds.size} selected</span>
+            <RequireRole allow={["finance", "super_admin"]}>
+              <button className="dash-button dash-button-primary" type="button" disabled={bulkBusy} onClick={() => void approveSelected()}>
+                Bulk approve KYC
+              </button>
+            </RequireRole>
+            <button className="dash-button dash-button-ghost" type="button" disabled={bulkBusy} onClick={() => setSelectedIds(new Set())}>
+              Clear selection
+            </button>
+          </div>
+        ) : null}
 
-      {nextCursor ? (
-        <button type="button" disabled={loading} onClick={() => void load(nextCursor)}>
-          Load more
-        </button>
-      ) : null}
+        <div className="dash-table-wrap">
+          <table className="dash-table">
+            <thead>
+              <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all loaded merchants"
+                    checked={allLoadedSelected}
+                    disabled={merchants.length === 0}
+                    onChange={toggleSelectAllLoaded}
+                  />
+                </th>
+                <th><ColumnHead icon={IconStore}>Merchant</ColumnHead></th>
+                <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                <th><ColumnHead icon={IconUser}>Onboarding</ColumnHead></th>
+                <th><ColumnHead icon={IconShield}>KYC</ColumnHead></th>
+                <th className="dash-num"><ColumnHead icon={IconPercent} align="right">MDR</ColumnHead></th>
+                <th><ColumnHead icon={IconLive}>Mode</ColumnHead></th>
+                <th><ColumnHead icon={IconCalendar}>Created</ColumnHead></th>
+              </tr>
+            </thead>
+            {loading && merchants.length === 0 ? <SkeletonRows rows={5} columns={8} /> : <tbody>
+              {merchants.map((merchant) => (
+                <tr key={merchant.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${merchant.displayName}`}
+                      checked={selectedIds.has(merchant.id)}
+                      onChange={() => toggleSelected(merchant.id)}
+                    />
+                  </td>
+                  <td>
+                    <Link to={`/merchants/${merchant.id}`}>{merchant.displayName}</Link>
+                    <div className="dash-muted">
+                      <code>{merchant.id}</code>
+                    </div>
+                  </td>
+                  <td>
+                    <StatusBadge status={merchant.status} />
+                  </td>
+                  <td>
+                    <StatusBadge status={merchant.onboardingStatus} />
+                  </td>
+                  <td>
+                    {merchant.kycPassed ? (
+                      <Tag tone="pos" icon={IconShield}>KYC passed</Tag>
+                    ) : (
+                      <Tag tone="warn" icon={IconShield}>KYC pending</Tag>
+                    )}
+                  </td>
+                  <td className="dash-num">{(merchant.mdrBps / 100).toFixed(2)}%</td>
+                  <td>
+                    {merchant.testMode ? (
+                      <Tag tone="neutral" icon={IconDoc}>Test</Tag>
+                    ) : (
+                      <Tag tone="pos" icon={IconLive}>Live</Tag>
+                    )}
+                  </td>
+                  <td>{formatDate(merchant.createdAt)}</td>
+                </tr>
+              ))}
+              {merchants.length === 0 && !loading ? (
+                <tr>
+                  <td className="dash-empty-cell" colSpan={8}>
+                    <EmptyState icon={IconUser}>No merchants match this search.</EmptyState>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>}
+          </table>
+        </div>
+
+        <div className="dash-pagination"><span>{merchants.length} merchants shown</span>      {nextCursor ? (
+          <button className="dash-button dash-button-ghost" type="button" disabled={loading} onClick={() => void load(nextCursor)}>
+            Load more
+          </button>
+        ) : null}</div>
+      </div>
     </section>
   );
 }

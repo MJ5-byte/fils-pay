@@ -1,8 +1,19 @@
+import {
+  EmptyState,
+  IconArrowLeft,
+  IconReplay,
+  IconSearch,
+  IconWebhooks,
+  PageHeader,
+  Skeleton,
+  StatusBadge,
+} from "@filspay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { getMerchant, listMerchants } from "../../api/merchants.js";
 import { replayBatch } from "../../api/webhooks.js";
 import { describeError } from "../../api/client.js";
+
 import type {
   AdminMerchantDetail,
   AdminMerchantSummary,
@@ -26,7 +37,7 @@ function toLocalInputValue(date: Date): string {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
-// default window is local time — am
+// default window is local time, am
 function defaultRange(): { from: string; to: string } {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -115,11 +126,10 @@ export function WebhookReplayPage() {
 
   if (!merchantId) {
     return (
-      <section>
-        <h1>Webhook replay</h1>
-        <p className="admin-muted">Pick the merchant whose endpoint needs a replay.</p>
-        {error ? <p className="admin-error">{error}</p> : null}
-        <form className="admin-form admin-form-inline" onSubmit={(e) => void handleSearch(e)}>
+      <section className="fp-page fp-stagger">
+        <PageHeader title="Webhook replay" lede={<> Pick the merchant whose endpoint needs a replay. </>} />
+        {error ? <p className="dash-error">{error}</p> : null}
+        <div className="fp-list-card"><form className="dash-form dash-form-inline" onSubmit={(e) => void handleSearch(e)}>
           <label>
             Search merchants
             <input
@@ -129,18 +139,20 @@ export function WebhookReplayPage() {
               placeholder="Display name, merchant id, or contact email"
             />
           </label>
-          <button type="submit">Search</button>
+          <button className="dash-button dash-button-primary" type="submit"><IconSearch /> Search</button>
         </form>
-        <ul>
-          {candidates.map((merchant) => (
-            <li key={merchant.id}>
-              <button type="button" onClick={() => navigate(`/webhooks/${merchant.id}`)}>
-                {merchant.displayName}
-              </button>{" "}
-              <code className="admin-muted">{merchant.id}</code>
-            </li>
-          ))}
-        </ul>
+          {candidates.length === 0 && !error ? <div className="dash-card"><EmptyState icon={IconSearch}>No merchants shown. Search by name or ID.</EmptyState></div> : null}
+          <ul className="fp-candidate-list">
+            {candidates.map((merchant) => (
+              <li key={merchant.id}>
+                <button className="dash-button" type="button" onClick={() => navigate(`/webhooks/${merchant.id}`)}>
+                  {merchant.displayName}
+                </button>{" "}
+                <code className="dash-muted">{merchant.id}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
       </section>
     );
   }
@@ -148,27 +160,22 @@ export function WebhookReplayPage() {
   const endpoints = detail?.webhookEndpoints ?? [];
 
   return (
-    <section>
-      <p>
-        <Link to="/webhooks">&larr; Pick a different merchant</Link>
-      </p>
-      <h1>Webhook replay</h1>
-      <p>
-        Merchant:{" "}
+    <section className="fp-page fp-stagger">
+      <PageHeader back={<Link className="dash-button dash-button-ghost" to="/webhooks"><IconArrowLeft /> Pick a different merchant</Link>} title="Webhook replay" lede={<> Merchant:{" "}
         {detail ? (
           <Link to={`/merchants/${merchantId}`}>{detail.merchant.displayName}</Link>
         ) : (
           <code>{merchantId}</code>
-        )}
-      </p>
+        )} </>} />
 
-      {error ? <p className="admin-error">{error}</p> : null}
+      {error ? <p className="dash-error">{error}</p> : null}
 
       {detail && endpoints.length === 0 ? (
-        <p className="admin-muted">This merchant has no webhook endpoints registered.</p>
+        <EmptyState icon={IconWebhooks}>This merchant has no webhook endpoints registered.</EmptyState>
       ) : null}
 
-      <form className="admin-form" onSubmit={(e) => void handleReplay(e)}>
+      {!detail && !error ? <div className="fp-loading"><Skeleton height={180} /></div> : null}
+      <form className="dash-form fp-form-card" onSubmit={(e) => void handleReplay(e)}>
         <label>
           Endpoint
           <select value={endpointId} onChange={(e) => setEndpointId(e.target.value)} required>
@@ -200,31 +207,36 @@ export function WebhookReplayPage() {
             onChange={(e) => setRange({ ...range, to: e.target.value })}
           />
         </label>
-        <fieldset className="admin-filters">
-          <legend>Delivery statuses to replay</legend>
-          {REPLAYABLE_STATUSES.map((status) => (
-            <label key={status}>
-              <input
-                type="checkbox"
-                checked={statuses.includes(status)}
-                onChange={() => toggleStatus(status)}
-              />
-              {status}
-            </label>
-          ))}
-          <p className="admin-muted">
-            Defaults to <code>exhausted</code> — the one terminal failure state the dispatcher
-            produces. Replaying a <code>succeeded</code> delivery is allowed but resends an event the
-            receiver already accepted.
-          </p>
-        </fieldset>
-        <button type="submit" disabled={busy || !endpointId}>
+        <div className="dash-toolbar">
+          <div>
+            <span className="dash-field-label">Delivery statuses to replay</span>
+            <div className="dash-chips">
+              {REPLAYABLE_STATUSES.map((status) => (
+                <label key={status} className={`dash-chip${statuses.includes(status) ? " dash-chip-on" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={statuses.includes(status)}
+                    onChange={() => toggleStatus(status)}
+                  />
+                  <StatusBadge status={status} />
+                </label>
+              ))}
+            </div>
+            <p className="dash-muted">
+              Defaults to <code>exhausted</code>, the one terminal failure state the dispatcher
+              produces. Replaying a <code>succeeded</code> delivery is allowed but resends an event the
+              receiver already accepted.
+            </p>
+          </div>
+        </div>
+        <button className="dash-button dash-button-primary" type="submit" disabled={busy || !endpointId}>
+          <IconReplay />
           {busy ? "Replaying..." : "Replay batch"}
         </button>
       </form>
 
       {result ? (
-        <div className="admin-notice">
+        <div className="dash-notice">
           <p>
             Matched {result.matchedCount} deliver{result.matchedCount === 1 ? "y" : "ies"}; queued{" "}
             {(result.replayedDeliveryIds ?? []).length} replay

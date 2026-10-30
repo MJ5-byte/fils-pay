@@ -6,6 +6,7 @@ import { RequireAdminAuth } from "./components/RequireAdminAuth.js";
 import { AdjustmentImportPage } from "./pages/adjustments/AdjustmentImportPage.js";
 import { CreditsPage } from "./pages/credits/CreditsPage.js";
 import { LoginPage } from "./pages/login/LoginPage.js";
+import { OverviewPage } from "./pages/overview/OverviewPage.js";
 import { MerchantListPage } from "./pages/merchants/MerchantListPage.js";
 import { MerchantDetailPage } from "./pages/merchants/MerchantDetailPage.js";
 import { SettlementPage } from "./pages/settlement/SettlementPage.js";
@@ -24,7 +25,8 @@ const routes: RouteObject[] = [
       </RequireAdminAuth>
     ),
     children: [
-      { path: "/", element: <Navigate to="/merchants" replace /> },
+      { path: "/", element: <Navigate to="/overview" replace /> },
+      { path: "/overview", element: <OverviewPage /> },
       { path: "/merchants", element: <MerchantListPage /> },
       { path: "/merchants/:id", element: <MerchantDetailPage /> },
       { path: "/credits", element: <CreditsPage /> },

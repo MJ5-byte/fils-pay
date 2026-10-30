@@ -1,3 +1,26 @@
+import {
+  ColumnHead,
+  EmptyState,
+  IconActivity,
+  IconArrowLeft,
+  IconBan,
+  IconCalendar,
+  IconClock,
+  IconCoins,
+  IconDoc,
+  IconKeyRound,
+  IconLinks,
+  IconLive,
+  IconPercent,
+  IconSettlement,
+  IconShield,
+  IconWallet,
+  IconWebhooks,
+  Money,
+  PageHeader,
+  Skeleton,
+  StatusBadge,
+  Tag, formatDate, formatDateTime, formatBusinessDate } from "@filspay/ui";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
@@ -10,14 +33,14 @@ import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+
 import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
-import { statusLabel } from "../../format.js";
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
 }
 
-// browser local date not bahrain, fine for bahrain staff — am
+// browser local date not bahrain, fine for bahrain staff, am
 function todayIso(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
@@ -80,9 +103,9 @@ export function MerchantDetailPage() {
         notes: kycNotes.trim() ? kycNotes.trim() : undefined,
       });
       setNotice(
-        `KYC ${outcome}. Onboarding status is now ${result.onboardingStatus} (kycPassed: ${String(
-          result.kycPassed,
-        )}).`,
+        `KYC ${outcome}. Onboarding is now ${result.onboardingStatus.replace(/_/g, " ")}${
+          result.kycPassed ? ", and the merchant has passed KYC." : "."
+        }`,
       );
       setKycNotes("");
       await load();
@@ -175,10 +198,9 @@ export function MerchantDetailPage() {
       }, crypto.randomUUID());
       setNotice(
         record.status === "posted"
-          ? `Credit of ${bhd(record.postedAmountFils)} posted to the ledger (entry group ${
-              record.ledgerEntryGroupId ?? "unknown"
-            }).`
-          : `Credit of ${bhd(record.postedAmountFils)} raised and awaiting a second approver — see Credits.`,
+          ? `Credit of ${bhd(record.postedAmountFils)} posted to the ledger (entry group ${record.ledgerEntryGroupId ?? "unknown"
+          }).`
+          : `Credit of ${bhd(record.postedAmountFils)} raised and awaiting a second approver, see Credits.`,
       );
       setCreditAmountBhd("");
       setCreditMemo("");
@@ -200,7 +222,7 @@ export function MerchantDetailPage() {
       const result = await recomputeTransactionStatuses(id);
       setNotice(
         `Scanned ${result.scanned} transaction${result.scanned === 1 ? "" : "s"}; ` +
-          `${result.updated} status${result.updated === 1 ? "" : "es"} updated.`,
+        `${result.updated} status${result.updated === 1 ? "" : "es"} updated.`,
       );
       await load();
     } catch (err) {
@@ -221,7 +243,7 @@ export function MerchantDetailPage() {
       const grant = await startImpersonation(id);
       rememberImpersonation({ ...grant, merchantDisplayName: detail.merchant.displayName });
       // The grant rides an httpOnly cookie set for apps/api's domain, which
-      // apps/web already sends with `credentials: 'include'` — so the
+      // apps/web already sends with `credentials: 'include'`, so the
       // merchant dashboard just works, unaware of how it was authenticated.
       // Opened in a second tab on purpose: this tab keeps showing the
       // impersonation banner and its exit action, which is the whole point
@@ -237,15 +259,16 @@ export function MerchantDetailPage() {
 
   if (loadError) {
     return (
-      <section>
-        <p className="admin-error">{loadError}</p>
-        <Link to="/merchants">Back to merchants</Link>
+      <section className="fp-page fp-stagger">
+        <PageHeader title="Merchant" />
+        <p className="dash-error">{loadError}</p>
+        <Link className="dash-button dash-button-ghost" to="/merchants"><IconArrowLeft /> Back to merchants</Link>
       </section>
     );
   }
 
   if (!detail) {
-    return <p>Loading merchant...</p>;
+    return <section className="fp-page fp-stagger"><PageHeader title="Merchant" /><div className="fp-loading" aria-label="Loading" aria-busy="true"><Skeleton height={28} width="45%" /><Skeleton height={72} /><Skeleton height={72} /></div></section>;
   }
 
   const { merchant } = detail;
@@ -256,426 +279,480 @@ export function MerchantDetailPage() {
   const batches = detail.recentSettlementBatches ?? [];
 
   return (
-    <section>
-      <p>
-        <Link to="/merchants">&larr; Merchants</Link>
-      </p>
-      <h1>{merchant.displayName}</h1>
-      <p className="admin-muted">
-        <code>{merchant.id}</code>
-      </p>
+    <section className="fp-page fp-stagger">
+      <PageHeader title={merchant.displayName} status={<StatusBadge status={merchant.status} />} lede={<code>{merchant.id}</code>} back={<Link to="/merchants"><IconArrowLeft /> Back</Link>} />
 
-      {actionError ? <p className="admin-error">{actionError}</p> : null}
-      {notice ? <p className="admin-notice">{notice}</p> : null}
+      {actionError ? <p className="dash-error">{actionError}</p> : null}
+      {notice ? <p className="dash-notice">{notice}</p> : null}
 
-      <h2>Profile</h2>
-      <dl className="admin-dl">
-        <dt>Status</dt>
-        <dd>{merchant.status}</dd>
-        <dt>Onboarding status</dt>
-        <dd>{statusLabel(merchant.onboardingStatus)}</dd>
-        <dt>KYC</dt>
-        <dd>{merchant.kycPassed ? "passed" : "not passed"}</dd>
-        <dt>MDR</dt>
-        <dd>
-          {(merchant.mdrBps / 100).toFixed(2)}% ({merchant.mdrBps} bps)
-        </dd>
-        <dt>Current negotiated rate</dt>
-        <dd>
-          {detail.currentFeeSchedule
-            ? `${(detail.currentFeeSchedule.mdrBps / 100).toFixed(2)}% (${detail.currentFeeSchedule.mdrBps} bps), effective ${new Date(detail.currentFeeSchedule.effectiveFrom).toLocaleDateString()}`
-            : "no negotiated schedule on file (uses MDR above)"}
-        </dd>
-        <dt>Mode</dt>
-        <dd>{merchant.testMode ? "test" : "live"}</dd>
-        <dt>Created</dt>
-        <dd>{new Date(merchant.createdAt).toLocaleString()}</dd>
-        {profile ? (
-          <>
-            <dt>Legal name</dt>
-            <dd>{profile.legalName}</dd>
-            <dt>Registration number</dt>
-            <dd>{profile.registrationNumber}</dd>
-            <dt>Business type</dt>
-            <dd>{profile.businessType}</dd>
-            <dt>Contact</dt>
+      <div className="dash-card">
+
+        {detail.balance ? (
+          <div className="fp-detail-amount"><span>Cached payable</span><Money fils={detail.balance.cachedPayableFils} size="hero" /><p className="fp-widget-description">Updated{" "}
+            {formatDateTime(detail.balance.updatedAt)}. The ledger remains authoritative;
+            this figure is a cache, rebuildable from Settlement ops.
+          </p></div>
+        ) : (
+          <EmptyState icon={IconCoins}>No cached balance row yet.</EmptyState>
+        )}
+
+        <div className="dash-card-head">
+          <h2 className="dash-card-title" style={{ margin: 0 }}>Profile</h2>
+        </div>
+        <dl className="dash-dl">
+          <div className="dash-fact"><dt>Status</dt>
             <dd>
-              {profile.contactEmail} / {profile.contactPhone}
-            </dd>
-            <dt>Address</dt>
+              <StatusBadge status={merchant.status} />
+            </dd></div>
+          <div className="dash-fact"><dt>Onboarding status</dt>
             <dd>
-              {profile.addressLine1}
-              {profile.addressLine2 ? `, ${profile.addressLine2}` : ""}, {profile.city}
-              {profile.postalCode ? ` ${profile.postalCode}` : ""}, {profile.country}
-            </dd>
-          </>
-        ) : null}
-      </dl>
-      {!profile ? <p className="admin-muted">No business profile submitted yet.</p> : null}
+              <StatusBadge status={merchant.onboardingStatus} />
+            </dd></div>
+          <div className="dash-fact"><dt>KYC</dt>
+            <dd>
+              {merchant.kycPassed ? (
+                <Tag tone="pos" icon={IconShield}>KYC passed</Tag>
+              ) : (
+                <Tag tone="warn" icon={IconShield}>KYC pending</Tag>
+              )}
+            </dd></div>
+          <div className="dash-fact"><dt>MDR</dt>
+            <dd>
+              {(merchant.mdrBps / 100).toFixed(2)}% ({merchant.mdrBps} bps)
+            </dd></div>
+          <div className="dash-fact"><dt>Current negotiated rate</dt>
+            <dd>
+              {detail.currentFeeSchedule
+                ? `${(detail.currentFeeSchedule.mdrBps / 100).toFixed(2)}% (${detail.currentFeeSchedule.mdrBps} bps), effective ${formatDate(detail.currentFeeSchedule.effectiveFrom)}`
+                : "no negotiated schedule on file (uses MDR above)"}
+            </dd></div>
+          <div className="dash-fact"><dt>Mode</dt>
+            <dd>
+              {merchant.testMode ? (
+                <Tag tone="neutral" icon={IconDoc}>Test</Tag>
+              ) : (
+                <Tag tone="pos" icon={IconLive}>Live</Tag>
+              )}
+            </dd></div>
+          <div className="dash-fact"><dt>Created</dt>
+            <dd>{formatDateTime(merchant.createdAt)}</dd></div>
+          {profile ? (
+            <>
+              <div className="dash-fact"><dt>Legal name</dt>
+                <dd>{profile.legalName}</dd></div>
+              <div className="dash-fact"><dt>Registration number</dt>
+                <dd>{profile.registrationNumber}</dd></div>
+              <div className="dash-fact"><dt>Business type</dt>
+                <dd>{profile.businessType}</dd></div>
+              <div className="dash-fact"><dt>Contact</dt>
+                <dd>
+                  {profile.contactEmail} / {profile.contactPhone}
+                </dd></div>
+              <div className="dash-fact"><dt>Address</dt>
+                <dd>
+                  {profile.addressLine1}
+                  {profile.addressLine2 ? `, ${profile.addressLine2}` : ""}, {profile.city}
+                  {profile.postalCode ? ` ${profile.postalCode}` : ""}, {profile.country}
+                </dd></div>
+            </>
+          ) : null}
+        </dl>
+        {!profile ? <EmptyState icon={IconDoc}>No business profile submitted yet.</EmptyState> : null}
+      </div>
 
-      <h2>Balance</h2>
-      {detail.balance ? (
-        <p>
-          Cached payable: <strong>{bhd(detail.balance.cachedPayableFils)}</strong> (updated{" "}
-          {new Date(detail.balance.updatedAt).toLocaleString()}). The ledger remains authoritative;
-          this figure is a cache, rebuildable from Settlement ops.
-        </p>
-      ) : (
-        <p className="admin-muted">No cached balance row yet.</p>
-      )}
-
-      <h2>Adjust balance</h2>
-      <p className="admin-muted">
-        A direct correction to this merchant&apos;s cached payable balance, for when support has
-        confirmed the figure on screen is wrong and it needs to be right now rather than after the
-        next settlement cycle. Requires the <code>finance</code> or <code>super_admin</code> role.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role is read-only for balance corrections. Ask a finance admin.
+      <div className="fp-section-grid fp-stagger">
+        <section className="dash-card fp-section"><h2>Adjust balance</h2>
+          <p className="dash-muted">
+            A direct correction to this merchant&apos;s cached payable balance, for when support has
+            confirmed the figure on screen is wrong and it needs to be right now rather than after the
+            next settlement cycle. Finance operators only.
           </p>
-        }
-      >
-        <div className="admin-form">
-          <label>
-            Amount in BHD (negative to take money back)
-            <input
-              value={adjustDeltaFils}
-              onChange={(e) => setAdjustDeltaFils(e.target.value)}
-              inputMode="text"
-              placeholder="0.000"
-            />
-          </label>
-          <label>
-            Reason
-            <input
-              value={adjustReason}
-              onChange={(e) => setAdjustReason(e.target.value)}
-              placeholder="phone confirmation with merchant"
-            />
-          </label>
-          <div>
-            <button
-              type="button"
-              disabled={busy || !adjustDeltaFils.trim() || !adjustReason.trim()}
-              onClick={() => void handleAdjustBalance()}
-            >
-              Adjust balance
-            </button>
-          </div>
-        </div>
-      </RequireRole>
-
-      <h2>Issue credit</h2>
-      <p className="admin-muted">
-        Journals a manual credit to this merchant&apos;s payable balance. Above the approval limit
-        it waits in <Link to="/credits">Credits</Link> for a second finance operator; at or below
-        it, it posts immediately. The effective date is the accounting date the ledger legs are
-        booked against.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role cannot issue credits. Ask a finance admin.
-          </p>
-        }
-      >
-        <form className="admin-form" onSubmit={(e) => void handleIssueCredit(e)}>
-          <label>
-            Amount (BD, up to 3 decimals)
-            <input
-              type="text"
-              required
-              placeholder="50.000"
-              value={creditAmountBhd}
-              onChange={(e) => setCreditAmountBhd(e.target.value)}
-            />
-          </label>
-          {creditAmountError ? <p className="admin-error">{creditAmountError}</p> : null}
-          <label>
-            Reason
-            <select
-              value={creditReason}
-              onChange={(e) => setCreditReason(e.target.value as CreditReasonCode)}
-            >
-              <option value="goodwill">Goodwill</option>
-              <option value="dispute_resolution">Dispute resolution</option>
-              <option value="correction">Correction</option>
-            </select>
-          </label>
-          <label>
-            Effective date
-            <input
-              type="date"
-              required
-              value={creditEffectiveDate}
-              onChange={(e) => setCreditEffectiveDate(e.target.value)}
-            />
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={creditReverseFee}
-              onChange={(e) => setCreditReverseFee(e.target.checked)}
-            />{" "}
-            Also reverse the MDR on this amount ({((detail.currentFeeSchedule?.mdrBps ?? merchant.mdrBps) / 100).toFixed(2)}% today, before any negotiated discount)
-          </label>
-          <label>
-            Memo (optional)
-            <textarea value={creditMemo} onChange={(e) => setCreditMemo(e.target.value)} rows={2} />
-          </label>
-          <button type="submit" disabled={busy}>
-            {busy ? "Submitting..." : "Issue credit"}
-          </button>
-        </form>
-      </RequireRole>
-
-      <h2>KYC review</h2>
-      <p className="admin-muted">
-        Approving or rejecting requires the <code>finance</code> or <code>super_admin</code> role;
-        the API enforces it and answers <code>403</code> otherwise.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role is read-only for KYC decisions. Ask a finance admin to review.
-          </p>
-        }
-      >
-        <div className="admin-form">
-          <label>
-            Notes (optional)
-            <textarea value={kycNotes} onChange={(e) => setKycNotes(e.target.value)} rows={3} />
-          </label>
-          <div>
-            <button type="button" disabled={busy} onClick={() => void handleKycReview("approved")}>
-              Approve KYC
-            </button>{" "}
-            <button type="button" disabled={busy} onClick={() => void handleKycReview("rejected")}>
-              Reject KYC
-            </button>
-          </div>
-        </div>
-      </RequireRole>
-
-      <h3>Review history</h3>
-      {kycReviews.length === 0 ? (
-        <p className="admin-muted">No reviews recorded.</p>
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Outcome</th>
-              <th>Reviewer</th>
-              <th>Notes</th>
-              <th>Reviewed at</th>
-            </tr>
-          </thead>
-          <tbody>
-            {kycReviews.map((review) => (
-              <tr key={review.id}>
-                <td>{review.outcome}</td>
-                <td>{review.reviewerIdentifier}</td>
-                <td>{review.notes ?? "-"}</td>
-                <td>{new Date(review.reviewedAt).toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h2>API keys</h2>
-      {rotatedKey ? (
-        <div className="admin-notice">
-          <p>
-            <strong>New key issued — copy it now.</strong> This value is shown once and is not
-            recoverable afterwards.
-          </p>
-          <p>
-            <code>{rotatedKey.rawKey}</code>
-          </p>
-          <p className="admin-muted">
-            New key id <code>{rotatedKey.id}</code>, replacing previous key{" "}
-            <code>{rotatedKey.previousKeyId}</code>.
-          </p>
-          <button type="button" onClick={() => setRotatedKey(null)}>
-            Dismiss
-          </button>
-        </div>
-      ) : null}
-
-      {apiKeys.length === 0 ? (
-        <p className="admin-muted">No API keys.</p>
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Prefix</th>
-              <th>Label</th>
-              <th>Created</th>
-              <th>Last used</th>
-              <th>Revoked</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {apiKeys.map((key) => (
-              <tr key={key.id}>
-                <td>
-                  <code>{key.prefix}</code>
-                </td>
-                <td>{key.label ?? "-"}</td>
-                <td>{new Date(key.createdAt).toLocaleDateString()}</td>
-                <td>{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "never"}</td>
-                <td>{key.revokedAt ? new Date(key.revokedAt).toLocaleString() : "-"}</td>
-                <td>
-                  {key.revokedAt ? null : (
-                    <RequireRole
-                      allow={["finance", "super_admin"]}
-                      fallback={<span className="admin-muted">finance role required</span>}
-                    >
-                      <button type="button" onClick={() => setPendingRotation(key.id)}>
-                        Rotate
-                      </button>
-                    </RequireRole>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {pendingRotation ? (
-        <div className="admin-confirm">
-          <p>
-            <strong>Rotate this API key?</strong> The current key is revoked and a replacement is
-            issued in the same transaction, so the merchant is never left without a working key —
-            but any integration still sending the old key will start failing immediately.
-          </p>
-          <label>
-            Label for the new key (optional)
-            <input
-              type="text"
-              value={rotationLabel}
-              onChange={(e) => setRotationLabel(e.target.value)}
-            />
-          </label>
-          <button type="button" disabled={busy} onClick={() => void handleRotate(pendingRotation)}>
-            {busy ? "Rotating..." : "Yes, rotate it"}
-          </button>{" "}
-          <button
-            type="button"
-            onClick={() => {
-              setPendingRotation(null);
-              setRotationLabel("");
-            }}
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="dash-muted">
+                Your role is read-only for balance corrections. Ask a finance admin.
+              </p>
+            }
           >
-            Cancel
-          </button>
-        </div>
-      ) : null}
+            <div className="dash-form">
+              <label>
+                Amount in BHD (negative to take money back)
+                <input
+                  value={adjustDeltaFils}
+                  onChange={(e) => setAdjustDeltaFils(e.target.value)}
+                  inputMode="text"
+                  placeholder="0.000"
+                />
+              </label>
+              <label>
+                Reason
+                <input
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  placeholder="phone confirmation with merchant"
+                />
+              </label>
+              <div className="dash-actions">
+                <button
+                  className="dash-button dash-button-primary"
+                  type="button"
+                  disabled={busy || !adjustDeltaFils.trim() || !adjustReason.trim()}
+                  onClick={() => void handleAdjustBalance()}
+                >
+                  Adjust balance
+                </button>
+              </div>
+            </div>
+          </RequireRole>
 
-      <h2>Webhook endpoints</h2>
-      {webhookEndpoints.length === 0 ? (
-        <p className="admin-muted">No endpoints registered.</p>
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>URL</th>
-              <th>Status</th>
-              <th>Secret prefix</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {webhookEndpoints.map((endpoint) => (
-              <tr key={endpoint.id}>
-                <td>{endpoint.url}</td>
-                <td>{statusLabel(endpoint.status)}</td>
-                <td>
-                  <code>{endpoint.secretPrefix}</code>
-                </td>
-                <td>{new Date(endpoint.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <p>
-        <Link to={`/webhooks/${merchant.id}`}>Replay a batch of deliveries for this merchant</Link>
-      </p>
-
-      <h2>Recent settlement batches</h2>
-      {batches.length === 0 ? (
-        <p className="admin-muted">No batches yet.</p>
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Status</th>
-              <th>Gross</th>
-              <th>Fee</th>
-              <th>Net payout</th>
-            </tr>
-          </thead>
-          <tbody>
-            {batches.map((batch) => (
-              <tr key={batch.id}>
-                <td>{batch.batchDate}</td>
-                <td>{statusLabel(batch.status)}</td>
-                <td>{bhd(batch.grossFils)}</td>
-                <td>{bhd(batch.feeFils)}</td>
-                <td>{bhd(batch.netPayoutFils)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h2>Recompute transaction statuses</h2>
-      <p className="admin-muted">
-        Re-derives this merchant&apos;s transaction statuses from their own captured/refunded
-        amounts. Rows written before the refunds release can carry a status that predates the
-        derivation rule; this backfills them. Rows that already agree are left alone.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role cannot run this backfill. Ask a finance admin.
+        </section>
+        <section className="dash-card fp-section"><h2>Issue credit</h2>
+          <p className="dash-muted">
+            Journals a manual credit to this merchant&apos;s payable balance. Above the approval limit
+            it waits in <Link to="/credits">Credits</Link> for a second finance operator; at or below
+            it, it posts immediately. The effective date is the accounting date the ledger legs are
+            booked against.
           </p>
-        }
-      >
-        <button type="button" disabled={busy} onClick={() => void handleRecomputeStatuses()}>
-          {busy ? "Working..." : "Recompute statuses"}
-        </button>
-      </RequireRole>
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="dash-muted">
+                Your role cannot issue credits. Ask a finance admin.
+              </p>
+            }
+          >
+            <form className="dash-form" onSubmit={(e) => void handleIssueCredit(e)}>
+              <label>
+                Amount (BHD, up to 3 decimals)
+                <input
+                  type="text"
+                  required
+                  placeholder="50.000"
+                  value={creditAmountBhd}
+                  onChange={(e) => setCreditAmountBhd(e.target.value)}
+                />
+              </label>
+              {creditAmountError ? <p className="dash-error">{creditAmountError}</p> : null}
+              <label>
+                Reason
+                <select
+                  value={creditReason}
+                  onChange={(e) => setCreditReason(e.target.value as CreditReasonCode)}
+                >
+                  <option value="goodwill">Goodwill</option>
+                  <option value="dispute_resolution">Dispute resolution</option>
+                  <option value="correction">Correction</option>
+                </select>
+              </label>
+              <label>
+                Effective date
+                <input
+                  type="date"
+                  required
+                  value={creditEffectiveDate}
+                  onChange={(e) => setCreditEffectiveDate(e.target.value)}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={creditReverseFee}
+                  onChange={(e) => setCreditReverseFee(e.target.checked)}
+                />{" "}
+                Also reverse the MDR on this amount ({((detail.currentFeeSchedule?.mdrBps ?? merchant.mdrBps) / 100).toFixed(2)}% today, before any negotiated discount)
+              </label>
+              <label>
+                Memo (optional)
+                <textarea value={creditMemo} onChange={(e) => setCreditMemo(e.target.value)} rows={2} />
+              </label>
+              <button className="dash-button dash-button-primary" type="submit" disabled={busy}>
+                {busy ? "Submitting..." : "Issue credit"}
+              </button>
+            </form>
+          </RequireRole>
 
-      <h2>View as merchant</h2>
-      <p className="admin-muted">
-        Starts a short-lived, audited impersonation grant. It always acts with this merchant&apos;s
-        least-privileged <code>support</code> role — never with your admin role — and it expires on
-        its own. A banner stays on screen until you exit it.
-      </p>
-      <button type="button" disabled={busy} onClick={() => void handleImpersonate()}>
-        View as merchant
-      </button>
-      {impersonationUrl ? (
-        <p>
-          Your browser blocked the new tab —{" "}
-          <a href={impersonationUrl} target="_blank" rel="noreferrer">
-            open the merchant dashboard
-          </a>
-          .
-        </p>
-      ) : null}
+        </section>
+        <section className="dash-card fp-section"><h2>KYC review</h2>
+          <p className="dash-muted">
+            Finance operators approve or reject.
+          </p>
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="dash-muted">
+                Your role is read-only for KYC decisions. Ask a finance admin to review.
+              </p>
+            }
+          >
+            <div className="dash-form">
+              <label>
+                Notes (optional)
+                <textarea value={kycNotes} onChange={(e) => setKycNotes(e.target.value)} rows={3} />
+              </label>
+              <div className="dash-actions">
+                <button className="dash-button dash-button-primary" type="button" disabled={busy} onClick={() => void handleKycReview("approved")}>
+                  Approve KYC
+                </button>{" "}
+                <button className="dash-button dash-button-danger" type="button" disabled={busy} onClick={() => void handleKycReview("rejected")}>
+                  Reject KYC
+                </button>
+              </div>
+            </div>
+          </RequireRole>
+
+          <h3>Review history</h3>
+          {kycReviews.length === 0 ? <EmptyState icon={IconShield}>No reviews recorded.</EmptyState> : <ol className="fp-timeline">
+            {kycReviews.map((review) => <li key={review.id}>
+              <div><StatusBadge status={review.outcome} /><div className="fp-timeline-meta">{review.reviewerIdentifier}</div></div>
+              <time>{formatDateTime(review.reviewedAt)}</time>
+              <div>{review.notes ?? "-"}</div>
+            </li>)}
+          </ol>}
+
+        </section>
+        <section className="dash-card fp-section"><h2>API keys</h2>
+          {rotatedKey ? (
+            <div className="dash-notice">
+              <p>
+                <strong>New key issued, copy it now.</strong> This value is shown once and is not
+                recoverable afterwards.
+              </p>
+              <p>
+                <code>{rotatedKey.rawKey}</code>
+              </p>
+              <p className="dash-muted">
+                New key id <code>{rotatedKey.id}</code>, replacing previous key{" "}
+                <code>{rotatedKey.previousKeyId}</code>.
+              </p>
+              <button className="dash-button dash-button-ghost" type="button" onClick={() => setRotatedKey(null)}>
+                Dismiss
+              </button>
+            </div>
+          ) : null}
+
+          {apiKeys.length === 0 ? (
+            <div className="dash-table-wrap">
+              <table className="dash-table">
+                <tbody>
+                  <tr>
+                    <td className="dash-empty-cell" colSpan={6}>
+                      <EmptyState icon={IconDoc}>No API keys.</EmptyState>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="dash-table-wrap">
+              <table className="dash-table">
+                <thead>
+                  <tr>
+                    <th><ColumnHead icon={IconKeyRound}>Prefix</ColumnHead></th>
+                    <th><ColumnHead icon={IconDoc}>Label</ColumnHead></th>
+                    <th><ColumnHead icon={IconCalendar}>Created</ColumnHead></th>
+                    <th><ColumnHead icon={IconClock}>Last Used</ColumnHead></th>
+                    <th><ColumnHead icon={IconBan}>Revoked</ColumnHead></th>
+                    <th><ColumnHead icon={IconActivity}>Actions</ColumnHead></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {apiKeys.map((key) => (
+                    <tr key={key.id}>
+                      <td>
+                        <code>{key.prefix}</code>
+                      </td>
+                      <td>{key.label ?? "-"}</td>
+                      <td>{formatDate(key.createdAt)}</td>
+                      <td>{key.lastUsedAt ? formatDateTime(key.lastUsedAt) : "never"}</td>
+                      <td>{key.revokedAt ? formatDateTime(key.revokedAt) : "-"}</td>
+                      <td>
+                        {key.revokedAt ? null : (
+                          <RequireRole
+                            allow={["finance", "super_admin"]}
+                            fallback={<span className="dash-muted">finance role required</span>}
+                          >
+                            <button className="dash-button" type="button" onClick={() => setPendingRotation(key.id)}>
+                              Rotate
+                            </button>
+                          </RequireRole>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {pendingRotation ? (
+            <div className="dash-confirm dash-form">
+              <p>
+                <strong>Rotate this API key?</strong> The current key is revoked and a replacement is
+                issued in the same transaction, so the merchant is never left without a working key,
+                but any integration still sending the old key will start failing immediately.
+              </p>
+              <label>
+                Label for the new key (optional)
+                <input
+                  type="text"
+                  value={rotationLabel}
+                  onChange={(e) => setRotationLabel(e.target.value)}
+                />
+              </label>
+              <div className="dash-actions" style={{ margin: 0 }}>
+                <button className="dash-button dash-button-primary" type="button" disabled={busy} onClick={() => void handleRotate(pendingRotation)}>
+                  {busy ? "Rotating..." : "Yes, rotate it"}
+                </button>{" "}
+                <button
+                  className="dash-button dash-button-ghost"
+                  type="button"
+                  onClick={() => {
+                    setPendingRotation(null);
+                    setRotationLabel("");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+        </section>
+        <section className="dash-card fp-section"><h2>Webhook endpoints</h2>
+          {webhookEndpoints.length === 0 ? (
+            <div className="dash-table-wrap">
+              <table className="dash-table">
+                <tbody>
+                  <tr>
+                    <td className="dash-empty-cell" colSpan={4}>
+                      <EmptyState icon={IconWebhooks}>No endpoints registered.</EmptyState>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="dash-table-wrap">
+              <table className="dash-table">
+                <thead>
+                  <tr>
+                    <th><ColumnHead icon={IconLinks}>URL</ColumnHead></th>
+                    <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                    <th><ColumnHead icon={IconKeyRound}>Secret Prefix</ColumnHead></th>
+                    <th><ColumnHead icon={IconCalendar}>Created</ColumnHead></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {webhookEndpoints.map((endpoint) => (
+                    <tr key={endpoint.id}>
+                      <td>{endpoint.url}</td>
+                      <td>
+                        <StatusBadge status={endpoint.status} />
+                      </td>
+                      <td>
+                        <code>{endpoint.secretPrefix}</code>
+                      </td>
+                      <td>{formatDate(endpoint.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p>
+            <Link to={`/webhooks/${merchant.id}`}>Replay a batch of deliveries for this merchant</Link>
+          </p>
+
+        </section>
+        <section className="dash-card fp-section"><h2>Recent settlement batches</h2>
+          {batches.length === 0 ? (
+            <div className="dash-table-wrap">
+              <table className="dash-table">
+                <tbody>
+                  <tr>
+                    <td className="dash-empty-cell" colSpan={5}>
+                      <EmptyState icon={IconSettlement}>No batches yet.</EmptyState>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="dash-table-wrap">
+              <table className="dash-table">
+                <thead>
+                  <tr>
+                    <th><ColumnHead icon={IconCalendar}>Date</ColumnHead></th>
+                    <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                    <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Gross</ColumnHead></th>
+                    <th className="dash-num"><ColumnHead icon={IconPercent} align="right">Fee</ColumnHead></th>
+                    <th className="dash-num"><ColumnHead icon={IconWallet} align="right">Net Payout</ColumnHead></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((batch) => (
+                    <tr key={batch.id}>
+                      <td>{formatBusinessDate(batch.batchDate)}</td>
+                      <td>
+                        <StatusBadge status={batch.status} />
+                      </td>
+                      <td className="dash-num">
+                        <Money fils={batch.grossFils} />
+                      </td>
+                      <td className="dash-num">
+                        <Money fils={batch.feeFils} />
+                      </td>
+                      <td className="dash-num">
+                        <Money fils={batch.netPayoutFils} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+        </section>
+        <section className="dash-card fp-section"><h2>Recompute transaction statuses</h2>
+          <p className="dash-muted">
+            Re-derives this merchant&apos;s transaction statuses from their own captured/refunded
+            amounts. Rows written before the refunds release can carry a status that predates the
+            derivation rule; this backfills them. Rows that already agree are left alone.
+          </p>
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="dash-muted">
+                Your role cannot run this backfill. Ask a finance admin.
+              </p>
+            }
+          >
+            <button className="dash-button" type="button" disabled={busy} onClick={() => void handleRecomputeStatuses()}>
+              {busy ? "Working..." : "Recompute statuses"}
+            </button>
+          </RequireRole>
+
+        </section>
+        <section className="dash-card fp-section"><h2>View as merchant</h2>
+          <p className="dash-muted">
+            Starts a short-lived, audited impersonation grant. It always acts with this merchant&apos;s
+            least-privileged <code>support</code> role, never with your admin role, and it expires on
+            its own. A banner stays on screen until you exit it.
+          </p>
+          <button className="dash-button" type="button" disabled={busy} onClick={() => void handleImpersonate()}>
+            View as merchant
+          </button>
+          {impersonationUrl ? (
+            <p>
+              Your browser blocked the new tab –{" "}
+              <a href={impersonationUrl} target="_blank" rel="noreferrer">
+                open the merchant dashboard
+              </a>
+              .
+            </p>
+          ) : null}
+        </section></div>
     </section>
   );
 }

@@ -5,7 +5,8 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "node"],
     "paths": {
-      "@filspay/money": ["../../packages/money/src/index.ts"]
+      "@filspay/money": ["../../packages/money/src/index.ts"],
+      "@filspay/ui": ["../../packages/ui/src/index.ts"]
     }
   },
   "include": ["src"]

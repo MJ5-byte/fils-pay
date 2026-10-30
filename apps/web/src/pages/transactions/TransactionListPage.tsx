@@ -1,9 +1,22 @@
+import {
+  ColumnHead,
+  IconCalendar,
+  IconClock,
+  IconCoins,
+  IconHash,
+  PageHeader,
+  SkeletonRows,
+} from "@filspay/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listTransactions } from "../../api/transactions.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
-import { bhd, dash, dateTime, dayStartIso, statusLabel } from "../../format.js";
+import { Money } from "../../components/Money.js";
+import { StatusBadge } from "../../components/StatusBadge.js";
+import { EmptyState } from "../../components/EmptyState.js";
+import { IconSearch } from "../../components/icons.js";
+import { dash, dateTime, dayStartIso } from "../../format.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
 
@@ -17,12 +30,22 @@ const STATUSES: TransactionStatus[] = [
   "chargeback",
 ];
 
+/** The server enum value turned into a human label, Title Cased, with the
+ *  machine underscore gone. No label map, so a value outside this set still
+ *  reads as its own Title Cased words rather than a raw key. */
+function statusLabel(status: string): string {
+  return status
+    .split("_")
+    .map((word) => (word.length === 0 ? word : word[0]!.toUpperCase() + word.slice(1)))
+    .join(" ");
+}
+
 const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * `GET /v1/transactions`. Every control here is a real server-side
- * query param — nothing fetches an unfiltered page and narrows it in the
+ * query param: nothing fetches an unfiltered page and narrows it in the
  * browser, which would both lie about the result count and break pagination.
  */
 export function TransactionListPage() {
@@ -37,7 +60,7 @@ export function TransactionListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Debounce only the text box — the checkbox/date controls fire immediately,
+  // Debounce only the text box: the chip/date controls fire immediately,
   // since those are discrete choices, not a stream of keystrokes.
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
@@ -91,91 +114,106 @@ export function TransactionListPage() {
   }
 
   return (
-    <section>
-      <h1>Transactions</h1>
+    <section className="fp-page fp-stagger">
+      <PageHeader title="Transactions" lede={<> Every authorization, capture, void and refund on your account. </>} />
 
-      <fieldset className="dash-filters">
-        <legend>Status</legend>
-        {STATUSES.map((status) => (
-          <label key={status}>
-            <input
-              type="checkbox"
-              checked={statuses.includes(status)}
-              onChange={() => toggleStatus(status)}
-            />
-            {status}
+      <div className="fp-list-card">
+        <div className="dash-toolbar">
+          <div className="dash-toolbar-grow">
+            <span className="dash-field-label">Search</span>
+            <label className="fp-search"><IconSearch />
+              <input
+                type="search"
+                placeholder="Reference or transaction ID"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+
+              />
+            </label>
+          </div>
+          <label>
+            From
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
           </label>
-        ))}
-      </fieldset>
-
-      <fieldset className="dash-filters">
-        <legend>Filter</legend>
-        <label>
-          From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label>
-          {/* Exclusive, because the endpoint's own predicate is
-              `occurred_at < to` — labelled rather than quietly shifted by a
+          <label>
+            {/* Exclusive, because the endpoint's own predicate is
+              `occurred_at < to`, labelled rather than quietly shifted by a
               day here, which would make this page and the API disagree about
               what a filter means. */}
-          To (exclusive)
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
-        <label>
-          Search
-          <input
-            type="search"
-            placeholder="Reference, acquirer reference, or transaction id"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-        </label>
-      </fieldset>
+            To (exclusive)
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </div>
 
-      {error ? <p className="dash-error">{error}</p> : null}
+        <div className="fp-filter-block">
+          <span className="dash-field-label">Status</span>
+          <div className="dash-chips">
+            {STATUSES.map((status) => (
+              <label
+                key={status}
+                className={classNames("dash-chip", statuses.includes(status) && "dash-chip-on")}
+              >
+                <input
+                  type="checkbox"
+                  checked={statuses.includes(status)}
+                  onChange={() => toggleStatus(status)}
+                />
+                <StatusBadge status={status} />
+              </label>
+            ))}
+          </div>
+        </div>
 
-      <p>{pluralize(transactions.length, "transaction")} loaded</p>
+        {error ? <p className="dash-error">{error}</p> : null}
 
-      <table className="dash-table">
-        <thead>
-          <tr>
-            <th>Occurred</th>
-            <th>Reference</th>
-            <th>Status</th>
-            <th>Authorized</th>
-            <th>Captured</th>
-            <th>Acquirer reference</th>
-          </tr>
-        </thead>
-        <tbody>
-          {transactions.map((txn) => (
-            <tr key={txn.id}>
-              <td>
-                <Link to={`/dashboard/transactions/${txn.id}`}>{dateTime(txn.occurredAt)}</Link>
-              </td>
-              <td>{dash(txn.reference)}</td>
-              <td>
-                <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{statusLabel(txn.status)}</span>
-              </td>
-              <td>{bhd(txn.amountFils)}</td>
-              <td>{bhd(txn.capturedFils)}</td>
-              <td>
-                <code>{truncateMiddle(txn.acquirerReference, 20)}</code>
-              </td>
-            </tr>
-          ))}
-          {transactions.length === 0 && !loading ? (
-            <tr>
-              <td colSpan={6}>No transactions match these filters.</td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
+        <div className="dash-table-wrap">
+          <table className="dash-table">
+            <thead>
+              <tr>
+                <th><ColumnHead icon={IconCalendar}>Occurred</ColumnHead></th>
+                <th><ColumnHead icon={IconHash}>Reference</ColumnHead></th>
+                <th><ColumnHead icon={IconClock}>Status</ColumnHead></th>
+                <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Authorized</ColumnHead></th>
+                <th className="dash-num"><ColumnHead icon={IconCoins} align="right">Captured</ColumnHead></th>
+                <th><ColumnHead icon={IconHash}>Acquirer Reference</ColumnHead></th>
+              </tr>
+            </thead>
+            {loading && transactions.length === 0 ? <SkeletonRows rows={5} columns={6} /> : <tbody>
+              {transactions.map((txn) => (
+                <tr key={txn.id}>
+                  <td>
+                    <Link to={`/dashboard/transactions/${txn.id}`}>{dateTime(txn.occurredAt)}</Link>
+                  </td>
+                  <td>{dash(txn.reference)}</td>
+                  <td>
+                    <StatusBadge status={txn.status} />
+                  </td>
+                  <td className="dash-num">
+                    <Money fils={txn.amountFils} />
+                  </td>
+                  <td className="dash-num">
+                    <Money fils={txn.capturedFils} />
+                  </td>
+                  <td>
+                    <code>{truncateMiddle(txn.acquirerReference, 20)}</code>
+                  </td>
+                </tr>
+              ))}
+              {transactions.length === 0 && !loading ? (
+                <tr>
+                  <td className="dash-empty-cell" colSpan={6}>
+                    <EmptyState icon={IconSearch}>No transactions match these filters.</EmptyState>
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>}
+          </table>
+        </div>
 
-      {loading ? <p>Loading...</p> : null}
-
-      <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
+        <div className="dash-pagination"><span>{transactions.length === 0 ? "0 results" : `Showing 1 to ${transactions.length}${nextCursor ? ", more available" : ""}`}</span>
+          <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
+        </div>
+      </div>
     </section>
   );
 }

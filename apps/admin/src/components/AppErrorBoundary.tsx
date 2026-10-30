@@ -17,7 +17,7 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, { faile
     if (!this.state.failed) return this.props.children;
     return (
       <main className="admin-centered">
-        <p className="admin-error">Something went wrong on this page.</p>
+        <p className="dash-error">Something went wrong on this page.</p>
         <a href={window.location.href}>Reload the page</a>
       </main>
     );

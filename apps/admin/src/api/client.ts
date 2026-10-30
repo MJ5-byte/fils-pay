@@ -62,12 +62,12 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
 
 /** Plain-language copy for the error codes the API answers with. */
 const ERROR_COPY: Record<string, string> = {
-  invalid_credentials: "Those details do not match an account. Check them and try again.",
+  invalid_credentials: "Those details do not match an account.",
   invalid_code: "That code is wrong or has expired. Check it and try again.",
   too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
   too_many_login_attempts: "Too many failed sign-in attempts. Wait 15 minutes and try again.",
   resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
-  adjustment_needs_second_approver: "Adjustments above 50.000 BD need a second approver. Post this one as a manual credit instead.",
+  adjustment_needs_second_approver: "Adjustments above 50.000 BHD need a second approver. Post this one as a manual credit instead.",
   invalid_amount: "Enter a positive amount in BHD with up to 3 decimals.",
   invalid_csv_header: "The first line of the CSV must be merchantId,amount,reason.",
   invalid_memo: "Shorten the memo and try again.",

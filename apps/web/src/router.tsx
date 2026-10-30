@@ -23,8 +23,9 @@ import { OverviewPage } from "./pages/overview/OverviewPage.js";
 // MK: /refunds route removed until FP-212
 const routes: RouteObject[] = [
   { path: "/pay/:token", element: <CheckoutPage /> },
-  // The bare root has no page of its own; send it to the dashboard, which
-  // shows the login form to anyone not signed in.
+  // The root opens the dashboard: an unauthenticated visitor lands on login
+  // through the guard below, rather than on a bare router 404. This is also
+  // where an admin "view as merchant" grant sends the operator.
   { path: "/", element: <Navigate to="/dashboard" replace /> },
 
   {

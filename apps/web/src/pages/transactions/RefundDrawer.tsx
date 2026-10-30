@@ -1,3 +1,7 @@
+import {
+  IconReturn,
+  IconX,
+} from "@filspay/ui";
 import { useRef, useState } from "react";
 import { refundTransaction } from "../../api/transactions.js";
 import { ApiError, describeError } from "../../api/client.js";
@@ -69,10 +73,10 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
 
   return (
     <RequireRole allow={["owner", "finance"]}>
-      <div className="dash-actions">
+      <div className="fp-refund-action">
         {error ? <p className="dash-error">{error}</p> : null}
         {open ? (
-          <form className="dash-form dash-form-inline" onSubmit={(e) => void handleRefund(e)}>
+          <form className="dash-form fp-form-card fp-action-form" onSubmit={(e) => void handleRefund(e)}>
             <label>
               Amount in BHD (blank refunds everything still refundable)
               <input
@@ -84,16 +88,16 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
               />
             </label>
             <p className="dash-muted">Still refundable: {bhd(refundableFils)}</p>
-            <button type="submit" className="dash-button" disabled={submitting}>
-              {submitting ? "Refunding..." : "Refund"}
+            <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+              <IconReturn />{submitting ? "Refunding..." : "Refund"}
             </button>
             <button type="button" className="dash-button" disabled={submitting} onClick={() => setOpen(false)}>
-              Cancel
+              <IconX /> Cancel
             </button>
           </form>
         ) : (
           <button type="button" className="dash-button" onClick={() => setOpen(true)}>
-            Refund
+            <IconReturn /> Refund
           </button>
         )}
       </div>

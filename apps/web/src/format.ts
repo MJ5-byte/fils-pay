@@ -1,3 +1,4 @@
+import { formatDateTime } from "@filspay/ui";
 import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
 import type { TransactionEventDto } from "./types.js";
 
@@ -61,7 +62,7 @@ export function dash(value: string | number | null | undefined): string {
 
 /** Browser-local rendering, not Asia/Bahrain. */
 export function dateTime(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleString() : "—";
+  return iso ? formatDateTime(iso) : "—";
 }
 
 /**

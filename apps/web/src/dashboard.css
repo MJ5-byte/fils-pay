@@ -1,311 +1,154 @@
-/* One shared stylesheet for the whole /dashboard/* subtree — the same "real
-   but small" minimalism apps/admin/src/admin.css ships with, sized for the
-   dashboard's page count rather than a .css file per page.
+/* The merchant dashboard's look now lives in the shared design system,
+   @filspay/ui, so the admin console draws from the exact same tokens,
+   primitives, tables, status badges, charts and motion. This file stays as
+   the dashboard's stylesheet entry point (every page still imports it) and
+   re-exports that one source. App-specific rules, if any are ever needed,
+   go below the import. */
+@import "../../../packages/ui/src/theme.css";
 
-   Every selector is namespaced `dash-*`. Nothing here styles a bare element
-   (no `body`, no `button`), because Vite bundles all imported CSS into one
-   stylesheet for the whole app — a global rule here would reach the
-   /pay/:token checkout page too, which has its own look and must keep it. */
-
-/* am: dont add bare element selectors here, they leak into checkout (see top) */
-.dash-shell {
-  min-height: 100vh;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 15px;
-  color: #1a1a1a;
-  background: #fafafa;
+/* Merchant login: the page is one Bahrain 100 fils coin, the bimetallic 1992
+   reverse modelled in Blender (brass ring with its sixteen link chain round a
+   plain silver disc) and lit like a product shot from the upper left. The form
+   sits on the silver disc. The disc's centre and diameter are measured off the
+   render (50% across, 49.8% down, 59.2% of the image), so the two stay locked
+   at every size. Behind it the page is cut on the diagonal through the coin's
+   centre, ink below left and the brand red above right, and the coin leans
+   toward a mouse pointer near it with a highlight that follows the key light. */
+.fp-coin-login {
+  /* The coin itself is 91.8% of its image, so at the full short side it keeps
+     a 4% margin; on a narrow tablet the image runs a little past the width. */
+  --fp-coin-d: min(100dvh, 104vw, 1100px);
+  height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); place-items: center; overflow: hidden;
+  background: linear-gradient(to top right, var(--fp-dark) 50%, var(--fp-brand) 50%);
+  perspective: 1400px;
 }
-
-.dash-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
-  background: #fff;
-  border-bottom: 1px solid #ddd;
+.fp-coin-disc {
+  position: relative; flex: none; width: var(--fp-coin-d); aspect-ratio: 1;
+  background: url("./assets/fils-coin-1000.webp") center / contain no-repeat;
+  background-image: image-set(url("./assets/fils-coin-1000.webp") 1x, url("./assets/fils-coin.webp") 2x);
+  transform: rotateX(var(--fp-tilt-x, 0deg)) rotateY(var(--fp-tilt-y, 0deg));
+  transition: transform 600ms var(--fp-ease);
 }
-
-.dash-brand {
-  font-weight: 700;
+.fp-coin-disc[data-tilting] { transition-duration: 160ms; }
+/* The moving light on the metal, only while a mouse tilts the coin: a warm
+   highlight on the key light's side (top left), brighter as the face turns
+   toward it, and a shade on the far side of the brass ring as it turns away.
+   The shade is masked off the silver so the text there never loses contrast. */
+.fp-coin-disc::before, .fp-coin-disc::after {
+  content: ""; position: absolute; inset: 4.1%; border-radius: 50%; pointer-events: none;
+  opacity: 0; transition: opacity 600ms var(--fp-ease);
 }
-
-.dash-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+.fp-coin-disc::before {
+  background: radial-gradient(circle at var(--fp-glare-x, 28%) var(--fp-glare-y, 24%), rgb(255 238 205 / .62), rgb(255 238 205 / 0) 46%);
+  mix-blend-mode: screen;
 }
-
-.dash-nav a {
-  color: #1a1a1a;
-  text-decoration: none;
+.fp-coin-disc::after {
+  background: radial-gradient(circle at calc(100% - var(--fp-glare-x, 28%)) calc(100% - var(--fp-glare-y, 24%)), rgb(70 52 30 / .55), rgb(70 52 30 / 0) 62%);
+  mask: radial-gradient(closest-side, transparent 64.2%, #000 65.5%);
+  mix-blend-mode: multiply;
 }
-
-.dash-nav a.active {
-  font-weight: 700;
-  text-decoration: underline;
+.fp-coin-disc[data-tilting]::before { opacity: var(--fp-glare-o, .6); transition-duration: 200ms; }
+.fp-coin-disc[data-tilting]::after { opacity: var(--fp-shade-o, .5); transition-duration: 200ms; }
+@media (prefers-reduced-motion: reduce) {
+  .fp-coin-disc { transform: none; transition: none; }
+  .fp-coin-disc::before, .fp-coin-disc::after { display: none; }
+  .fp-coin-field .dash-button-primary:not(:disabled):active { transform: none; }
 }
-
-.dash-identity {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+.fp-coin-field {
+  position: absolute; z-index: 1; left: 50%; top: 49.8%; transform: translate(-50%, -50%);
+  width: calc(var(--fp-coin-d) * 0.38);
+  display: flex; flex-direction: column;
 }
-
-.dash-role-chip {
-  padding: 0.1rem 0.4rem;
-  border: 1px solid #999;
-  border-radius: 3px;
-  font-size: 0.8em;
+.fp-coin-title { align-self: center; }
+.fp-coin-title > .fp-eyebrow { justify-content: center; margin-bottom: 4px; }
+/* The silver runs darker than the page under the key light, where the theme's
+   secondary, muted and red inks fall under 4.5:1; full ink holds 7:1. */
+.fp-coin-field, .fp-coin-title > .fp-eyebrow, .fp-coin-field .dash-form label,
+.fp-coin-field .dash-muted, .fp-coin-field .dash-button-ghost { color: var(--fp-ink); }
+.fp-coin-title > .fp-auth-heading { text-align: center; font-size: 30px; line-height: 1.1; margin: 0 0 16px; }
+.fp-coin-title > .fp-auth-heading::after { margin: 8px auto 0; }
+/* One spacing scale: 6 between a label and its field, 10 between fields, 20
+   above the button, so the action reads as its own step. */
+.fp-coin-field .dash-form { gap: 10px; margin: 0; }
+.fp-coin-field .dash-form label { gap: 6px; }
+/* Engraved into the silver, lit like the render from the top left: a field is
+   a well cut into the metal, its shade on the top left inner wall and a bright
+   lip on the bottom right; the button is struck proud of the face and presses
+   in. 16px keeps iOS from zooming in on focus. */
+.fp-coin-field .dash-form input {
+  width: 100%; height: 44px; font-size: 16px; color: var(--fp-dark);
+  border-color: transparent; background-color: #c3bfb8;
+  box-shadow: inset 2px 2px 3px rgb(21 20 20 / .42), inset -1px -1px 0 rgb(255 252 246 / .75);
 }
-
-.dash-main {
-  max-width: 76rem;
-  margin: 0 auto;
-  padding: 1.5rem;
+.fp-coin-field .dash-form input::placeholder { color: var(--fp-ink-2); }
+/* The engraving is never the only focus cue: a solid ring outside the well. */
+.fp-coin-field .dash-form input:focus-visible {
+  border-color: transparent; outline: 2px solid var(--fp-brand-strong); outline-offset: 2px;
+  box-shadow: inset 2px 2px 3px rgb(21 20 20 / .42), inset -1px -1px 0 rgb(255 252 246 / .75);
 }
-
-.dash-centered {
-  max-width: 26rem;
-  margin: 4rem auto;
-  padding: 1.5rem;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #1a1a1a;
+.fp-coin-title > .fp-eyebrow, .fp-coin-title > .fp-auth-heading, .fp-coin-field .dash-form label { text-shadow: 1px 1px 0 rgb(255 252 246 / .6); }
+/* Narrower than the fields so its corners stay well inside the disc's curve.
+   The label is near white: the theme's paper on the red is 4.4:1, this is 4.8:1. */
+.fp-coin-field .dash-button-primary {
+  align-self: center; width: 56%; min-height: 48px; padding: 12px 24px; margin-top: 10px;
+  color: color-mix(in srgb, var(--fp-light) 30%, #fff); text-shadow: -1px -1px 0 rgb(21 20 20 / .3);
+  box-shadow: inset 1px 1px 0 rgb(255 255 255 / .35), inset -1px -1px 0 rgb(21 20 20 / .35), 1px 2px 2px rgb(21 20 20 / .35);
+  transition: background 150ms var(--fp-ease), box-shadow 120ms var(--fp-ease), transform 120ms var(--fp-ease);
 }
-
-.dash-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin: 1rem 0;
-  max-width: 40rem;
+.fp-coin-field .dash-button-primary:not(:disabled):active {
+  transform: translate(1px, 1px);
+  box-shadow: inset 2px 2px 3px rgb(21 20 20 / .5), inset -1px -1px 0 rgb(255 255 255 / .2);
 }
-
-.dash-form-inline {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  max-width: none;
+.fp-coin-field .dash-button-primary:focus-visible { outline: 2px solid var(--fp-brand-strong); outline-offset: 3px; }
+.fp-coin-field .dash-actions { justify-content: center; }
+/* The message line under the last field always holds its one line of height,
+   so an error appearing never pushes the button down. */
+.fp-coin-message { margin: 0; min-height: 18px; font-size: 13px; line-height: 18px; text-align: start; }
+.fp-coin-message-error { color: var(--fp-brand-strong); }
+/* Short laptop windows keep the form on the coin with fewer, tighter pieces:
+   no eyebrow and one 4, 8, 16 scale; the image runs a little past the height
+   to give the silver room (the coin keeps a 2% margin). */
+@media (min-width: 754px) and (max-height: 776px) {
+  .fp-coin-login { --fp-coin-d: min(104dvh, 104vw, 1100px); }
+  .fp-coin-title > .fp-eyebrow { display: none; }
+  .fp-coin-title > .fp-auth-heading { font-size: 24px; margin-bottom: 12px; }
+  .fp-coin-title > .fp-auth-heading::after { margin-top: 6px; }
+  .fp-coin-field .dash-form { gap: 8px; }
+  .fp-coin-field .dash-form label { gap: 4px; }
+  .fp-coin-field .dash-button-primary { min-height: 44px; padding-block: 10px; margin-top: 8px; }
 }
-
-.dash-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.dash-form input,
-.dash-form select {
-  padding: 0.4rem;
-  font: inherit;
-  border: 1px solid #bbb;
-  border-radius: 3px;
-}
-
-.dash-button,
-.dash-button-link {
-  display: inline-block;
-  padding: 0.4rem 0.8rem;
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid #888;
-  border-radius: 3px;
-  background: #fff;
-  color: #1a1a1a;
-  text-decoration: none;
-}
-
-.dash-button:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-
-.dash-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
-  border: 1px solid #ddd;
-  padding: 0.5rem 0.75rem;
-  margin: 1rem 0;
-}
-
-.dash-filters label {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.dash-filters input[type="date"],
-.dash-filters input[type="search"] {
-  padding: 0.3rem;
-  font: inherit;
-  border: 1px solid #bbb;
-  border-radius: 3px;
-}
-
-/* FH: table re-layout on every poll = the overview memory leak? */
-.dash-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1rem 0;
-  background: #fff;
-}
-
-.dash-table th,
-.dash-table td {
-  border: 1px solid #e0e0e0;
-  padding: 0.4rem 0.6rem;
-  text-align: left;
-  vertical-align: top;
-}
-
-.dash-dl {
-  display: grid;
-  grid-template-columns: 16rem 1fr;
-  gap: 0.25rem 1rem;
-  margin: 1rem 0;
-}
-
-.dash-dl dt {
-  font-weight: 600;
-}
-
-.dash-dl dd {
-  margin: 0;
-}
-
-.dash-muted {
-  color: #666;
-}
-
-.dash-hint {
-  margin: -0.4rem 0 0;
-  font-size: 0.85em;
-}
-
-.dash-error {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #b00020;
-  background: #fdeaea;
-  color: #7a0016;
-  margin: 1rem 0;
-}
-
-.dash-notice {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #2a6f2a;
-  background: #eef7ee;
-  margin: 1rem 0;
-}
-
-.dash-confirm {
-  padding: 0.8rem;
-  border: 2px solid #b06000;
-  background: #fff6e8;
-  margin: 1rem 0;
-  max-width: 44rem;
-}
-
-.dash-secret {
-  display: inline-block;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid #b06000;
-  background: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  user-select: all;
-  word-break: break-all;
-}
-
-.dash-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 1rem 0;
-}
-
-.dash-pre {
-  margin: 0.3rem 0 0;
-  max-width: 28rem;
-  max-height: 10rem;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  font-size: 0.85em;
-}
-
-/* Status labels: plain coloured text, no icon set. */
-.dash-status {
-  font-weight: 600;
-}
-
-.dash-status-captured,
-.dash-status-paid,
-.dash-status-succeeded,
-.dash-status-active {
-  color: #1f6f2a;
-}
-
-.dash-status-authorized,
-.dash-status-partially_captured,
-.dash-status-pending,
-.dash-status-reserved,
-.dash-status-open {
-  color: #8a5a00;
-}
-
-.dash-status-voided,
-.dash-status-canceled,
-.dash-status-expired,
-.dash-status-disabled,
-.dash-status-exhausted,
-.dash-status-failed,
-.dash-status-chargeback {
-  color: #7a0016;
-}
-
-.dash-status-refunded,
-.dash-status-closed {
-  color: #34495e;
-}
-
-.dash-badge {
-  display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border-radius: 3px;
-  font-size: 0.8em;
-  font-weight: 600;
-  vertical-align: middle;
-}
-
-.dash-badge-live,
-.dash-badge-ok {
-  border: 1px solid #2a6f2a;
-  background: #eef7ee;
-  color: #1f6f2a;
-}
-
-.dash-badge-stale {
-  border: 1px solid #b06000;
-  background: #fff6e8;
-  color: #8a5a00;
-}
-
-.dash-badge-gap {
-  border: 1px solid #b06000;
-  background: #fff2d9;
-  color: #7a4a00;
-}
-
-.dash-bar-cell {
-  width: 12rem;
-}
-
-.dash-bar {
-  display: block;
-  height: 0.7rem;
-  min-width: 1px;
-  background: #4a7ebb;
+/* Phones, and windows too short even for that: the whole coin fits the width
+   with a margin and keeps the title on its silver, and the form stacks under
+   it on the ink half, where light text reads at 15:1. The diagonal runs from
+   the coin's top to its bottom through its centre, red above and ink below,
+   so its point ends above the form. */
+@media (max-width: 753px), (max-height: 649px) {
+  .fp-coin-login {
+    --fp-coin-d: min(calc(100vw - 4px), 52dvh);
+    --fp-top: clamp(12px, calc((100dvh - var(--fp-coin-d) - 330px) / 2), 96px);
+    --fp-band-top: calc(var(--fp-top) + var(--fp-coin-d) * 0.041);
+    height: auto; min-height: 100dvh; grid-template-rows: auto; place-items: start center; padding: var(--fp-top) 0 24px;
+    background:
+      linear-gradient(to top right, var(--fp-dark) 50%, var(--fp-brand) 50%) 0 var(--fp-band-top) / 100% calc(var(--fp-coin-d) * 0.918) no-repeat,
+      linear-gradient(var(--fp-brand), var(--fp-brand)) 0 0 / 100% calc(var(--fp-band-top) + 1px) no-repeat,
+      var(--fp-dark);
+  }
+  .fp-coin-disc {
+    display: grid; grid-template-rows: var(--fp-coin-d); row-gap: 20px; aspect-ratio: auto;
+    background-size: var(--fp-coin-d) var(--fp-coin-d); background-position: top center; transform: none;
+  }
+  .fp-coin-disc::before, .fp-coin-disc::after { display: none; }
+  .fp-coin-field { display: contents; }
+  .fp-coin-title > .fp-eyebrow { display: flex; }
+  .fp-coin-field > * { justify-self: center; width: calc(var(--fp-coin-d) * 0.918); }
+  .fp-coin-field > .fp-coin-title { grid-row: 1; align-self: center; width: auto; }
+  .fp-coin-title > .fp-auth-heading { font-size: 26px; margin-bottom: 0; }
+  .fp-coin-title > .fp-auth-heading::after { margin-top: 8px; }
+  .fp-coin-field .dash-form label, .fp-coin-field .dash-form > p, .fp-coin-field .dash-muted,
+  .fp-coin-field .dash-button-ghost { color: var(--fp-light); }
+  .fp-coin-field .dash-form label { text-shadow: none; }
+  .fp-coin-field .dash-form input:focus-visible, .fp-coin-field .dash-button-primary:focus-visible { outline-color: var(--fp-brand); }
+  .fp-coin-field .dash-button-primary { width: 100%; }
+  .fp-coin-field .dash-button-ghost { min-height: 44px; }
+  .fp-coin-field .dash-form > .fp-coin-message-error { color: #ff8a96; }
 }
