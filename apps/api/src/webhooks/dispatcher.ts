@@ -304,28 +304,48 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
       });
   };
 
-  const listenClient = new Client({ connectionString: config.databaseUrl });
-  let listenClientConnected = false;
+  let listenClient: Client | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  listenClient.on("error", (err: Error) => {
-    console.error("[webhooks/dispatcher] LISTEN client error", err);
-  });
-  listenClient.on("notification", () => {
-    triggerPass();
-  });
+  const scheduleReconnect = (): void => {
+    // Postgres restarts and network blips kill the notification channel;
+    // deliver via the poll interval until the next connect succeeds.
+    if (stopped || reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      startListening();
+    }, config.webhookPollIntervalMs);
+  };
 
-  const connectPromise = listenClient
-    .connect()
-    .then(async () => {
-      listenClientConnected = true;
-      await listenClient.query(`LISTEN ${NOTIFY_CHANNEL}`);
-    })
-    .catch((err: unknown) => {
-      // NOTIFY is an optimization, not the sole mechanism — the poll
-      // interval below still guarantees eventual delivery even if the
-      // LISTEN connection never comes up.
-      console.error("[webhooks/dispatcher] failed to establish LISTEN connection", err);
+  function startListening(): void {
+    if (stopped) return;
+    const client = new Client({ connectionString: config.databaseUrl });
+    listenClient = client;
+    client.on("error", (err: Error) => {
+      console.error("[webhooks/dispatcher] LISTEN client error", err);
+      client.end().catch(() => {});
+      scheduleReconnect();
     });
+    client.on("end", () => {
+      if (!stopped) scheduleReconnect();
+    });
+    client.on("notification", () => {
+      triggerPass();
+    });
+    client
+      .connect()
+      .then(() => client.query(`LISTEN ${NOTIFY_CHANNEL}`))
+      .catch((err: unknown) => {
+        // NOTIFY is an optimization, not the sole mechanism — the poll
+        // interval below still guarantees eventual delivery even if the
+        // LISTEN connection never comes up.
+        console.error("[webhooks/dispatcher] failed to establish LISTEN connection", err);
+        client.end().catch(() => {});
+        scheduleReconnect();
+      });
+  }
+
+  startListening();
 
   const interval = setInterval(triggerPass, config.webhookPollIntervalMs);
 
@@ -333,10 +353,11 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
     async stop(): Promise<void> {
       stopped = true;
       clearInterval(interval);
-      await connectPromise;
-      if (listenClientConnected) {
-        await listenClient.end().catch(() => {});
-      }
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      const client = listenClient;
+      listenClient = null;
+      if (client) await client.end().catch(() => {});
     },
   };
 }
