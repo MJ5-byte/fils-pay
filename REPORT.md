@@ -1095,6 +1095,7 @@
 - **Before:** The checkout receipt's "Paid at" printed the raw ISO string (`2026-10-30T13:33:27.668Z`) and the admin adjustment-import history printed Postgres text (`2026-10-30 13:33:27.668874+00`). Nothing was wrong with the data.
 - **Why it shipped:** Both are the first things a buyer or an admin reads after an action, and every other page already formats dates with `dateTime()` or `toLocaleString()`.
 - **Change:** The receipt uses the existing `dateTime()` helper. `listAdjustmentImports` returns `appliedAt` as an ISO instant (`toISOString()`, as `pay.ts` does) and the admin page renders it with `new Date(x).toLocaleString()`. Test added in `adjustmentImport.test.ts`. Contract tweak: `appliedAt` changes from Postgres text to ISO; only the admin import page reads it. Dates show in the browser's time zone, as elsewhere.
+
 ### Improvement: Status and reason cells read as words
 - **Type:** UX
 - **Before:** Tables showed raw codes like `partially_captured`, `refund_partial` and `dispute_resolution`. Nothing promised prettier text and nothing broke.

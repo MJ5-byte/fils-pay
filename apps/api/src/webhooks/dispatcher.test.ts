@@ -262,13 +262,14 @@ for (const statusCode of [200, 500]) {
   test(`receiver body containing a NUL byte (${statusCode}): the attempt is still recorded and other deliveries are sent`, async () => {
     const merchantId = await createMerchant(`nul-body-${statusCode}`);
     const nulEndpoint = await createEndpoint(merchantId, `http://nul.test/webhook-${randomUUID()}`);
-    const okEndpoint = await createEndpoint(merchantId, `http://ok.test/webhook-${randomUUID()}`);
+    const okUrl = `http://ok.test/webhook-${randomUUID()}`;
+    const okEndpoint = await createEndpoint(merchantId, okUrl);
     const outboxEvent = await enqueueCaptured(merchantId);
 
     const sentToOk: string[] = [];
     const transport: WebhookTransport = async (req) => {
       if (req.url.includes("nul.test")) return { statusCode, body: "bad\u0000body" };
-      sentToOk.push(req.url);
+      if (req.url === okUrl) sentToOk.push(req.url);
       return { statusCode: 200, body: "ok" };
     };
 
