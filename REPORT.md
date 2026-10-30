@@ -958,6 +958,13 @@
 - **Breaks:** An old active link stayed payable and the merchant had no way to cancel it from the dashboard. It was first filed as an improvement because the page admitted its limit; a listed link that cannot be opened is a wrong outcome a user hits, so it is a bug.
 - **Fix:** New `GET /v1/merchants/:merchantId/payment-links/:id` (own merchant only, 404 for anyone else's link) and the detail page calls it. Test added: 105 links, two pages with no duplicates or gaps, the oldest opens by id, another merchant gets 404. Red (404) before, green after. The list pager itself needed no change.
 
+### Bug: Captured volume chart shows one point dated the seed day
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** On the seeded live stack, the overview's Captured volume chart showed one point, dated the day the seed ran, although each merchant has dozens to hundreds of captures from February to August.
+- **Cause:** The analytics rollups are filled only by replaying `outbox_events`, and reporting dates each capture by its outbox event's time. The seed wrote one sample capture event and one void event per merchant, stamped with the time the seed ran, and none for the March and marketplace captures.
+- **Breaks:** The dashboard left out nearly all captured volume and showed the one capture it did count on the wrong day.
+- **Fix:** The seed now writes one outbox event per seeded capture and void, stamped with the time that capture or void happened, the same events the API writes. Reporting code is unchanged. Test added in `db/seed/generate.test.ts`.
 ### Bug: MDR recalculation to a higher rate skips the discount on the fee increase (BHA-194)
 - **Status:** Fixed
 - **Type:** Money, low

@@ -43,3 +43,33 @@ test("seeded March captures have matching captured transaction_events", { timeou
     await pool.end();
   }
 });
+
+test("seeded captures and voids each have an outbox event at their own time", { timeout: 120_000 }, async () => {
+  const databaseUrl = process.env.DATABASE_URL;
+  assert.ok(databaseUrl, "DATABASE_URL must point at a throwaway local database");
+  const pool = new Pool({ connectionString: databaseUrl, max: 3 });
+  try {
+    await generate(pool);
+    const { rows } = await pool.query<{ missing_captures: string; missing_voids: string }>(`
+      SELECT (
+        SELECT count(*)::text FROM transaction_events te
+        WHERE te.event_type IN ('captured', 'partially_captured')
+          AND NOT EXISTS (
+            SELECT 1 FROM outbox_events oe
+            WHERE oe.event_type = 'transaction.captured' AND oe.aggregate_id = te.transaction_id
+              AND (oe.payload->>'amountCapturedFils')::bigint = te.amount_fils
+              AND oe.created_at = te.occurred_at)
+      ) AS missing_captures, (
+        SELECT count(*)::text FROM transactions t
+        WHERE t.status = 'voided'
+          AND NOT EXISTS (
+            SELECT 1 FROM outbox_events oe
+            WHERE oe.event_type = 'transaction.voided' AND oe.aggregate_id = t.id
+              AND oe.created_at = t.occurred_at)
+      ) AS missing_voids`);
+    assert.equal(rows[0]?.missing_captures, "0");
+    assert.equal(rows[0]?.missing_voids, "0");
+  } finally {
+    await pool.end();
+  }
+});

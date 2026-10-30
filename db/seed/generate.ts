@@ -672,43 +672,6 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           lifetimeEstimate,
         ]);
 
-        // A few outbox events, enqueued inside this same transaction as the
-        // writes that produced them. Payload shapes here must match the
-        // EXACT shapes the real application code enqueues
-        // (apps/api/src/payments/capture.ts, apps/api/src/payments/void.ts,
-        // and apps/settlement's CloseBatch) — apps/reporting's consumer
-        // applies these payload fields directly, with no join back to
-        // transactions/settlement_batches to "fix up" a differently-shaped
-        // seed-only payload.
-        const firstCaptured = transactions.find((t) => t.status === "captured");
-        if (firstCaptured) {
-          const firstCapturedFeeFils = applyRateFils(firstCaptured.capturedFils, fixture.mdrBps);
-          await enqueueEvent(client, {
-            eventType: "transaction.captured",
-            aggregateType: "transaction",
-            aggregateId: firstCaptured.id,
-            payload: {
-              merchantId,
-              amountCapturedFils: firstCaptured.capturedFils,
-              feeFils: firstCapturedFeeFils,
-              newStatus: firstCaptured.status,
-              capturedTotalFils: firstCaptured.capturedFils,
-            },
-          });
-          outboxEventCount += 1;
-        }
-
-        const firstVoided = transactions.find((t) => t.status === "voided");
-        if (firstVoided) {
-          await enqueueEvent(client, {
-            eventType: "transaction.voided",
-            aggregateType: "transaction",
-            aggregateId: firstVoided.id,
-            payload: { merchantId },
-          });
-          outboxEventCount += 1;
-        }
-
         await enqueueEvent(client, {
           eventType: "settlement.batch_closed",
           aggregateType: "settlement_batch",
@@ -919,6 +882,58 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
            VALUES ($1, $2)`,
           [row.id, `INV-2025-${String(index + 1).padStart(4, "0")}`],
         );
+      }
+
+      // Reporting rollups are built only by replaying outbox_events and date
+      // each event by created_at. Write the history the API would have written:
+      // one event per capture or void, at the time it happened.
+      const historicalEvents = await client.query<{
+        kind: "captured" | "voided";
+        transaction_id: string;
+        merchant_id: string;
+        amount_fils: string | null;
+        fee_fils: string | null;
+        new_status: string | null;
+        captured_total_fils: string | null;
+        at: Date;
+      }>(
+        `SELECT kind, transaction_id, merchant_id, amount_fils, fee_fils, new_status, captured_total_fils, at FROM (
+           SELECT 'captured' AS kind, te.transaction_id, t.merchant_id, te.amount_fils::text AS amount_fils,
+                  COALESCE((te.metadata->>'feeFils')::bigint,
+                           (SELECT sum(l.amount_fils) FROM ledger_entries l
+                             WHERE l.transaction_id = t.id AND l.account_id = 'platform_fee_revenue'), 0)::text AS fee_fils,
+                  te.event_type AS new_status,
+                  (sum(te.amount_fils) OVER (PARTITION BY te.transaction_id ORDER BY te.occurred_at, te.id))::text AS captured_total_fils,
+                  te.occurred_at AS at, te.id AS tiebreak
+             FROM transaction_events te JOIN transactions t ON t.id = te.transaction_id
+            WHERE te.event_type IN ('captured', 'partially_captured')
+           UNION ALL
+           SELECT 'voided', t.id, t.merchant_id, NULL, NULL, NULL, NULL, t.occurred_at, 0
+             FROM transactions t WHERE t.status = 'voided'
+         ) e ORDER BY at, transaction_id, tiebreak`,
+      );
+      for (const row of historicalEvents.rows) {
+        const event = row.kind === "captured"
+          ? await enqueueEvent(client, {
+              eventType: "transaction.captured",
+              aggregateType: "transaction",
+              aggregateId: row.transaction_id,
+              payload: {
+                merchantId: row.merchant_id,
+                amountCapturedFils: Number(row.amount_fils),
+                feeFils: Number(row.fee_fils),
+                newStatus: row.new_status,
+                capturedTotalFils: Number(row.captured_total_fils),
+              },
+            })
+          : await enqueueEvent(client, {
+              eventType: "transaction.voided",
+              aggregateType: "transaction",
+              aggregateId: row.transaction_id,
+              payload: { merchantId: row.merchant_id },
+            });
+        await client.query("UPDATE outbox_events SET created_at = $2 WHERE id = $1", [String(event.id), row.at]);
+        outboxEventCount += 1;
       }
 
       await client.query("COMMIT");
