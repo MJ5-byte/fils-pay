@@ -118,23 +118,33 @@ async function main() {
   async function buyer() {
     while (Date.now() < deadline && next < tokens.length) {
       const token = tokens[next++];
-      const t0 = performance.now();
-      const view = await call("GET", `/v1/payment-links/${token}`);
-      if (view.status === 503) {
-        counts.shed += 1;
-        await new Promise((r) => setTimeout(r, 1000));
-        continue;
+      // A shed request (503) is retried after Retry-After with the same link
+      // and the same Idempotency-Key, like a real checkout client would.
+      const idempotencyKey = randomUUID();
+      let pay;
+      for (;;) {
+        if (Date.now() >= deadline) return;
+        const t0 = performance.now();
+        const view = await call("GET", `/v1/payment-links/${token}`);
+        if (view.status === 503) {
+          counts.shed += 1;
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        pay = await call("POST", `/v1/payment-links/${token}/pay`, {
+          headers: { "idempotency-key": idempotencyKey },
+          body: { card: { pan: "4111111111111111", expiryMonth: 12, expiryYear: 2030, cvv: "123" } },
+        });
+        if (pay.status === 503) {
+          counts.shed += 1;
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        latencies.push(performance.now() - t0);
+        break;
       }
-      const pay = await call("POST", `/v1/payment-links/${token}/pay`, {
-        headers: { "idempotency-key": randomUUID() },
-        body: { card: { pan: "4111111111111111", expiryMonth: 12, expiryYear: 2030, cvv: "123" } },
-      });
-      latencies.push(performance.now() - t0);
       statuses[pay.status] = (statuses[pay.status] ?? 0) + 1;
-      if (pay.status === 503) {
-        counts.shed += 1;
-        await new Promise((r) => setTimeout(r, 1000));
-      } else if (pay.status >= 200 && pay.status < 300 && pay.json?.status !== "declined") {
+      if (pay.status >= 200 && pay.status < 300 && pay.json?.status !== "declined") {
         counts.paid += 1;
         paidTokens.add(token);
       } else if (pay.status === 402 || pay.json?.status === "declined") {

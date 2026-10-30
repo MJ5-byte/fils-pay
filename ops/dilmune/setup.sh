@@ -19,7 +19,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN_USER="$(id -un)"
 GO_VERSION="1.22.12"
-LOAD_SHED_MAX_INFLIGHT="${LOAD_SHED_MAX_INFLIGHT:-40}"
+LOAD_SHED_MAX_INFLIGHT="${LOAD_SHED_MAX_INFLIGHT:-10}"
 
 cd "$ROOT"
 [ -f .env ] || { echo "setup: $ROOT/.env is missing (Dilmune writes it on deploy)"; exit 1; }

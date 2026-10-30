@@ -65,3 +65,20 @@ curl https://api.example.com/health
 ```
 
 Then sign in to the dashboard, capture a test payment, and refund it.
+
+## Process setup on the Dilmune VM (reproducible)
+
+After each deploy of the API site, from its root:
+
+```bash
+bash ops/dilmune/setup.sh
+```
+
+It builds the Go settlement binary (installing Go 1.22 to `~/.local/go` if
+needed) and installs three systemd services that start on boot and restart on
+crash: `filspay-api` (0.5 vCPU / 512 MB, load shedding at 10 in-flight),
+`filspay-settlement` (daily close, payouts; internal API bound to 127.0.0.1)
+and `filspay-reporting`. Settings come from the site's `.env`, which Dilmune
+writes from the dashboard's Environment variables. Then run
+`npm run migrate` with that `.env` loaded when new migrations ship.
+Capacity numbers: `docs/CAPACITY.md`.
