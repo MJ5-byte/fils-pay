@@ -206,6 +206,23 @@ test("an unknown but UUID-shaped merchant is a 404", async () => {
   assert.equal(res.statusCode, 404, res.body);
 });
 
+test("an integer beyond the safe range is a 400, not a 500", async () => {
+  const admin = await signedInAdmin("finance");
+  const merchantId = await createMerchant(1_000);
+
+  // Raw JSON text: a JS object literal would already have rounded the value.
+  for (const raw of ["9007199254740993", "-9007199254740993"]) {
+    const res = await app.inject({
+      method: "POST",
+      url: PATH(merchantId),
+      headers: { cookie: admin.cookie, "content-type": "application/json" },
+      payload: `{"deltaFils":${raw},"reason":"too large"}`,
+    });
+    assert.equal(res.statusCode, 400, `${raw} -> ${res.body}`);
+    assert.equal((res.json() as { error: string }).error, "invalid_request");
+  }
+});
+
 test("invalid bodies are rejected with 400", async () => {
   const admin = await signedInAdmin("finance");
   const merchantId = await createMerchant(1_000);

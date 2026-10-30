@@ -378,6 +378,13 @@
 - **Breaks:** A merchant checking one day's payments against that day's settlement batch got a list three hours off, so the two never matched. Near midnight the admin could close the wrong day's batch by accepting the default.
 - **Fix:** `dayStartIso` now parses the date at `+03:00`, the same parse apps/api's `bahrainLocalMidnightUtc` uses. The Run batch default moved to `apps/admin/src/pages/settlement/businessDate.ts` and takes yesterday from the Bahrain calendar date, the same technique as apps/api's `todayBahrainDateString`, whatever the browser's zone. The web test that asserted UTC midnight now asserts 21:00Z on the previous day. A new admin test pins both sides of 21:00Z with a fixed clock, and admin gained the same `tsx --test` script the web app has. On a local run, the 27 Aug filter now includes a payment made at 01:03 Bahrain time (22:03Z on 26 Aug) that the old filter left out.
 
+### Bug: Balance adjustment with an oversized amount answers 500
+- **Status:** Fixed
+- **Type:** Data, low
+- **Problem:** Sending `deltaFils` above 9007199254740991 (for example the raw JSON number 9007199254740993) to Adjust balance answered 500 instead of a 400 telling the admin the amount is invalid.
+- **Cause:** `parseBalanceAdjustmentBody` in `apps/api/src/routes/adminBalanceAdjustments.ts:29` only checked `Number.isInteger`, which is true for unsafe integers. `toFils` on the next lines then threw a `RangeError`, and nothing turned that into a client error.
+- **Breaks:** A bad amount from the admin form or an API client looked like a server failure and filled the error log. No balance changed.
+- **Fix:** The check now uses `Number.isSafeInteger`, the same test the credit-request and transaction-capture amount checks use, so the route's existing 400 `invalid_request` answers. Test added in `adminBalanceAdjustments.test.ts` that posts the raw JSON text for both signs.
 ### Bug: A NUL byte in a webhook receiver's response stops its delivery from ever being recorded
 - **Status:** Fixed (BHA-152)
 - **Type:** Concurrency, medium
