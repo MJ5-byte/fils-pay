@@ -1,0 +1,6 @@
+FilsPay admin console
+URL: https://filspay-admin-tzakir.dilmune.app/login
+Email: superadmin@filspay.test
+Password: aCiE3Evhudi04NdDBBSgUnKp
+
+Delete this file once you have saved the password in a password manager.

@@ -21,6 +21,7 @@ import { reportingRoutes } from "./routes/reporting.js";
 import { adminRoutes, type AdminRoutesOptions } from "./routes/admin.js";
 import { acquirerCallbackRoutes } from "./routes/acquirerCallbacks.js";
 import { createFetchTransport, type WebhookTransport } from "./webhooks/transport.js";
+import { registerLoadShed } from "./plugins/loadShed.js";
 
 export interface BuildAppOptions {
   /** Test seam for the admin plane's cross-process settlement calls only —
@@ -31,6 +32,9 @@ export interface BuildAppOptions {
    *  the dispatcher runs on; index.ts passes its own instance in so one
    *  process has exactly one transport. Tests inject a stub. */
   webhookTransport?: WebhookTransport;
+  /** Max concurrent requests before new ones get 503 (plugins/loadShed.ts).
+   *  0 or unset disables shedding. index.ts reads LOAD_SHED_MAX_INFLIGHT. */
+  loadShedMaxInFlight?: number;
 }
 
 /**
@@ -41,6 +45,7 @@ export interface BuildAppOptions {
  */
 export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
+  registerLoadShed(app, { maxInFlight: options.loadShedMaxInFlight ?? 0 });
 
   app.decorate("db", pool);
   app.decorate("config", config);

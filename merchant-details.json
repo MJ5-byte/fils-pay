@@ -1,0 +1,17 @@
+{
+  "businessProfile": {
+    "legalName": "CHANGE ME - Business legal name W.L.L.",
+    "registrationNumber": "CHANGE ME - CR number",
+    "businessType": "llc",
+    "country": "BH",
+    "contactEmail": "CHANGE ME - contact@yourbusiness.com",
+    "contactPhone": "CHANGE ME - +973 3xxx xxxx",
+    "addressLine1": "CHANGE ME - Building, road, block",
+    "addressLine2": "",
+    "city": "Manama",
+    "postalCode": ""
+  },
+  "owner": {
+    "email": "CHANGE ME - owner@yourbusiness.com"
+  }
+}
