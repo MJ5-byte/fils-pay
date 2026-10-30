@@ -34,6 +34,15 @@ export function PaymentLinkCreatePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  let amountError: string | null = null;
+  if (amountBhd.trim() !== "") {
+    try {
+      parseBhdAmount(amountBhd);
+    } catch (err) {
+      amountError = describeError(err);
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (!me) return;
@@ -90,6 +99,7 @@ export function PaymentLinkCreatePage() {
             value={amountBhd}
             onChange={(e) => setAmountBhd(e.target.value)}
           />
+          {amountError ? <span className="dash-error">{amountError}</span> : null}
         </label>
         <label>
           Reference (optional)
@@ -104,7 +114,7 @@ export function PaymentLinkCreatePage() {
           <DatePicker mode="datetime" required min={todayKey()} value={expiresAt} onChange={setExpiresAt} />
         </label>
         <div className="fp-form-actions"><Link className="dash-button-ghost" to="/dashboard/payment-links">Cancel</Link>
-          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting || amountError !== null}>
             {submitting ? "Creating" : "Create payment link"}
           </button>
         </div>

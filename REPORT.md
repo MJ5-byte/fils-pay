@@ -1532,6 +1532,11 @@
 - **Why it shipped:** Nothing is wrong with the data, but the popover is the only way to filter a table and it can be unreachable on short screens. The disabled controls break the focus trap, and the undeclared import breaks installs that do not hoist `react-dom`.
 - **Change:** `ColumnFilter` flips above its trigger when it would overflow the bottom and clamps vertically, `FOCUSABLE` excludes disabled `select` and `textarea`, and `react-dom` is a peer dependency of `packages/ui` (lockfile entry only).
 
+### Improvement: Refund and payment-link amounts are checked as you type
+- **Type:** UX
+- **Before:** The refund drawer took 50 when 10.000 was refundable, and -1 or 1.2345 with no message. A blank amount refunded everything with no hint. The new-link amount took abc, -5 and 1.23456 and left Create enabled. The API still rejected bad values, so no money was wrong.
+- **Why it shipped:** A blank refund is an easy accidental full refund of a card payment, and users got no message until a round trip failed.
+- **Change:** Both forms run the shared BHD parser on every keystroke (positive, at most 3 decimals, refund at most the refundable amount), show the message inline and disable submit. A blank refund button reads "Full refund (X BHD)". Client only, API unchanged.
 ### Bug: Login error messages are cut off with an ellipsis
 - **Status:** Fixed
 - **Type:** UX, medium

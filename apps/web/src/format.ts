@@ -48,9 +48,13 @@ export function parseBhdAmount(input: string): number {
 }
 
 /** A refund amount typed in BHD. Blank is `undefined`: the API then refunds
- *  everything still refundable. */
-export function parseRefundAmount(input: string): number | undefined {
-  return input.trim() === "" ? undefined : parseBhdAmount(input);
+ *  everything still refundable. Above `maxFils` throws, so the drawer never
+ *  sends a refund the transaction cannot cover. */
+export function parseRefundAmount(input: string, maxFils = Infinity): number | undefined {
+  if (input.trim() === "") return undefined;
+  const fils = parseBhdAmount(input);
+  if (fils > maxFils) throw new RangeError(`Amount is more than the ${bhd(maxFils)} still refundable.`);
+  return fils;
 }
 
 /** Total refunded so far. The transaction DTO has no `refundedFils`, but its

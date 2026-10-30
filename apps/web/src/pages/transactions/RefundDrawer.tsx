@@ -30,11 +30,18 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
     refundableFils > 0 &&
     (txn.status === "captured" || txn.status === "partially_captured" || txn.status === "partially_refunded");
 
+  let amountError: string | null = null;
+  try {
+    parseRefundAmount(amount, refundableFils);
+  } catch (err) {
+    amountError = describeError(err);
+  }
+
   async function handleRefund(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     let amountFils: number | undefined;
     try {
-      amountFils = parseRefundAmount(amount);
+      amountFils = parseRefundAmount(amount, refundableFils);
     } catch (err) {
       setError(describeError(err));
       return;
@@ -88,8 +95,9 @@ export function RefundDrawer({ txn, refundableFils, onRefunded }: RefundDrawerPr
               />
             </label>
             <p className="dash-muted">Still refundable: {bhd(refundableFils)}</p>
-            <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
-              <IconReturn />{submitting ? "Refunding..." : "Refund"}
+            {amountError ? <p className="dash-error">{amountError}</p> : null}
+            <button type="submit" className="dash-button dash-button-primary" disabled={submitting || amountError !== null}>
+              <IconReturn />{submitting ? "Refunding..." : amount.trim() === "" ? `Full refund (${bhd(refundableFils)})` : "Refund"}
             </button>
             <button type="button" className="dash-button" disabled={submitting} onClick={() => setOpen(false)}>
               <IconX /> Cancel

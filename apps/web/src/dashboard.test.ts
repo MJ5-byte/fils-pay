@@ -67,6 +67,11 @@ test("parseRefundAmount rejects zero, negatives and a 4th decimal", () => {
   assert.throws(() => parseRefundAmount("abc"));
 });
 
+test("parseRefundAmount rejects an amount above what is still refundable", () => {
+  assert.equal(parseRefundAmount("4.75", 4750), 4750);
+  assert.throws(() => parseRefundAmount("4.751", 4750), RangeError);
+});
+
 test("parseBhdAmount reads BHD text as exact integer fils", () => {
   assert.equal(parseBhdAmount("0.5"), 500);
   assert.equal(parseBhdAmount("12"), 12000);
