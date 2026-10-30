@@ -63,9 +63,10 @@ type eligibleEvent struct {
 // CloseBatch computes and freezes settlement figures for one merchant's
 // one business day. Idempotent: re-running it against an already-closed
 // or already-paid batch for the same (merchant, date) is a safe no-op.
-// Every capture-type transaction_events row it selects is marked with this
-// batch's id inside the same transaction that freezes the batch's totals,
-// so a row can never be picked up by two batches.
+// Every capture-type transaction_events row and every manual-credit
+// merchant_payable ledger leg it selects is marked with this batch's id
+// inside the same transaction that freezes the batch's totals, so a row can
+// never be picked up by two batches.
 func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) (BatchResult, error) {
 	start, end := BusinessDayWindow(businessDate)
 	if now().Before(end) {
@@ -228,13 +229,62 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		batchGross += grossForTxn
 		batchFee += feeForTxn
 	}
+	capturedGross := batchGross
+
+	// Step 9: claim the merchant's posted manual credits not yet paid out.
+	// admin/credits.ts journals each one straight onto merchant_payable, and
+	// a batch payout is the only thing that ever pays merchant_payable out,
+	// so the credit rides in the first batch that closes after it posted. It
+	// joins gross with no fee, keeping net = gross - fee. Its merchant_payable
+	// legs are stamped with this batch's id, the same claim
+	// transaction_events gets in step 11, so no later batch pays it again.
+	// There is no lower bound: a credit posted before this code shipped, or
+	// committed after its own day closed, is picked up by the next close.
+	rows, err = tx.Query(ctx, `
+		SELECT le.id, le.amount_fils
+		  FROM ledger_entries le
+		 WHERE le.entry_group_id IN (
+		         SELECT cr.ledger_entry_group_id
+		           FROM credit_requests cr
+		          WHERE cr.merchant_id = $1
+		            AND cr.status = 'posted'
+		            AND cr.posted_at < $2
+		       )
+		   AND le.merchant_id = $1
+		   AND le.account_id = 'merchant_payable'
+		   AND le.direction = 'credit'
+		   AND le.settlement_batch_id IS NULL
+		   AND le.occurred_at < $2
+		 ORDER BY le.id
+		 FOR UPDATE
+	`, merchantID, end)
+	if err != nil {
+		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: select unpaid credits: %w", err)
+	}
+	var creditLegIDs []int64
+	var creditFils money.Fils
+	for rows.Next() {
+		var id, amountFils int64
+		if err := rows.Scan(&id, &amountFils); err != nil {
+			rows.Close()
+			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: scan unpaid credit: %w", err)
+		}
+		creditLegIDs = append(creditLegIDs, id)
+		creditFils += money.Fils(amountFils)
+	}
+	if err := rows.Err(); err != nil {
+		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: iterate unpaid credits: %w", err)
+	}
+	rows.Close()
+	batchGross += creditFils
+
 	netPayout := NetPayableFils(batchGross, batchFee)
 
 	// Record this batch's contribution to the platform-wide lifetime
 	// processed-volume counter, in the same transaction that freezes this
 	// batch's own totals — so the counter and the batch it describes
-	// commit or roll back together.
-	if err := RecordPlatformProcessedVolume(ctx, tx, platformProcessedFils, int64(batchGross)); err != nil {
+	// commit or roll back together. Credits are not card volume.
+	if err := RecordPlatformProcessedVolume(ctx, tx, platformProcessedFils, int64(capturedGross)); err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: record platform volume: %w", err)
 	}
 
@@ -256,6 +306,14 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		`, eventIDs, batchID)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: mark events batched: %w", err)
+		}
+	}
+	if len(creditLegIDs) > 0 {
+		_, err = tx.Exec(ctx, `
+			UPDATE ledger_entries SET settlement_batch_id = $2 WHERE id = ANY($1)
+		`, creditLegIDs, batchID)
+		if err != nil {
+			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: mark credits batched: %w", err)
 		}
 	}
 
@@ -288,8 +346,9 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: enqueue outbox event: %w", err)
 	}
 
-	// Step 14: incrementally update the merchant_balances cache.
-	if err := balances.ApplyBatchClose(ctx, tx, merchantID, batchID, netPayout); err != nil {
+	// Step 14: incrementally update the merchant_balances cache. The credits
+	// went into the cache when they posted, so only the captures' net is new.
+	if err := balances.ApplyBatchClose(ctx, tx, merchantID, batchID, netPayout-creditFils); err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: apply balance cache delta: %w", err)
 	}
 

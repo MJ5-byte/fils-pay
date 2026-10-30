@@ -747,3 +747,143 @@ func TestCloseBatch_RefusesBusinessDayThatHasNotEnded(t *testing.T) {
 		t.Errorf("CloseBatch(today) at Bahrain midnight GrossFils = %d, want 4750", closed.GrossFils)
 	}
 }
+
+// insertPostedCredit writes what apps/api's admin/credits.ts postCreditToLedger
+// leaves behind for a posted manual credit: the credit_requests row, the
+// merchant_credit_contra/merchant_payable base pair, the platform_fee_revenue/
+// merchant_payable reversal pair when feeReversalFils > 0, and the cache bump.
+func insertPostedCredit(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, baseFils, feeReversalFils int64, occurredAt, postedAt time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	var adminID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO admin_users (email, password_hash, display_name, role)
+		VALUES ($1, 'x', 'settlement credit test', 'finance')
+		RETURNING id
+	`, "credit-"+uuid.New().String()+"@test.invalid").Scan(&adminID)
+	if err != nil {
+		t.Fatalf("insertPostedCredit: admin user: %v", err)
+	}
+	groupID := uuid.New()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO credit_requests
+		  (merchant_id, requested_by_admin_user_id, requested_by_display_name, reason_code,
+		   base_amount_fils, fee_reversal_fils, effective_date, requires_approval, status, posted_at, ledger_entry_group_id)
+		VALUES ($1, $2, 'settlement credit test', 'goodwill', $3, $4, $5::date, false, 'posted', $6, $7)
+	`, merchantID, adminID, baseFils, feeReversalFils, occurredAt, postedAt, groupID)
+	if err != nil {
+		t.Fatalf("insertPostedCredit: credit_requests: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES ($1, $2, 'merchant_credit_contra', 'debit',  $3, $4, 'manual credit: base'),
+		       ($1, $2, 'merchant_payable',       'credit', $3, $4, 'manual credit: base')
+	`, groupID, merchantID, baseFils, occurredAt)
+	if err != nil {
+		t.Fatalf("insertPostedCredit: base legs: %v", err)
+	}
+	if feeReversalFils > 0 {
+		_, err = pool.Exec(ctx, `
+			INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
+			VALUES ($1, $2, 'platform_fee_revenue', 'debit',  $3, $4, 'manual credit: MDR reversal'),
+			       ($1, $2, 'merchant_payable',     'credit', $3, $4, 'manual credit: MDR reversal')
+		`, groupID, merchantID, feeReversalFils, occurredAt)
+		if err != nil {
+			t.Fatalf("insertPostedCredit: reversal legs: %v", err)
+		}
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
+		VALUES ($1, $2, now())
+		ON CONFLICT (merchant_id) DO UPDATE
+		  SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils
+	`, merchantID, baseFils+feeReversalFils)
+	if err != nil {
+		t.Fatalf("insertPostedCredit: balance cache: %v", err)
+	}
+}
+
+// A posted manual credit is owed to the merchant on merchant_payable, and the
+// batch payout is the only thing that ever pays merchant_payable out. The
+// first close after the credit posts must carry it, and no later close may
+// carry it again.
+func TestCloseBatch_PaysPostedManualCreditsExactlyOnce(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+	day := time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC)
+	nextDay := day.AddDate(0, 0, 1)
+	dayStart, dayEnd := BusinessDayWindow(day)
+
+	_, feeFils := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, dayStart.Add(time.Hour))
+	// Booked against an earlier date, posted during the day: still paid now.
+	insertPostedCredit(t, pool, merchantID, 1500, 0, dayStart.AddDate(0, 0, -5), dayStart.Add(2*time.Hour))
+	insertPostedCredit(t, pool, merchantID, 700, 18, dayStart, dayStart.Add(3*time.Hour))
+	// Posted after the day ended: belongs to the next day's batch.
+	insertPostedCredit(t, pool, merchantID, 400, 0, dayStart, dayEnd.Add(time.Hour))
+
+	closed, err := CloseBatch(ctx, pool, merchantID, day)
+	if err != nil {
+		t.Fatalf("CloseBatch(day): %v", err)
+	}
+	wantNet := money.Fils(10000) - feeFils + 1500 + 718
+	if closed.NetPayoutFils != wantNet {
+		t.Errorf("CloseBatch(day) NetPayoutFils = %d, want %d (captures net plus the two credits posted that day)", closed.NetPayoutFils, wantNet)
+	}
+	if closed.NetPayoutFils != closed.GrossFils-closed.FeeFils {
+		t.Errorf("CloseBatch(day) net %d != gross %d - fee %d", closed.NetPayoutFils, closed.GrossFils, closed.FeeFils)
+	}
+	paid, err := PayoutBatch(ctx, pool, closed.BatchID)
+	if err != nil {
+		t.Fatalf("PayoutBatch(day): %v", err)
+	}
+	if paid.NetPayoutFils != wantNet {
+		t.Errorf("PayoutBatch(day) paid %d, want %d", paid.NetPayoutFils, wantNet)
+	}
+
+	again, err := CloseBatch(ctx, pool, merchantID, day)
+	if err != nil {
+		t.Fatalf("CloseBatch(day) rerun: %v", err)
+	}
+	if !again.AlreadyClosed || again.NetPayoutFils != wantNet {
+		t.Errorf("CloseBatch(day) rerun = %+v, want AlreadyClosed with net %d", again, wantNet)
+	}
+
+	next, err := CloseBatch(ctx, pool, merchantID, nextDay)
+	if err != nil {
+		t.Fatalf("CloseBatch(nextDay): %v", err)
+	}
+	if next.NetPayoutFils != 400 {
+		t.Errorf("CloseBatch(nextDay) NetPayoutFils = %d, want 400 (only the credit posted after day ended)", next.NetPayoutFils)
+	}
+	if _, err := PayoutBatch(ctx, pool, next.BatchID); err != nil {
+		t.Fatalf("PayoutBatch(nextDay): %v", err)
+	}
+
+	third, err := CloseBatch(ctx, pool, merchantID, nextDay.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("CloseBatch(third day): %v", err)
+	}
+	if third.NetPayoutFils != 0 {
+		t.Errorf("CloseBatch(third day) NetPayoutFils = %d, want 0 (every credit already paid)", third.NetPayoutFils)
+	}
+
+	var cached int64
+	if err := pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached); err != nil {
+		t.Fatalf("query merchant_balances: %v", err)
+	}
+	if cached != 0 {
+		t.Errorf("cached_payable_fils after every batch paid = %d, want 0", cached)
+	}
+	var payable int64
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+		  FROM ledger_entries WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+	`, merchantID).Scan(&payable); err != nil {
+		t.Fatalf("sum merchant_payable: %v", err)
+	}
+	if payable != 0 {
+		t.Errorf("merchant_payable ledger balance after every batch paid = %d, want 0", payable)
+	}
+}
