@@ -7,6 +7,8 @@
  * Usage: DATABASE_URL=postgres://... npx tsx db/seed/index.ts
  */
 import { Pool } from "pg";
+import { loadConfig as loadReportingConfig } from "../../apps/reporting/src/config.js";
+import { runCatchUp } from "../../apps/reporting/src/cli/catchUp.js";
 import { generate } from "./generate.js";
 import { buildAssertions, runAssertions } from "./selfVerify.js";
 
@@ -53,6 +55,16 @@ async function main(): Promise<void> {
       process.exitCode = 1;
     } else {
       console.log("\nseed: all REAL assertions passed");
+    }
+
+    // The seed truncates the analytics rollups and the reporting watermark and
+    // writes only outbox events, so without a pass of the reporting consumer
+    // every analytics page starts empty. Replay the outbox through the same
+    // code the reporting worker runs, never a second fill. It runs after the
+    // assertions because the determinism check re-runs generate(), which
+    // truncates the rollups and the watermark again.
+    if (allRealPassed) {
+      await runCatchUp(pool, loadReportingConfig(process.env));
     }
   } finally {
     await pool.end();

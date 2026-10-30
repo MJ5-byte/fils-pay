@@ -733,6 +733,13 @@
 - **Breaks:** Historical batch detail rewrote itself after the fact, so a merchant or finance reviewer reconciling a closed batch saw a false mismatch.
 - **Fix:** Captured is now the sum of that transaction's capture events stamped with this batch, the same deltas CloseBatch used. The column already existed, so no schema change. Test added: capture 4.000 BD, close the batch, capture 3.000 BD more, and the batch still shows 4.000 BD. The seed now stamps its ready-made closed batches on their capture events too, so freshly seeded demo batches show their real Captured figure.
 
+### Bug: A freshly seeded stack shows blank analytics and a "No data yet" badge (BHA-176, BHA-175)
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** After `npm run seed`, the analytics volume and payout widgets were empty and their freshness badge said "No data yet", while the live Top paid links widget next to them showed data. Only a manual `reporting rebuild` or catch-up filled them.
+- **Cause:** The rollups (`merchant_daily_volume`, `merchant_payout_trends`) are only ever filled by the reporting consumer replaying `outbox_events`. The seed truncates both rollups and `reporting_outbox_cursor`, writes the outbox events, and never runs a consumer pass. `readModelAsOf` for those two widgets comes from `reporting_outbox_cursor.updated_at`, which no pass has created, so the API returns `null` and the badge (BHA-175) reads that same missing cursor row.
+- **Breaks:** Demo and local runs started with blank analytics and a badge that contradicted the page, until someone ran the reporting CLI by hand.
+- **Fix:** `db/seed/index.ts` now runs the existing `runCatchUp` from `apps/reporting` after the assertions, the same consumer pass the worker runs, so there is no second fill path. It must run after the assertions because the `seed-deterministic` check re-runs `generate()`, which truncates the rollups and cursor again. No schema change and no change to `apps/web`. The seed's outbox is a small sample (a few events per merchant), so the filled rollups are sparse and the consumer's own parity warning prints for two batches; a per-capture outbox in the seed would be a separate change. No test: seed data, with the row counts and endpoint output in the PR.
 ### Bug: A webhook receiver can make the API read an unbounded response (BHA-144)
 - **Status:** Fixed
 - **Type:** Performance, medium
