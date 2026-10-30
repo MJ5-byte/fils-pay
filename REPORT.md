@@ -687,6 +687,13 @@
 - **Cause:** `apps/web/src/pages/settlement/SettlementBatchListPage.tsx` `load` had no stale-response guard. It is recreated on every filter change and the effect re-fires, but an older in-flight response still ran `setBatches`/`setNextCursor`, and the Load more button dispatches the same `load` outside any effect, so the existing effect-cleanup pattern did not cover it.
 - **Breaks:** A filtered view (e.g. status=paid) could briefly show a batch from the unfiltered set, and the next Load more sent the current filter with the stale cursor.
 - **Fix:** A request epoch held in a `useRef`, bumped on every filter change, captured in the `load` closure at dispatch and checked before `setBatches`/`setNextCursor`/`setError`/`setLoading`, so a response for a superseded filter is dropped. Same "capture in the closure, guard before setState" shape as the sibling `SettlementBatchDetailPage` cancelled flag, widened to cover both the filter effect and the imperative Load more path. No test: a frontend ordering race is visible on the page and the repo does not unit-test this hook pattern.
+### Bug: Promotional discount parser reads BD as two-decimal cents (BHA-59)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** `parsePromotionalDiscountFils("4.75")` returned 475 fils instead of 4750, and "4.7555" was silently rounded instead of rejected.
+- **Cause:** `apps/api/src/payments/discountAdjustment.ts` parsed the BD string with `parseFloat` and multiplied by 100, while BD has three decimals and ADR-0001 requires text amounts to go through `parseBhdToFils`, never through float maths.
+- **Breaks:** Nothing today: no route, script or other service calls this parser, and the live capture discount (`applyCaptureDiscountAdjustment`) works in basis points on the charged fee, so the ticket's claim that every capture adjustment is a tenth of the intended amount is false. It shipped because the exported function breaks ADR-0001, and the first caller wired to it would post a tenth of every promotional discount.
+- **Fix:** The parser now uses the shared `parseBhdToFils` from `packages/money`, the same shape as the CSV import fix, and still rejects malformed, negative or four-decimal input with `invalid_discount`. Test added.
 
 ### Bug: Settlement batch transactions list has no row limit (BHA-114)
 - **Status:** Fixed

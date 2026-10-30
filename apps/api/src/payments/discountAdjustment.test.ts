@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
-import { applyCaptureDiscountAdjustment } from "./discountAdjustment.js";
+import { applyCaptureDiscountAdjustment, parsePromotionalDiscountFils } from "./discountAdjustment.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -167,4 +167,11 @@ test("a zero-rebate capture does not make a later capture's discount credit twic
     { account_id: "merchant_payable", direction: "credit", amount_fils: "2" },
     { account_id: "platform_fee_revenue", direction: "debit", amount_fils: "2" },
   ]);
+});
+
+test("parsePromotionalDiscountFils reads BD at 1000 fils per BD and rejects a fourth decimal (BHA-59)", () => {
+  assert.equal(parsePromotionalDiscountFils("4.75"), 4750);
+  assert.equal(parsePromotionalDiscountFils("4.755"), 4755);
+  assert.throws(() => parsePromotionalDiscountFils("4.7555"), { code: "invalid_discount" });
+  assert.throws(() => parsePromotionalDiscountFils("-1"), { code: "invalid_discount" });
 });
