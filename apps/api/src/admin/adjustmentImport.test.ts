@@ -263,6 +263,37 @@ test("applyAdjustmentImport posts a resent file once and replays the first resul
   assert.equal(legs.rows[0]!.n, "4", "one balanced pair per row, once");
 });
 
+test("applyAdjustmentImport posts an identical file again only with a repeat upload id", async () => {
+  const adminUserId = await createAdminUser();
+  const merchantId = await createMerchant();
+  const rows = [{ merchantId, amount: "2.500", reason: "monthly correction" }];
+
+  const first = await applyAdjustmentImport(pool, { adminUserId, originalFilename: "monthly.csv", rows });
+  const resent = await applyAdjustmentImport(pool, { adminUserId, originalFilename: "monthly.csv", rows });
+  assert.equal(resent.alreadyApplied, true);
+  assert.equal(resent.importId, first.importId);
+
+  const repeatUploadId = randomUUID();
+  const repeat = await applyAdjustmentImport(pool, { adminUserId, originalFilename: "monthly.csv", rows, repeatUploadId });
+  assert.equal(repeat.alreadyApplied, false);
+  assert.notEqual(repeat.importId, first.importId);
+
+  const repeatResent = await applyAdjustmentImport(pool, { adminUserId, originalFilename: "monthly.csv", rows, repeatUploadId });
+  assert.equal(repeatResent.alreadyApplied, true);
+  assert.equal(repeatResent.importId, repeat.importId);
+
+  const posted = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM adjustment_import_rows WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(posted.rows[0]!.n, "2");
+  const audit = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM admin_audit_log WHERE action = 'adjustment_import_applied' AND target_id = $1`,
+    [repeat.importId],
+  );
+  assert.equal(audit.rows[0]!.n, "1");
+});
+
 test("listAdjustmentImports returns newest first and paginates", async () => {
   const adminUserId = await createAdminUser();
   const merchantId = await createMerchant();

@@ -16,12 +16,15 @@ import type {
 export function uploadAdjustmentImport(
   csvContent: string,
   originalFilename?: string,
+  repeatUploadId?: string,
 ): Promise<AdjustmentImportResult> {
   return request("/v1/admin/adjustment-imports", {
     method: "POST",
-    body: JSON.stringify(
-      originalFilename === undefined ? { csvContent } : { csvContent, originalFilename },
-    ),
+    body: JSON.stringify({
+      csvContent,
+      ...(originalFilename === undefined ? {} : { originalFilename }),
+      ...(repeatUploadId === undefined ? {} : { repeatUploadId }),
+    }),
   });
 }
 

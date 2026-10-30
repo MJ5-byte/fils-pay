@@ -32,6 +32,9 @@ const CSV_PLACEHOLDER = `merchantId,amount,reason
 export function AdjustmentImportPage() {
   const [csvContent, setCsvContent] = useState("");
   const [filename, setFilename] = useState("");
+  const [repeatable, setRepeatable] = useState<{ csvContent: string; filename?: string } | null>(null);
+  // The id names one deliberate repeat and is reused on every retry until a response confirms it, so a lost response cannot post the money again.
+  const [pendingRepeat, setPendingRepeat] = useState<{ csvContent: string; repeatUploadId: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,29 +75,50 @@ export function AdjustmentImportPage() {
   }, [loadHistory]);
 
   /** Amounts are BD with three decimals and are parsed server-side with parseBhdToFils. */
-  async function handleApply(event: React.FormEvent): Promise<void> {
-    event.preventDefault();
+  async function submitImport(content: string, name: string | undefined, repeatUploadId?: string): Promise<void> {
+    setRepeatable(null);
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const result = await uploadAdjustmentImport(
-        csvContent,
-        filename.trim() ? filename.trim() : undefined,
-      );
-      setNotice(
-        result.alreadyApplied
-          ? "This file was already applied, so nothing new was posted."
-          : `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`,
-      );
+      const result = await uploadAdjustmentImport(content, name, repeatUploadId);
+      if (repeatUploadId !== undefined) {
+        setPendingRepeat(null);
+        setNotice(
+          result.alreadyApplied
+            ? "Your earlier repeat of this file had already posted, so nothing new was posted."
+            : `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`,
+        );
+      } else {
+        setNotice(
+          result.alreadyApplied
+            ? "This file was already applied, so nothing new was posted. Is this a new month's correction that should be posted again?"
+            : `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`,
+        );
+        if (result.alreadyApplied) {
+          setRepeatable({ csvContent: content, filename: name });
+        }
+      }
       setCsvContent("");
       setFilename("");
       await loadHistory();
     } catch (err) {
       setError(describeError(err));
+      if (repeatUploadId !== undefined) setRepeatable({ csvContent: content, filename: name });
     } finally {
       setBusy(false);
     }
+  }
+
+  function postAgain(content: string, name: string | undefined): void {
+    const repeatUploadId = pendingRepeat?.csvContent === content ? pendingRepeat.repeatUploadId : crypto.randomUUID();
+    setPendingRepeat({ csvContent: content, repeatUploadId });
+    void submitImport(content, name, repeatUploadId);
+  }
+
+  async function handleApply(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+    await submitImport(csvContent, filename.trim() ? filename.trim() : undefined);
   }
 
   async function handleOpenRows(importId: string): Promise<void> {
@@ -156,6 +180,13 @@ export function AdjustmentImportPage() {
 
       {error ? <p className="admin-error">{error}</p> : null}
       {notice ? <p>{notice}</p> : null}
+      {repeatable ? (
+        <RequireRole allow={["finance", "super_admin"]}>
+          <button type="button" disabled={busy} onClick={() => postAgain(repeatable.csvContent, repeatable.filename)}>
+            Post again
+          </button>
+        </RequireRole>
+      ) : null}
 
       <h2>Past imports</h2>
       {listError ? <p className="admin-error">{listError}</p> : null}

@@ -43,7 +43,7 @@ async function postAdjustmentToLedger(
  */
 export async function applyAdjustmentImport(
   pool: Pool,
-  input: { adminUserId: string; originalFilename: string; rows: AdjustmentImportRow[] },
+  input: { adminUserId: string; originalFilename: string; rows: AdjustmentImportRow[]; repeatUploadId?: string },
 ): Promise<AdjustmentImportResult> {
   if (input.rows.length === 0) {
     throw new BadRequestError("empty_import", "the CSV must contain at least one row");
@@ -55,7 +55,13 @@ export async function applyAdjustmentImport(
     // each merchant in it. Sorted, so two uploads that share merchants take
     // the keys in the same order and cannot deadlock; a concurrent resend
     // waits on the first upload's keys and then replays it.
-    const fileHash = hashRequest(input.rows);
+    // A deliberate repeat of identical content (BHA-202) carries a client-chosen
+    // repeatUploadId, giving it its own idempotency identity so it posts once more
+    // and a resend of that same repeat still replays. Without the id, the key
+    // remains the bare row hash, unchanged.
+    const fileHash = input.repeatUploadId === undefined
+      ? hashRequest(input.rows)
+      : hashRequest({ rows: input.rows, repeatUploadId: input.repeatUploadId });
     const merchantIds = [...new Set(input.rows.map((row) => row.merchantId))].sort();
     const claims = [];
     for (const merchantId of merchantIds) {
@@ -110,6 +116,7 @@ export async function applyAdjustmentImport(
         rowCount: input.rows.length,
         totalPostedFils: total,
         originalFilename: input.originalFilename,
+        ...(input.repeatUploadId === undefined ? {} : { repeatUploadId: input.repeatUploadId }),
       },
     });
 

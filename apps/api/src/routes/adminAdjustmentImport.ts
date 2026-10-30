@@ -16,10 +16,12 @@ interface ImportIdParams {
 /**
  * csvContent: "merchantId,amount,reason" rows, amount in BD with up to 3
  * decimals (e.g. 4.750). originalFilename is informational only.
+ * repeatUploadId is sent only to post an already applied file again, with a new id per deliberate repeat making it a new import.
  */
 interface CreateImportBody {
   csvContent?: unknown;
   originalFilename?: unknown;
+  repeatUploadId?: unknown;
 }
 
 interface ListQuery {
@@ -45,12 +47,15 @@ export async function adminAdjustmentImportRoutes(app: FastifyInstance): Promise
       const adminAuth = request.adminAuth;
       if (!adminAuth) throw new UnauthorizedError("unauthenticated");
 
-      const { csvContent, originalFilename } = request.body ?? {};
+      const { csvContent, originalFilename, repeatUploadId } = request.body ?? {};
       if (typeof csvContent !== "string" || csvContent.trim() === "") {
         throw new BadRequestError("invalid_request", "csvContent is required and must be a non-empty string");
       }
       if (originalFilename !== undefined && typeof originalFilename !== "string") {
         throw new BadRequestError("invalid_request", "originalFilename, if given, must be a string");
+      }
+      if (repeatUploadId !== undefined && (typeof repeatUploadId !== "string" || !UUID_RE.test(repeatUploadId))) {
+        throw new BadRequestError("invalid_request", "repeatUploadId, if given, must be a UUID");
       }
 
       // FH: parseAdjustmentCsv handles 3dp BD amounts correctly (4.750 -> 4750 fils), Claude checked
@@ -65,6 +70,7 @@ export async function adminAdjustmentImportRoutes(app: FastifyInstance): Promise
         adminUserId: adminAuth.adminUserId,
         originalFilename: originalFilename ?? "pasted.csv",
         rows,
+        repeatUploadId: typeof repeatUploadId === "string" ? repeatUploadId : undefined,
       });
 
       reply.code(201).send(result);

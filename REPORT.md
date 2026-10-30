@@ -1073,6 +1073,14 @@
 - **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
 - **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.
 
+### Bug: A genuine repeat adjustment CSV with identical rows is never posted
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** Uploading a second, legitimate adjustment file whose rows match an earlier one (the same monthly correction, say) returned the first upload's result and posted nothing.
+- **Cause:** #130 (BHA-191) keys the import's idempotency row on a hash of the file's rows per merchant, with no upload id, so identical content was always treated as a resend.
+- **Breaks:** A merchant owed a repeated correction was not paid it until someone edited the reason cell to make the file differ.
+- **Fix:** The import request takes an optional `repeatUploadId`, sent only when the admin is told the file was already applied and clicks Post again. It gives that deliberate repeat its own idempotency key, so it posts once more through the same threshold check, ledger posting and audit row, while a plain resend, and a resend of the same repeat, still replay. Test added in `adjustmentImport.test.ts`.
+
 ### Bug: A flood of new checkouts from one address starves the ones already under way
 - **Status:** Fixed
 - **Type:** Performance, high
