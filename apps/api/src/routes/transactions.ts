@@ -153,6 +153,13 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const idempotencyKey = getIdempotencyKey(request);
       const { amountFils } = request.body ?? {};
+      // A partial-capture amount is optional, but when present it must be a
+      // positive whole number of fils, the same guard the authorize route
+      // applies (BHA-79). Without it a bad type crashes toFils into a 500 and
+      // a zero slips through to a misleading 422 capture_exceeds_remaining.
+      if (amountFils !== undefined && (!Number.isSafeInteger(amountFils) || amountFils <= 0)) {
+        throw new BadRequestError("invalid_amount", "amountFils must be a positive integer");
+      }
 
       const result = await captureTransaction(app.db, app.acquirer, {
         transactionId: request.params.id,

@@ -312,6 +312,28 @@ test("capture amount exceeding remaining is rejected 422", async () => {
   assert.equal(res.json().remainingFils, 5_000);
 });
 
+test("capture with a malformed or non-positive amount is rejected 400 invalid_amount, not 500 or 422", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("capture-bad-amount");
+  const txn = await authorize(rawKey, 5_000);
+
+  // Wrong type, non-integer, negative, null, and zero. Each must be a clean
+  // 400 invalid_amount: the first four would otherwise crash toFils into a 500,
+  // and zero would slip through to a 422 capture_exceeds_remaining.
+  for (const amountFils of ["abc", 1.5, -5, null, 0]) {
+    const res = await capture(rawKey, txn.id, { amountFils } as { amountFils?: number });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(amountFils)} -> ${res.body}`);
+    assert.equal(res.json().error, "invalid_amount");
+  }
+
+  // The transaction is untouched by any of the rejected attempts.
+  const after = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [txn.id],
+  );
+  assert.equal(after.rows[0]!.status, "authorized");
+  assert.equal(Number(after.rows[0]!.captured_fils), 0);
+});
+
 test("GET /v1/transactions/:id/events returns the timeline in chronological order", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("events-timeline");
   const txn = await authorize(rawKey, 6_000);

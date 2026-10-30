@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { authorizeTransaction, AUTHORIZE_ENDPOINT, type AuthorizeResult } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
+import { voidTransaction } from "../payments/void.js";
 import { sealFailedKey } from "../payments/idempotency.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
@@ -149,8 +150,15 @@ export async function payPaymentLink(
   });
 
   if (captureResult.statusCode !== 200) {
-    // Same terminal-only release rule as the authorize branch above.
+    // A terminal capture failure (402 decline, 409 not_capturable, 422
+    // over-remaining) leaves the 7-day authorization hold stranded, so void it
+    // (row-locked and idempotent) and free the link. A 502 is an acquirer
+    // error whose outcome is unknown: the charge may have gone through, so
+    // neither void nor release. The reservation stays, and a same-card retry
+    // resumes this authorization through the capture's retryable key instead
+    // of creating a second charge.
     if (captureResult.statusCode !== 502) {
+      await voidTransaction(pool, { transactionId: txnId, merchantId: link.merchantId, actor: { type: "system", id: link.id } });
       await releaseReservation(pool, link.id, link.reservationId);
     }
     return {
