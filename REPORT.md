@@ -530,6 +530,14 @@
 - **Cause:** `callSettlementInternal` (`apps/api/src/admin/settlementClient.ts:133`) copied the first 500 characters of the non-2xx body into the `AppError` message, and all admin settlement calls route through it.
 - **Breaks:** Table names, SQL and driver text from an internal service reached the admin browser.
 - **Fix:** The body is now logged server-side only. The message keeps the path and status, plus Go's own `{"error":"<code>"}` code when the body is exactly that shape, so the admin UI still shows validation codes. Test added in `settlementClient.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/76.
+
+### Bug: CSV balance import reads a thousands comma as a column break
+- **Status:** Fixed (BHA-58)
+- **Type:** Money, high
+- **Problem:** The row `m1,1,250.500,fix` in the adjustment import posted 1 BD with the reason "250.500" instead of failing, so a finance user who typed 1,250.500 moved the wrong amount.
+- **Cause:** `parseAdjustmentCsv` (`apps/api/src/admin/adjustmentCsvParsing.ts`) split every line on each comma with no quote handling and never compared the row's column count to the header, so the extra cell silently became the reason.
+- **Breaks:** A mis-typed or spreadsheet-exported amount posted a different balance adjustment with no error.
+- **Fix:** The splitter now honours double quotes, and a row with more columns than the header is rejected with a 400 `invalid_csv_row` naming the row, before anything is posted. Rows with the optional reason left off still import. A row like `m1,1,250.500` (no reason column) is still three cells, so it is not caught. A thousands comma is rejected either way (unquoted by the column check, quoted by the amount parser with `invalid_amount`); amounts must be written without separators (`1250.500`). PR: https://github.com/SilentYsf/fils-pay/pull/79. Tests added in `adjustmentCsvParsing.test.ts`.
 ### Bug: Merchant login cookie expires after 10 minutes even though the session lasts 12 hours
 - **Status:** Fixed
 - **Type:** Security, medium

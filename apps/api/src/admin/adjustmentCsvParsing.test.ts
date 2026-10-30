@@ -63,3 +63,42 @@ test("a wrong header throws", () => {
 test("a row missing its amount throws", () => {
   assert.throws(() => parseAdjustmentCsv(`merchantId,amount,reason\n${MERCHANT_A},,x\n`), /missing a merchantId or an amount/);
 });
+
+test("a thousands comma in the amount is rejected, naming the row", () => {
+  assert.throws(
+    () => parseAdjustmentCsv(`merchantId,amount,reason
+${MERCHANT_A},1.000,ok
+${MERCHANT_B},1,250.500,fix
+`),
+    (err: Error & { code?: string }) => err.code === "invalid_csv_row" && /row 2 has 4 columns/.test(err.message),
+  );
+});
+
+test("a quoted reason containing commas still imports", () => {
+  const rows = parseAdjustmentCsv(`merchantId,amount,reason
+${MERCHANT_A},4.750,"fee, tax and ""late"" fix"
+`);
+  assert.deepEqual(rows, [{ merchantId: MERCHANT_A, amount: "4.750", reason: 'fee, tax and "late" fix' }]);
+});
+
+test("a quoted amount with a comma stays one column", () => {
+  const rows = parseAdjustmentCsv(`merchantId,amount,reason
+${MERCHANT_A},"1,250.500",fix
+`);
+  assert.equal(rows[0]?.amount, "1,250.500");
+});
+
+test("an unterminated quote is rejected", () => {
+  assert.throws(() => parseAdjustmentCsv(`merchantId,amount,reason
+${MERCHANT_A},4.750,"oops
+`), /unterminated quote/);
+});
+
+test("an amount with a thousands comma is rejected as invalid_amount, quoted or not", () => {
+  const [row] = parseAdjustmentCsv(`merchantId,amount,reason\n${MERCHANT_A},"1,250.500",fix\n`);
+  assert.throws(
+    () => parseAdjustmentAmountFils(row?.amount ?? ""),
+    (err: Error & { code?: string }) => err.code === "invalid_amount",
+  );
+  assert.equal(parseAdjustmentAmountFils("1250.500"), 1250500);
+});
