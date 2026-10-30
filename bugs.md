@@ -16,8 +16,8 @@ needs action) · **Open**
 | 3 | Postgres port 5432 open to the internet | High | Open |
 | 4 | `*.dilmune.app` DNS records never created | High | Open |
 | 5 | No HTTPS (nothing on port 443) | High | Open |
-| 6 | API, settlement and reporting not running | High | Open |
-| 7 | `DATABASE_URL` holds a placeholder password | High | Open |
+| 6 | API, settlement and reporting not running | High | Fixed |
+| 7 | `DATABASE_URL` holds a placeholder password | High | Fixed |
 | 8 | Overlapping API deploys corrupted `node_modules` | High | Fixed |
 | 9 | Frontend deep links (`/pay/:token`) returned 404 | High | Fixed |
 | 10 | Checkout bundle called `http://localhost:3000` | High | Fixed |
@@ -31,6 +31,7 @@ needs action) · **Open**
 | 18 | Dilmun reports sites `active` / `sslEnabled: true` when they are not | Low | Open (platform) |
 | 19 | API dev webhook key was 34 bytes, so the API couldn't boot in dev without one | Medium | Fixed |
 | 20 | Local compose ran every Node service as `NODE_ENV=production` | Medium | Fixed |
+| 21 | Settlement logs "next check-in ~tomorrow" but re-runs every minute | Low | Open |
 
 ## Details
 
@@ -75,19 +76,26 @@ needs action) · **Open**
 - Depends on #4: Let's Encrypt can't issue until DNS resolves. Port 443
   refuses connections.
 
-### 6. Services not running — Open
-- **What:** `filspay-api`, `filspay-settlement`, `filspay-reporting` are
-  inactive; `setup.sh` had never been run.
-- **Blocked by #7:** `setup.sh` stops at migrations with
-  `password authentication failed for user "filspay_admin"`.
-- **Next:** fix #7, deploy the API site once, run
-  `bash ops/dilmune/setup.sh`.
+### 6. Services not running — Fixed
+- **What:** `filspay-api`, `filspay-settlement`, `filspay-reporting` were
+  inactive; `setup.sh` had never run successfully.
+- **Fix:** after #7, one API deploy (5cf7328) then `bash ops/dilmune/setup.sh`:
+  72 migrations applied, Go 1.22.12 installed, settlement built, three
+  systemd services started, `setup: OK`.
+- **Verified:** all three `active` with 0 restarts after a minute;
+  `/healthz` and `/readyz` return 200 through nginx; CORS preflight from
+  the admin site returns 204; settlement listens on `127.0.0.1:8091` only;
+  ports 3000 and 8091 are closed from outside.
 
-### 7. Placeholder database password — Open
-- **What:** `DATABASE_URL` on the API site still contains `CHANGE_ME`.
-- **Blocked:** the real password isn't stored anywhere reachable. Dilmun
-  does not return database passwords. Get or reset it in the Dilmun
-  dashboard (Databases → filspay).
+### 7. Placeholder database password — Fixed
+- **What:** `DATABASE_URL` on the API site held `CHANGE_ME`, and the real
+  `filspay_admin` password couldn't be recovered (Dilmun never returns it).
+- **Fix:** reset the role's password on the server (temporary
+  `local all postgres peer` line in `pg_hba.conf`, one `ALTER ROLE`, then
+  the original file restored from a backup), and set the new
+  `DATABASE_URL` on the API site.
+- **Verified:** `pg_hba.conf` is byte-identical to the original; the new
+  password logs in as `filspay_admin`; migrations ran with it.
 
 ### 8. Overlapping deploys corrupted `node_modules` — Fixed
 - **What:** several API deploys ran at once (plus Dilmun's automatic
@@ -190,6 +198,15 @@ needs action) · **Open**
 - **Verified:** migrate, seed, api, settlement and reporting all start;
   admin login, merchant login, authorize → capture → refund and the
   reporting rollup all work end to end on localhost.
+
+### 21. Misleading settlement check-in log — Open
+- **What:** on the server the daemon logs `RunDailyBatch(2026-10-29)
+  processed 0 merchant(s)` and `next check-in ~<tomorrow>`, then repeats
+  both a minute later (poll interval 1m). No harm seen (0 merchants, so
+  nothing written twice), but the log contradicts the behaviour.
+- **Next:** check `apps/settlement/internal/scheduler` to see whether the
+  re-run is intended (idempotent poll) and fix whichever is wrong, the
+  log or the loop.
 
 ## Incidents during the fix
 
