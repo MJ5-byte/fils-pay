@@ -1072,3 +1072,11 @@
 - **Cause:** `merchant_daily_volume` had no refund columns, `runConsumerPass.ts` did not list `refund.succeeded`, and the only refund helper (`applyDailySummaryRollup` in `applyEvent.ts`) was never called and keyed its day on the UTC date of the event instead of the Bahrain business day (ADR-0003).
 - **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
 - **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.
+
+### Bug: Every ledger insert scans the whole ledger
+- **Status:** Fixed
+- **Type:** Performance, high
+- **Problem:** Payment throughput fell as the ledger grew; at 40k to 48k ledger rows a load of 28 to 30 requests per second was served at only 18 to 23 per second.
+- **Cause:** The balance trigger `check_ledger_group_balance` (migration `0007`) sums each touched group with `WHERE entry_group_id = ...` on every ledger row written, and `entry_group_id` had no index, so every insert read the whole ledger. Lookups by `transaction_id` on `ledger_entries` (refunds, discount adjustments) and `holds` (capture, void) had no index either.
+- **Breaks:** Every capture, refund and adjustment got slower with each row ever written; a capacity run recorded 55,040 sequential scans reading 1.25 billion rows and no index scans.
+- **Fix:** Migration `0081` adds three plain indexes, `ledger_entries(entry_group_id)`, `ledger_entries(transaction_id)` and `holds(transaction_id)`, with `CREATE INDEX IF NOT EXISTS` (additive; not CONCURRENTLY because the migrator runs each file in a transaction). The trigger's lookup moves from a Seq Scan to an Index Scan; plans are in the PR. No query or trigger changed.
