@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listPaymentLinks } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
@@ -30,9 +30,16 @@ export function PaymentLinkListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped on every filter change (below). `load` captures the epoch at
+  // dispatch and drops its result if a newer filter has since superseded it,
+  // so a slow response for an old filter can't overwrite the current rows.
+  // Same request-epoch guard as SettlementBatchListPage.
+  const requestEpoch = useRef(0);
+
   const load = useCallback(
     async (cursor: string | null) => {
       if (!merchantId) return;
+      const epoch = requestEpoch.current;
       setLoading(true);
       setError(null);
       try {
@@ -41,18 +48,21 @@ export function PaymentLinkListPage() {
           limit: PAGE_SIZE,
           cursor: cursor ?? undefined,
         });
+        if (epoch !== requestEpoch.current) return;
         setLinks((previous) => (cursor ? [...previous, ...result.paymentLinks] : result.paymentLinks));
         setNextCursor(result.nextCursor);
       } catch (err) {
+        if (epoch !== requestEpoch.current) return;
         setError(describeError(err));
       } finally {
-        setLoading(false);
+        if (epoch === requestEpoch.current) setLoading(false);
       }
     },
     [merchantId, statuses],
   );
 
   useEffect(() => {
+    requestEpoch.current += 1;
     void load(null);
   }, [load]);
 
