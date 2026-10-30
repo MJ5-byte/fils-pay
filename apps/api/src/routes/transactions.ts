@@ -6,7 +6,8 @@ import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize
 import { captureTransaction } from "../payments/capture.js";
 import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
 import { voidTransaction } from "../payments/void.js";
-import { buildTransactionsExportCsv } from "../transactions/exportCsv.js";
+import { PassThrough } from "node:stream";
+import { streamTransactionsExportCsv } from "../transactions/exportCsv.js";
 import { getTransactionById, listTransactions } from "../transactions/query.js";
 import { listTransactionEvents } from "../transactions/events.js";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
@@ -52,6 +53,21 @@ function parseLimit(raw: string | undefined): number | undefined {
     throw new BadRequestError("invalid_limit", "limit must be a positive integer");
   }
   return Number(raw);
+}
+
+/**
+ * Validates a `from`/`to` date query parameter at the boundary. Returns
+ * `undefined` when absent; rejects a value that does not parse to a real
+ * instant with a 400, so an invalid date is caught here instead of reaching
+ * the query as an Invalid Date and crashing with a 500.
+ */
+function parseDateParam(raw: string | undefined, field: string): Date | undefined {
+  if (!raw) return undefined;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    throw new BadRequestError("invalid_date", `${field} must be a valid ISO-8601 date`);
+  }
+  return date;
 }
 
 function isRealTimestamp(text: string): boolean {
@@ -183,8 +199,8 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       return listTransactions(app.db, {
         merchantId: request.merchantAuth!.merchantId,
         status,
-        from: q.from ? new Date(q.from) : undefined,
-        to: q.to ? new Date(q.to) : undefined,
+        from: parseDateParam(q.from, "from"),
+        to: parseDateParam(q.to, "to"),
         search: q.search,
         limit,
         cursor: q.cursor ?? null,
@@ -198,18 +214,31 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-
-      const csv = await buildTransactionsExportCsv(app.db, {
+      const filters = {
         merchantId: request.merchantAuth!.merchantId,
-        from: q.from ? new Date(q.from) : undefined,
-        to: q.to ? new Date(q.to) : undefined,
+        from: parseDateParam(q.from, "from"),
+        to: parseDateParam(q.to, "to"),
         status,
-      });
+      };
 
+      // Stream the export page by page (streamTransactionsExportCsv keyset-
+      // paginates), so the whole result is never held in memory at once.
+      const stream = new PassThrough();
       reply
         .header("content-type", "text/csv; charset=utf-8")
-        .header("content-disposition", 'attachment; filename="transactions.csv"')
-        .send(csv);
+        .header("content-disposition", 'attachment; filename="transactions.csv"');
+
+      void streamTransactionsExportCsv(app.db, filters, (chunk) => {
+        stream.write(chunk);
+      })
+        .then(() => {
+          stream.end();
+        })
+        .catch((err: unknown) => {
+          stream.destroy(err instanceof Error ? err : new Error("transactions_export_failed"));
+        });
+
+      return reply.send(stream);
     },
   );
 

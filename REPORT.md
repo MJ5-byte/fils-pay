@@ -494,6 +494,27 @@
 - **Breaks:** Finance could not open the per-row detail of any import beyond the 25 most recent, which is the page's audit purpose.
 - **Fix:** The page keeps `nextCursor`, shows a "Load more" button while one exists and appends the next page, the same way `CreditsPage` does. A small `appendImports` helper skips ids already shown. Test added in `appendImports.test.ts`.
 
+### Bug: Transaction list and export crash on an invalid date range (BHA-82)
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** Passing a `from` or `to` that is not a real date to `GET /v1/transactions` or `GET /v1/transactions/export` answered 500, though the export's own docstring promises a 400.
+- **Cause:** Both routes did `q.from ? new Date(q.from) : undefined` with no check (`apps/api/src/routes/transactions.ts`). An unparseable value became an Invalid Date, which `pg` then failed to serialize, crashing the request.
+- **Breaks:** Bad date input crashed the list and the export instead of returning the documented 400, and a stack trace was logged server-side on every hit.
+- **Fix:** A `parseDateParam` boundary helper (next to the existing `parseLimit`/`assertValidCursor`) returns 400 `invalid_date` for a value that does not parse to a real instant, and both routes run `from`/`to` through it. Tests added in `routes/transactions.validation.test.ts`.
+
+### Bug: Transaction export loads the whole result into memory (BHA-84)
+- **Status:** Fixed
+- **Type:** Performance, medium
+- **Problem:** Exporting transactions ran one unbounded `SELECT *` and built the entire CSV in memory, so a large merchant's export could exhaust the API process.
+- **Cause:** The route called `buildTransactionsExportCsv`, which reads every matching row at once (`apps/api/src/transactions/exportCsv.ts`). The paginated `streamTransactionsExportCsv` already existed but was never wired in.
+- **Breaks:** A big merchant could OOM the API on export.
+- **Fix:** The route now streams the CSV through `streamTransactionsExportCsv` into a `PassThrough`, which keyset-paginates at 1000 rows per page so the whole result is never held at once. Wiring it exposed a keyset precision bug in that function (it paged on a millisecond `Date` while `occurred_at` is microsecond `timestamptz`, re-reading the boundary row); it now pages on `(occurred_at, id)` using Postgres's own text rendering, the same keyset the list query uses. Test added in `routes/transactions.validation.test.ts` that exports across the 1000-row page boundary and checks every row appears exactly once.
+
+### Not a bug: Transaction list crash on a non-numeric limit is already guarded (BHA-81)
+- **Type:** UX
+- **Claim:** The ticket reported that a non-numeric `limit` on the transactions list returned a 500.
+- **Checked:** On current `main`, `GET /v1/transactions?limit=abc` returns 400 `invalid_limit`; `parseLimit` in `routes/transactions.ts` rejects any value that is not `^\d+$` or is below 1 before the query runs. Reproduced against a local DB: 400, not 500.
+- **Why it is not a bug now:** The crash is already guarded, so this PR adds no code for it. A value above the cap is clamped to 100 by the documented `MAX_LIMIT` guard in `query.ts`, which is existing intended behaviour and is left alone.
 ### Bug: Scheme export amount overflows on a large capture
 - **Status:** Fixed (BHA-158)
 - **Type:** Data, medium
