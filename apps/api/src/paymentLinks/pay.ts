@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { authorizeTransaction } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
+import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
 
 export interface PayPaymentLinkInput {
@@ -111,8 +112,6 @@ export async function payPaymentLink(
 
   const txnId = (authResult.body as { id: string }).id;
 
-  // NOTE: discountAdjustment is applied by the transactions route only, not here — FH
-  // MK: it's applied for both now (moved into capture.ts in July)
   // Step 3 — capture (full amount, immediately). amountFils omitted =>
   // capture the full remaining amount — always correct here, since this
   // transaction was just authorized for exactly link.amountFils and
@@ -131,6 +130,26 @@ export async function payPaymentLink(
       statusCode: captureResult.statusCode,
       body: { stage: "capture", ...(captureResult.body as Record<string, unknown>) },
     };
+  }
+
+  // Mirror the direct route after capture commits, using a separate transaction.
+  // No-op without a negotiated discount; fixes BHA-32 overcharging discounted link payments.
+  // The capture already committed and money moved, so a failure here must not throw:
+  // that would leave the link reserved and let a fresh-key retry capture again (a double
+  // charge). Log it loudly instead and let finalize mark the link paid. Nothing re-runs a
+  // failed adjustment, so the log line is the only trace; calling it again is safe because
+  // it is idempotent.
+  try {
+    await applyCaptureDiscountAdjustment(pool, {
+      merchantId: link.merchantId,
+      transactionId: txnId,
+    });
+  } catch (error) {
+    console.error(
+      `payPaymentLink: negotiated discount adjustment failed for link ${link.id} ` +
+        `(transaction ${txnId}) after a successful capture. Ledger fee not yet rebated, investigate`,
+      error,
+    );
   }
 
   // see incident 2026-05-14 — two customers charged on one link. root cause: the claim
