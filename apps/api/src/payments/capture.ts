@@ -8,6 +8,7 @@ import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRe
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
+import { nextStatusAfterRefund } from "./refundState.js";
 import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
 import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
 
@@ -67,6 +68,7 @@ interface LockedTransactionRow {
   status: string;
   amount_fils: string | number;
   captured_fils: string | number;
+  refunded_fils: string | number;
   acquirer_reference: string;
 }
 
@@ -117,7 +119,7 @@ export async function captureTransaction(
     // so ownership can never be satisfied by a value the caller controls
     // independently of how they authenticated.
     const lockResult = await client.query<LockedTransactionRow>(
-      `SELECT id, merchant_id, status, amount_fils, captured_fils, acquirer_reference
+      `SELECT id, merchant_id, status, amount_fils, captured_fils, refunded_fils, acquirer_reference
          FROM transactions
         WHERE id = $1 AND merchant_id = $2
         FOR UPDATE`,
@@ -195,7 +197,8 @@ export async function captureTransaction(
     // enters this path.
     const feeFils = applyRateFils(requestedAmount, Math.max(0, effectiveMdrBps - volumeTierBonusBps));
     const newCapturedFils = addFils(capturedSoFar, requestedAmount);
-    const newStatus = compareFils(newCapturedFils, amountAuthorized) === 0 ? "captured" : "partially_captured";
+    const fullyCaptured = compareFils(newCapturedFils, amountAuthorized) === 0;
+    const newStatus = nextStatusAfterRefund({amountFils: amountAuthorized, capturedFils: newCapturedFils, refundedTotalFils: toFils(Number(txn.refunded_fils))});
 
     const updateResult = await client.query<TransactionRow>(
       `UPDATE transactions SET status = $2, captured_fils = $3 WHERE id = $1 RETURNING *`,
@@ -231,7 +234,7 @@ export async function captureTransaction(
     }
 
     // Hold lifecycle: released exactly when nothing remains outstanding.
-    if (newStatus === "captured") {
+    if (fullyCaptured) {
       await client.query(`UPDATE holds SET status = 'released' WHERE transaction_id = $1 AND status = 'active'`, [
         txn.id,
       ]);
@@ -252,7 +255,7 @@ export async function captureTransaction(
 
     await recordTransactionEvent(client, {
       transactionId: txn.id,
-      eventType: newStatus === "captured" ? "captured" : "partially_captured",
+      eventType: fullyCaptured ? "captured" : "partially_captured",
       amountFils: requestedAmount,
       actor: input.actor,
       metadata: { feeFils, acquirerReference: acquirerResult.acquirerReference },

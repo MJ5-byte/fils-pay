@@ -2,7 +2,7 @@
 
 Execution date: 2026-10-30. Starting HEAD `c389b26`; branch `speedup/fork-mined-fixes`.
 No merges or cherry-picks. Public reference objects fetched for read-only inspection.
-The supplied report remains unmodified. Batches 3–8 are pending until recorded below.
+The supplied report remains unmodified. Batches 4–8 are pending until recorded below.
 Per user steering, use focused regression tests plus one relevant suite per batch;
 repeat only to resolve failures or verify further changes.
 
@@ -285,3 +285,103 @@ Docker/runtime result: actual PostgreSQL concurrency/hold/ledger/crash boundarie
 Evidence updated: this file; fork-batch2-*.txt.
 Known failures: refund/reporting/webhook failures from Batch 1 broad run remain for later batches.
 Recommended next batch: Batch 3 refunds / FP-300.
+
+## Batch 3 — refund ceiling, concurrency, ownership, defaults and fee reversal
+
+### Local status before
+Confirmed: ceiling uses authorization; separate phases trust stale refunded amount; no merchant ownership
+check; no reason produces SQLSTATE 23514; partial refunds can reverse too much or too little fee.
+### Local root cause
+Refund validation and journaling have no shared serialization/reservation; wrapper replaces authenticated
+merchant ID with transaction's merchant; fee query ignores negotiated discount and cumulative rounding.
+### References inspected
+- [sama-elsawaf/main dc6fa83d2d0ce012c9a186f88edd4d42fdbb0e99](https://github.com/sama-elsawaf/fils-pay/commit/dc6fa83d2d0ce012c9a186f88edd4d42fdbb0e99): full helper state, advisory serialization, fee cap/remainder, interleaving tests, API/webhook/reporting/UI integration.
+- [thrzkr/fp-300-audit-fixes 4a68dc9265e6d15964f6852fbe2e97d55f884262](https://github.com/thrzkr/fils-pay/commit/4a68dc9265e6d15964f6852fbe2e97d55f884262), underlying cb16b595 merge: durable pending refund reservation.
+- [sama-elsawaf 8c12a328804039070d70e14181bf9aaf4a8879bf](https://github.com/sama-elsawaf/fils-pay/commit/8c12a328804039070d70e14181bf9aaf4a8879bf): summary transaction join, partial-refund aggregation and database cap.
+### Implementation adopted
+Use one checked-out connection and per-transaction session advisory lock across refund phases, with
+short database transactions. Scope reads to authenticated merchant, cap captured-minus-refunded-minus-pending,
+reserve pending refund before processor call, and keep uncertain reservations after exceptions/crashes.
+Explicit simulator decline/error releases pending amount; negative outcomes remain represented in idempotency records.
+On success, re-read current money columns under row lock, settle pending refund, update totals/status,
+post balanced reversal, and complete idempotency atomically. Default reason is unspecified.
+Reverse capture credits minus discount debits, cap cumulative reversals, and return final integer remainder.
+Capture now derives status using current refunded total, releases hold on full capture even if status is partially_refunded,
+and still emits the correct capture event type. Existing partial authorization lifecycle is preserved.
+### Local files changed
+payments/processRefund.ts; refunds/initiateMerchantRefund.ts; payments/capture.ts;
+db/migrations/0075_refund_integrity.sql; 0077_pending_refund_reservations.sql.
+### Regression tests / commands / result
+payments/forkBatch3.new.test.ts covers cap before processor, concurrent over-refunds, partials + final remainder,
+discount + idempotency + reason, tenant/hold/flag routes, webhook/rollup/DTO; pending-outcome case added after hardening.
+First five tests against archived `77dda8f`: 0/5 pass (`fork-batch3-before.txt`).
+Relevant refund/helper/envelope suite: 43/43 pass (`fork-batch3-subsystem.txt`).
+After adding durable pending reservation, affected refund + interleave checks: 18/18 pass (`fork-batch3-final-check.txt`).
+Dedicated summary assertion checks three partial refunds count capture once (`fork-batch3-summary.txt`).
+`npm run migrate` and later pending migration succeed; typechecks pass (fork-batch3-*-typecheck.txt).
+### Differences from references
+Combine advisory serialization with durable pending reservations, closing the advisory-only crash window.
+Retain the local simulator's non-null authorization reference while pending; replace it with refund reference on success.
+Use forward 0075/0077 migrations; leave historical 0072 unchanged. No money-package changes.
+### Remaining risk
+An unknown processor outcome intentionally retains pending money/idempotency for operator reconciliation;
+automatic processor status lookup is unavailable in the simulator interface. Already-in-progress legacy claims need reconciliation.
+External-call deadlines/capacity and fully atomic negotiated fee computation remain later-batch work.
+
+## Batch 3 — FP-300 route, webhook, reporting and dashboard
+
+### Local status before
+Confirmed: /v1/refunds returns 501; scoped route absent; refund event not dispatched/mapped;
+reporting excludes refunds and lacks columns; DTO omits refundedFils; drawer commented out; negative timeline values throw.
+### Local root cause
+Parked helpers were never connected to HTTP, event consumers, authenticated capability DTO or UI.
+### References inspected
+dc6fa83 above; [ali-afk/main 327e5ea28122fc1a60edee9853ee9ad81461521a](https://github.com/ali-afk/fils-pay/commit/327e5ea28122fc1a60edee9853ee9ad81461521a) drawer/error/refresh/negative-value implementation.
+### Implementation adopted
+Both /v1/refunds and /v1/merchants/:merchantId/refunds use explicit validated fields,
+authenticated merchant identity, owner/finance gate, impersonation denial, required idempotency header,
+global FEATURE_REFUNDS and merchant refunds_enabled hold. Flag defaults off.
+Add public refund envelope and dispatcher eligibility together. Include refund counters in incremental
+Bahrain-date reporting and admin source rebuild; forward migration adds columns.
+Transactions include refundedFils; /auth/me exposes refundsEnabled. Drawer computes true remaining balance,
+keeps key for same-attempt retries, displays errors and reloads transaction/timeline. Signed negative money renders.
+### Local files changed
+routes/refunds.ts; routes/auth.ts; app.ts; config.ts; transactions/serialize.ts;
+webhooks/{dispatcher,envelope}.ts; reporting consumer {applyEvent,runConsumerPass}.ts;
+admin/reportingRebuild.ts; db/migrations/0076_merchant_daily_volume_refunds.sql;
+web types/format, RefundDrawer/TransactionDetailPage, refunds/refundable.ts.
+### Regression tests / commands / result
+New API tests cover both route shapes, tenant isolation, per-merchant hold, disabled feature, replay,
+refund event mapping and Bahrain date rollup, transaction refundedFils.
+Ported reference refundStatusInterleave.new.test.ts (two realistic capture/refund interleavings).
+web refunds/refundable.new.test.ts: partially refunded remainder, zero remainder, negative timeline formatting: pass.
+Web build passes; full workspace typecheck passes. Browser rendering remains unavailable.
+### Differences from references
+Support both documented route forms; prefer persistent retry key over a fresh key on every click.
+Extract pure remaining-amount helper for a concise UI regression. Existing exact integer-money helpers reused.
+### Remaining risk
+Actual merchant webhook raw-body/signature/delivery concurrency is verified/hardened in Batch 4.
+Reporting commit ordering, poison events and rebuild cursor still require Batch 6; refund event application itself is verified.
+UI compiled and pure behavior tested; no browser rendering claim.
+
+## BATCH 3 RESULT
+
+Issues investigated: all eleven Batch 3 candidates and summary integrity/pending crash safety.
+Issues reproduced: five composite scenarios fail pre-batch code; existing refund tests fail on missing reason.
+Issues already fixed: refund outbox producer exists; retained and connected.
+Issues not reproducible: none claimed.
+Fixes applied: captured ceiling; serialized/reserved refunds; tenant/role/feature/hold checks;
+default reason; discounted cumulative fee reversal; interleaved status correctness; webhook/reporting/DTO/UI; idempotency.
+Reference repositories inspected: sama/main dc6fa83, 8c12a32; thrzkr/fp-300-audit-fixes 4a68dc9 under cb16b595; ali-afk/main 327e5ea.
+Files changed: listed above.
+Migrations added: 0075_refund_integrity.sql, 0076_merchant_daily_volume_refunds.sql, 0077_pending_refund_reservations.sql.
+Regression tests added: payments/forkBatch3.new.test.ts (six), payments/refundStatusInterleave.new.test.ts (two), web/refunds/refundable.new.test.ts (one).
+Commands run: migrations; original-source regression; relevant 43-test suite; affected 18-test check after pending hardening;
+one summary assertion; one UI assertion; workspace typecheck and web build.
+Focused test result: relevant 43 pass before pending hardening; affected 18 pass after hardening; UI/summary pass.
+Full TS result: typecheck passes; full suite not repeated per user steering.
+Go result: unchanged, baseline passes.
+Docker/runtime result: real PostgreSQL and Fastify route/capture/refund/event integration verified; no Docker/browser available.
+Evidence updated: this file; fork-batch3-*.txt.
+Known failures: webhook/reporting broad-run failures retained for Batches 4/6.
+Recommended next batch: Batch 4 webhooks.

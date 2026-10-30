@@ -8,6 +8,8 @@
  * rather than introducing a second config system.
  */
 export interface Config {
+  /** FP-300: refunds ship behind an explicit deployment flag. */
+  featureRefunds: boolean;
   loginWindowMinutes: number;
   loginMaxFailuresPerAccount: number;
   loginMaxFailuresPerIp: number;
@@ -260,6 +262,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookRequestTimeoutMs: parseIntEnv(env.WEBHOOK_REQUEST_TIMEOUT_MS, 10_000),
 
     acquirerCallbackSigningSecret,
+    featureRefunds: parseBoolEnv(env.FEATURE_REFUNDS, false),
     loginWindowMinutes: parseIntEnv(env.LOGIN_WINDOW_MINUTES, 15),
     loginMaxFailuresPerAccount: parseIntEnv(env.LOGIN_MAX_FAILURES_PER_ACCOUNT, 5),
     loginMaxFailuresPerIp: parseIntEnv(env.LOGIN_MAX_FAILURES_PER_IP, 50),

@@ -9,7 +9,7 @@ import { formatBhd, toFils } from "@filspay/money";
 // FH: toFils without allowNegative throws on a negative — refund events / negative gaps crash the page?
 // MK: amounts are never negative in the dashboard. ignore
 export function bhd(amountFils: number): string {
-  return `${formatBhd(toFils(amountFils))} BHD`;
+  return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
 }
 
 /** `—` for a null/absent value, so an empty table cell is visibly empty

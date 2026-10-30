@@ -266,8 +266,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         merchant_id: string;
         display_name: string;
         onboarding_status: string;
+        refunds_enabled: boolean | null;
       }>(
-        `SELECT mu.email, m.id AS merchant_id, m.display_name, m.onboarding_status
+        `SELECT mu.email, m.id AS merchant_id, m.display_name, m.onboarding_status, m.refunds_enabled
            FROM merchant_users mu
            JOIN merchants m ON m.id = mu.merchant_id
           WHERE mu.id = $1`,
@@ -285,6 +286,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
           id: row.merchant_id,
           displayName: row.display_name,
           onboardingStatus: row.onboarding_status,
+          refundsEnabled: app.config.featureRefunds && row.refunds_enabled !== false,
         },
       };
     },

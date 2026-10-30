@@ -11,7 +11,7 @@ import { businessProfileRoutes } from "./routes/businessProfile.js";
 import { kycRoutes } from "./routes/kyc.js";
 import { apiKeyRoutes } from "./routes/apiKeys.js";
 import { transactionRoutes } from "./routes/transactions.js";
-import { refundRoutes } from "./routes/refunds.js";
+import { refundRoutes, merchantRefundRoutes } from "./routes/refunds.js";
 import { paymentLinkMerchantRoutes, paymentLinkPublicRoutes } from "./routes/paymentLinks.js";
 import { webhookEndpointRoutes } from "./routes/webhooks.js";
 import { settlementRoutes } from "./routes/settlement.js";
@@ -62,6 +62,7 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   // MK: keep /v1/refunds, API.md documents it. the drawer is wrong
   // FH: API.md has both?? asked in #eng, no answer yet (12/10/2026)
   app.register(refundRoutes, { prefix: "/v1/refunds" });
+  app.register(merchantRefundRoutes, { prefix: "/v1/merchants" });
   app.register(paymentLinkMerchantRoutes, { prefix: "/v1/merchants" });
   app.register(paymentLinkPublicRoutes, { prefix: "/v1/payment-links" });
   app.register(webhookEndpointRoutes, { prefix: "/v1/merchants" });

@@ -1,0 +1,136 @@
+TAP version 13
+# {"level":30,"time":1793360405556,"pid":27900,"hostname":"hht","reqId":"req-1","req":{"method":"POST","url":"/v1/transactions","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360405830,"pid":27900,"hostname":"hht","reqId":"req-1","res":{"statusCode":201},"responseTime":270.7069999999994,"msg":"request completed"}
+# {"level":30,"time":1793360405831,"pid":27900,"hostname":"hht","reqId":"req-2","req":{"method":"POST","url":"/v1/transactions/b4256de7-f56b-45f6-aad1-bc113d1c8e8b/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360405929,"pid":27900,"hostname":"hht","reqId":"req-2","res":{"statusCode":200},"responseTime":98.02840000000015,"msg":"request completed"}
+# Subtest: refund ceiling is captured total, before contacting acquirer
+not ok 1 - refund ceiling is captured total, before contacting acquirer
+  ---
+  duration_ms: 976.7458
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\payments\\forkBatch3.new.test.ts:1:2693'
+  failureType: 'testCodeFailure'
+  error: 'new row for relation "transactions" violates check constraint "transactions_refunded_le_captured"'
+  code: '23514'
+  name: 'error'
+  stack: |-
+    C:\Users\hanwd\OneDrive\Desktop\fils-pay\node_modules\pg\lib\client.js:694:17
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\processRefund.ts:199:5)
+    async withTransaction (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\db\withTransaction.ts:30:22)
+    async TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\forkBatch3.new.test.ts:29:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# {"level":30,"time":1793360405969,"pid":27900,"hostname":"hht","reqId":"req-3","req":{"method":"POST","url":"/v1/transactions","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360405998,"pid":27900,"hostname":"hht","reqId":"req-3","res":{"statusCode":201},"responseTime":28.678500000000895,"msg":"request completed"}
+# {"level":30,"time":1793360405999,"pid":27900,"hostname":"hht","reqId":"req-4","req":{"method":"POST","url":"/v1/transactions/593fd650-dbe0-4598-ac38-b24abab92486/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406041,"pid":27900,"hostname":"hht","reqId":"req-4","res":{"statusCode":200},"responseTime":42.119299999999384,"msg":"request completed"}
+# Subtest: concurrent refunds cannot exceed captured money
+not ok 2 - concurrent refunds cannot exceed captured money
+  ---
+  duration_ms: 99.6614
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\payments\\forkBatch3.new.test.ts:1:3129'
+  failureType: 'testCodeFailure'
+  error: 'new row for relation "refunds" violates check constraint "chk_refunds_reason_not_null"'
+  code: '23514'
+  name: 'error'
+  stack: |-
+    C:\Users\hanwd\OneDrive\Desktop\fils-pay\node_modules\pg\lib\client.js:694:17
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\processRefund.ts:177:26)
+    async withTransaction (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\db\withTransaction.ts:30:22)
+    async Promise.all (index 0)
+    async TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\forkBatch3.new.test.ts:33:39)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793360406061,"pid":27900,"hostname":"hht","reqId":"req-5","req":{"method":"POST","url":"/v1/transactions","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406079,"pid":27900,"hostname":"hht","reqId":"req-5","res":{"statusCode":201},"responseTime":16.712399999999434,"msg":"request completed"}
+# {"level":30,"time":1793360406080,"pid":27900,"hostname":"hht","reqId":"req-6","req":{"method":"POST","url":"/v1/transactions/64c94d67-6254-4789-bea6-5c64e2c551c4/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406119,"pid":27900,"hostname":"hht","reqId":"req-6","res":{"statusCode":200},"responseTime":38.79190000000017,"msg":"request completed"}
+# Subtest: partial refunds plus final remainder reverse discounted fee exactly and replay once
+not ok 3 - partial refunds plus final remainder reverse discounted fee exactly and replay once
+  ---
+  duration_ms: 77.2637
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\payments\\forkBatch3.new.test.ts:1:3478'
+  failureType: 'testCodeFailure'
+  error: 'new row for relation "refunds" violates check constraint "chk_refunds_reason_not_null"'
+  code: '23514'
+  name: 'error'
+  stack: |-
+    C:\Users\hanwd\OneDrive\Desktop\fils-pay\node_modules\pg\lib\client.js:694:17
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\processRefund.ts:177:26)
+    async withTransaction (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\db\withTransaction.ts:30:22)
+    async TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\forkBatch3.new.test.ts:37:77)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793360406139,"pid":27900,"hostname":"hht","reqId":"req-7","req":{"method":"POST","url":"/v1/transactions","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406157,"pid":27900,"hostname":"hht","reqId":"req-7","res":{"statusCode":201},"responseTime":17.90059999999994,"msg":"request completed"}
+# {"level":30,"time":1793360406158,"pid":27900,"hostname":"hht","reqId":"req-8","req":{"method":"POST","url":"/v1/transactions/f3e827f5-fa06-4c00-9d93-26150a106d6a/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406195,"pid":27900,"hostname":"hht","reqId":"req-8","res":{"statusCode":200},"responseTime":37.48819999999978,"msg":"request completed"}
+# {"level":30,"time":1793360406203,"pid":27900,"hostname":"hht","reqId":"req-9","req":{"method":"POST","url":"/v1/transactions","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406238,"pid":27900,"hostname":"hht","reqId":"req-9","res":{"statusCode":201},"responseTime":33.55229999999938,"msg":"request completed"}
+# {"level":30,"time":1793360406239,"pid":27900,"hostname":"hht","reqId":"req-a","req":{"method":"POST","url":"/v1/transactions/3edc6195-dc92-4723-9a9f-8d7ab4273511/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406277,"pid":27900,"hostname":"hht","reqId":"req-a","res":{"statusCode":200},"responseTime":37.728799999999865,"msg":"request completed"}
+# {"level":30,"time":1793360406278,"pid":27900,"hostname":"hht","reqId":"req-b","req":{"method":"POST","url":"/v1/refunds","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406282,"pid":27900,"hostname":"hht","reqId":"req-b","res":{"statusCode":501},"responseTime":3.779899999999543,"msg":"request completed"}
+# Subtest: both route forms enforce tenant ownership, hold, feature flag and idempotency
+not ok 4 - both route forms enforce tenant ownership, hold, feature flag and idempotency
+  ---
+  duration_ms: 155.6805
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\payments\\forkBatch3.new.test.ts:1:4287'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    501 !== 404
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 404
+  actual: 501
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\forkBatch3.new.test.ts:45:9)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"level":30,"time":1793360406302,"pid":27900,"hostname":"hht","reqId":"req-c","req":{"method":"POST","url":"/v1/transactions","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406329,"pid":27900,"hostname":"hht","reqId":"req-c","res":{"statusCode":201},"responseTime":27.352899999999863,"msg":"request completed"}
+# {"level":30,"time":1793360406330,"pid":27900,"hostname":"hht","reqId":"req-d","req":{"method":"POST","url":"/v1/transactions/8350f181-f900-40d2-ac7a-57dc648cf72a/capture","host":"localhost:80","remoteAddress":"127.0.0.1"},"msg":"incoming request"}
+# {"level":30,"time":1793360406381,"pid":27900,"hostname":"hht","reqId":"req-d","res":{"statusCode":200},"responseTime":50.6894999999995,"msg":"request completed"}
+# Subtest: refund webhook payload, API refunded total and Bahrain daily reporting are connected
+not ok 5 - refund webhook payload, API refunded total and Bahrain daily reporting are connected
+  ---
+  duration_ms: 104.8671
+  type: 'test'
+  location: 'C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\.fork-tooling\\baseline\\apps\\api\\src\\payments\\forkBatch3.new.test.ts:1:5444'
+  failureType: 'testCodeFailure'
+  error: 'new row for relation "refunds" violates check constraint "chk_refunds_reason_not_null"'
+  code: '23514'
+  name: 'error'
+  stack: |-
+    C:\Users\hanwd\OneDrive\Desktop\fils-pay\node_modules\pg\lib\client.js:694:17
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async <anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\processRefund.ts:177:26)
+    async withTransaction (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\db\withTransaction.ts:30:22)
+    async TestContext.<anonymous> (C:\Users\hanwd\OneDrive\Desktop\fils-pay\.fork-tooling\baseline\apps\api\src\payments\forkBatch3.new.test.ts:52:34)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 0
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5822.7574

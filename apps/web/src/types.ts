@@ -69,7 +69,7 @@ export interface DashboardMe {
   merchantUserId: string;
   email: string;
   role: MerchantRole;
-  merchant: { id: string; displayName: string; onboardingStatus: string };
+  merchant: { id: string; displayName: string; onboardingStatus: string; refundsEnabled: boolean };
 }
 
 // --- transactions ---
@@ -92,6 +92,7 @@ export interface TransactionDto {
   status: TransactionStatus;
   amountFils: number;
   capturedFils: number;
+  refundedFils: number;
   currency: string;
   reference: string | null;
   acquirerReference: string;

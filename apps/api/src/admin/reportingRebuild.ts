@@ -22,16 +22,20 @@ export async function refreshAnalyticsRollups(client: PoolClient): Promise<Rebui
 
   const volumeResult = await client.query(
     `INSERT INTO merchant_daily_volume
-        (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count, last_updated_at)
+        (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count,
+         refund_count, refund_gross_fils, last_updated_at)
      SELECT t.merchant_id,
             (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date,
             COUNT(*) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')),
             COALESCE(SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')), 0),
             COUNT(*) FILTER (WHERE te.event_type = 'voided'),
+            -- refund events carry a negative amount (0044); the rollup stores it positive
+            COUNT(*) FILTER (WHERE te.event_type IN ('refunded', 'refund_partial')),
+            COALESCE(-SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('refunded', 'refund_partial')), 0),
             now()
        FROM transaction_events te
        JOIN transactions t ON t.id = te.transaction_id
-      WHERE te.event_type IN ('captured', 'partially_captured', 'voided')
+      WHERE te.event_type IN ('captured', 'partially_captured', 'voided', 'refunded', 'refund_partial')
       GROUP BY t.merchant_id, (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date`,
   );
 

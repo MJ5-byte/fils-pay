@@ -28,6 +28,7 @@ const STEP_B_BATCH_LIMIT = 100;
 const WEBHOOK_ELIGIBLE_EVENT_TYPES: readonly string[] = [
   "transaction.captured",
   "transaction.voided",
+  "refund.succeeded",
   "settlement.paid",
 ];
 const NOTIFY_CHANNEL = "outbox_events_channel";
