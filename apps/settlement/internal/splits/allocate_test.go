@@ -2,10 +2,12 @@ package splits
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -220,46 +222,28 @@ func TestPayoutSplitBatch_BumpsLifetimePayoutEstimate(t *testing.T) {
 	}
 }
 
-// TestPayoutSplitBatch_NegativeNetLeavesLifetimePayoutEstimate pays a split
-// parent's closed batch whose net is negative (money owed). The estimate is a
-// running total of payouts, so it must not go down.
-func TestPayoutSplitBatch_NegativeNetLeavesLifetimePayoutEstimate(t *testing.T) {
+// TestNegativeNetBatchIsRefusedSoSplitPayoutCannotLowerEstimate: the
+// lifetime payout estimate is a running total of payouts and must not go down
+// for a batch whose net is negative (money owed). Migration 0079 makes the
+// database refuse such a batch outright, so it can never reach
+// PayoutSplitBatch; assert the refusal and that the estimate is untouched.
+func TestNegativeNetBatchIsRefusedSoSplitPayoutCannotLowerEstimate(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
 
 	parentID := insertMerchant(t, pool)
-	for _, w := range []int64{6000, 4000} {
-		childID := insertMerchant(t, pool)
-		_, err := pool.Exec(ctx, `
-			INSERT INTO merchant_split_children (parent_merchant_id, child_merchant_id, split_weight_bps)
-			VALUES ($1, $2, $3)
-		`, parentID, childID, w)
-		if err != nil {
-			t.Fatalf("insert split child: %v", err)
-		}
-	}
 	_, err := pool.Exec(ctx, `UPDATE merchants SET lifetime_net_payout_monitoring_estimate = 700 WHERE id = $1`, parentID)
 	if err != nil {
 		t.Fatalf("seed estimate: %v", err)
 	}
-	var batchID uuid.UUID
-	err = pool.QueryRow(ctx, `
+	_, err = pool.Exec(ctx, `
 		INSERT INTO settlement_batches (merchant_id, batch_date, status, net_payout_fils, closed_at)
 		VALUES ($1, DATE '2026-03-22', 'closed', -500, now())
-		RETURNING id
-	`, parentID).Scan(&batchID)
-	if err != nil {
-		t.Fatalf("insert closed batch: %v", err)
+	`, parentID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "settlement_batches_net_payout_non_negative" {
+		t.Fatalf("negative net insert error = %v, want check violation settlement_batches_net_payout_non_negative", err)
 	}
-	_, err = pool.Exec(ctx, `
-		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, last_settlement_batch_id, updated_at)
-		VALUES ($1, -500, $2, now())
-	`, parentID, batchID)
-	if err != nil {
-		t.Fatalf("insert merchant balance: %v", err)
-	}
-
-	_, _ = PayoutSplitBatch(ctx, pool, batchID) // whether it errors is not what this test pins
 
 	var got int64
 	err = pool.QueryRow(ctx, `SELECT lifetime_net_payout_monitoring_estimate FROM merchants WHERE id = $1`, parentID).Scan(&got)

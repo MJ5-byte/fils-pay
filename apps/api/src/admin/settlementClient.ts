@@ -50,6 +50,8 @@ export interface MdrRecalcSummary {
   batchesConsidered: number;
   /** Only the batches whose fee actually changed. */
   adjusted: MdrBatchAdjustment[];
+  /** Batches left unchanged because the new fee would make their net payout negative. */
+  skippedBatchIds?: string[];
 }
 
 /**
@@ -274,6 +276,10 @@ export async function triggerMdrRecalculation(
       newFeeFils: asNumber(pick(row, "NewFeeFils", "newFeeFils")),
       diffFils: asNumber(pick(row, "DiffFils", "diffFils")),
     })),
+    skippedBatchIds: ((): string[] => {
+      const raw = pick(decoded, "Skipped", "skippedBatchIds");
+      return Array.isArray(raw) ? raw.map(asString) : [];
+    })(),
   };
 }
 

@@ -32,6 +32,9 @@ type BatchAdjustment struct {
 type RecalcResult struct {
 	BatchesConsidered int
 	Adjusted          []BatchAdjustment
+	// Skipped lists batches left as they were because the recalculated net
+	// payout would be negative.
+	Skipped []uuid.UUID
 }
 
 // batchRow is one settlement_batches row as read by the recalculation scan.
@@ -94,6 +97,7 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 	rows.Close()
 
 	var adjusted []BatchAdjustment
+	var skipped []uuid.UUID
 	for _, b := range batches {
 		newFee, err := recomputeBatchFee(ctx, tx, b.id, mdrBps, discountBps)
 		if err != nil {
@@ -104,6 +108,13 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 			continue
 		}
 		newNetPayout := b.grossFils - newFee
+		// A batch whose refunds already took its gross to zero cannot absorb a
+		// higher fee: a negative net has no payout leg to recover it, and the
+		// database refuses it. Leave the batch as closed and report it.
+		if newNetPayout < 0 {
+			skipped = append(skipped, b.id)
+			continue
+		}
 		// am: posts against the OLD batch id so it never lands in a new payout?? fixed in FP-244 i think
 		if err := postMdrAdjustment(ctx, tx, merchantID, b.id, diff); err != nil {
 			return RecalcResult{}, err
@@ -132,7 +143,7 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 	if err := tx.Commit(ctx); err != nil {
 		return RecalcResult{}, fmt.Errorf("settlement: RecalculateMDR: commit: %w", err)
 	}
-	return RecalcResult{BatchesConsidered: len(batches), Adjusted: adjusted}, nil
+	return RecalcResult{BatchesConsidered: len(batches), Adjusted: adjusted, Skipped: skipped}, nil
 }
 
 // recomputeBatchFee sums ComputeSettlementFee over every transaction_events

@@ -330,3 +330,64 @@ func TestRecalculateMDR_RefundInBatchUnchangedRateAdjustsNothing(t *testing.T) {
 		t.Errorf("unchanged rate adjusted %d batch(es): %+v", len(result.Adjusted), result.Adjusted)
 	}
 }
+
+// A fully refunded sale closes at gross 0, fee 0, net 0. Raising the rate then
+// recomputes fee = 300 charged at the new rate - 250 reversed = 50, so net
+// would be -50. A negative batch has no payout leg to recover the money (and
+// settlement_batches_net_payout_non_negative refuses it), so that batch keeps
+// its figures and is reported as skipped while the rest of the range applies.
+func TestRecalculateMDR_SkipsBatchWhoseNetWouldGoNegative(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const originalMdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, originalMdrBps)
+
+	refundedDay := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
+	refundedStart, _ := BusinessDayWindow(refundedDay)
+	txnID, fee := insertCaptureEvent(t, pool, merchantID, originalMdrBps, 10000, refundedStart.Add(time.Hour))
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 10000, fee, refundedStart.Add(2*time.Hour))
+	refunded, err := CloseBatch(ctx, pool, merchantID, refundedDay)
+	if err != nil {
+		t.Fatalf("CloseBatch (refunded day): %v", err)
+	}
+	if refunded.GrossFils != 0 || refunded.FeeFils != 0 || refunded.NetPayoutFils != 0 {
+		t.Fatalf("refunded batch = gross %d, fee %d, net %d; want 0, 0, 0", refunded.GrossFils, refunded.FeeFils, refunded.NetPayoutFils)
+	}
+
+	normalDay := refundedDay.AddDate(0, 0, 1)
+	normalStart, _ := BusinessDayWindow(normalDay)
+	insertCaptureEvent(t, pool, merchantID, originalMdrBps, 4000, normalStart.Add(time.Hour))
+	normal, err := CloseBatch(ctx, pool, merchantID, normalDay)
+	if err != nil {
+		t.Fatalf("CloseBatch (normal day): %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE merchants SET mdr_bps = 300 WHERE id = $1`, merchantID); err != nil {
+		t.Fatalf("update mdr_bps: %v", err)
+	}
+
+	result, err := RecalculateMDR(ctx, pool, merchantID, refundedDay, normalDay.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("RecalculateMDR: %v", err)
+	}
+	if result.BatchesConsidered != 2 {
+		t.Errorf("BatchesConsidered = %d, want 2", result.BatchesConsidered)
+	}
+	if len(result.Skipped) != 1 || result.Skipped[0] != refunded.BatchID {
+		t.Errorf("Skipped = %v, want [%s]", result.Skipped, refunded.BatchID)
+	}
+	if len(result.Adjusted) != 1 || result.Adjusted[0].BatchID != normal.BatchID {
+		t.Fatalf("Adjusted = %+v, want only the normal day's batch %s", result.Adjusted, normal.BatchID)
+	}
+
+	var gotFee, gotNet int64
+	if err := pool.QueryRow(ctx, `SELECT fee_fils, net_payout_fils FROM settlement_batches WHERE id = $1`, refunded.BatchID).Scan(&gotFee, &gotNet); err != nil {
+		t.Fatalf("read skipped batch: %v", err)
+	}
+	if gotFee != 0 || gotNet != 0 {
+		t.Errorf("skipped batch = fee %d, net %d; want unchanged 0, 0", gotFee, gotNet)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE settlement_batch_id = $1 AND description = 'MDR recalculation adjustment'`, refunded.BatchID); n != 0 {
+		t.Errorf("skipped batch got %d adjustment ledger legs, want 0", n)
+	}
+}

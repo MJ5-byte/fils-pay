@@ -105,6 +105,7 @@ type batchAdjustmentResponse struct {
 type recalculateMDRResponse struct {
 	BatchesConsidered int                       `json:"batchesConsidered"`
 	Adjusted          []batchAdjustmentResponse `json:"adjusted"`
+	SkippedBatchIDs   []string                  `json:"skippedBatchIds"`
 }
 
 type errorResponse struct {
@@ -350,9 +351,15 @@ func handleRecalculateMDR(pool *pgxpool.Pool) http.Handler {
 			})
 		}
 
+		skipped := make([]string, 0, len(result.Skipped))
+		for _, id := range result.Skipped {
+			skipped = append(skipped, id.String())
+		}
+
 		writeJSON(w, http.StatusOK, recalculateMDRResponse{
 			BatchesConsidered: result.BatchesConsidered,
 			Adjusted:          adjusted,
+			SkippedBatchIDs:   skipped,
 		})
 	})
 }

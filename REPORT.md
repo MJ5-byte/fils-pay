@@ -811,6 +811,13 @@
 - **Breaks:** A permanently red test that taught the team to ignore webhook failures, and a real retry-schedule regression would not have stood out.
 - **Fix:** The test now passes `() => 0.5` for the exact base delay and asserts the 900 and 1100 jitter bounds with `() => 0` and `() => 1`. No production code changed and no assertion was weakened. Test updated in `dispatcher.test.ts`; it failed before and passes 3 of 3 runs after.
 
+### Bug: The database accepts an over-refund, an absurd merchant MDR rate and a negative payout (BHA-122, BHA-117, BHA-119)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** A transaction could be refunded past what was captured, a merchant could carry a negative or 250000% MDR rate, and a settlement batch could store a negative net payout, with nothing at the database refusing it.
+- **Cause:** `0043` checked `refunded_fils >= 0` only, `merchants.mdr_bps` (`0002`) had no CHECK, and `settlement_batches.net_payout_fils` (`0006`) had no sign check. Only application code guarded them.
+- **Breaks:** Any bad write or future bug (a second refund path, a fat-fingered rate) was stored silently and surfaced later as a wrong fee or payout.
+- **Fix:** New additive migration `0079_money_check_constraints.sql` with three named CHECKs: `refunded_fils <= captured_fils`, `mdr_bps BETWEEN 0 AND 10000` (same range as `fee_schedules`, 0077), `net_payout_fils >= 0`. `gross_fils` and `fee_fils` are left unconstrained because a carried-forward refund can legitimately make a batch fee negative. Test added: `apps/api/src/db/moneyChecks.new.test.ts`. `RecalculateMDR` (`apps/settlement/internal/settlement/recalculate_mdr.go`) now skips a batch whose recalculated net would be negative (a fully refunded day whose rate was raised) and returns its id in `skipped`, instead of failing the whole range; before the CHECK it stored the negative net and the batch got stuck. Test added: `TestRecalculateMDR_SkipsBatchWhoseNetWouldGoNegative`.
 ### Bug: Recent ledger activity silently stops at 200 rows
 - **Status:** Fixed
 - **Type:** Data, medium
@@ -826,6 +833,13 @@
 - **Cause:** `SettlementBatchDetailPage.tsx` did `parseFloat((grossFils / 10000).toFixed(2))`, which rounds a fils amount through a decimal float.
 - **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
 - **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
+### Bug: Lifetime payout estimate drifts for high-volume merchants (BHA-26, BHA-128, BHA-129)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** The running lifetime payout total on a merchant (`merchants.lifetime_net_payout_monitoring_estimate`) stopped matching the sum of that merchant's payouts once it passed about 16,777 BD, and drifted further with every batch. Split parents' total (BHA-129) never moved at all.
+- **Cause:** `UpdateLifetimePayoutMonitoringEstimate` (`apps/settlement/internal/settlement/payout_estimate.go:19`) passed `float32(netPayoutFils)` into a `REAL` column (0040), and a 32-bit float holds every integer only up to 2^24 fils, so each addition past that rounded. `EstimateMonthlyPayout` summed fils in a `float32` the same way.
+- **Breaks:** ADR-0001 (money is integer fils). Nothing in Go, the TS API or the web apps reads the figure back, so no payout or balance was wrong; the ops figure was.
+- **Fix:** Migration 0078 changes the column to `BIGINT` (type change only, nothing dropped), the payout code adds `int64` fils, `EstimateMonthlyPayout` sums `int64`, and the seed sums exactly instead of rounding through `Math.fround`. Test added: three payouts totalling 5,016,777,221 fils land on the exact sum (it read 5,016,777,216 before). The old small-value test now scans an `int64`. `splits.PayoutSplitBatch` never bumped the estimate, so it now runs the same UPDATE in its transaction with the batch's net payout (inlined, because `settlement` imports `splits`). Test added: a split parent's estimate equals its batch net after payout. A negative net is skipped, as `PayoutBatch` refuses one. Split-parent payouts made before this change are not backfilled into the estimate. PR: https://github.com/SilentYsf/fils-pay/pull/106
 
 ### Bug: Approving your own credit shows a raw error code
 - **Status:** Fixed

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/money"
@@ -1289,8 +1290,9 @@ func TestCloseBatch_RefundBeyondDayNetCarriesForward(t *testing.T) {
 }
 
 // TestPayoutBatch_RefusesNegativeNet: a negative net is money the merchant
-// owes; marking the batch paid would write it off, so PayoutBatch refuses
-// and leaves the batch, the ledger and the cache as they were.
+// owes; marking the batch paid would write it off. The database now refuses a
+// negative net_payout_fils outright, so the batch can never reach PayoutBatch
+// (whose own guard stays as a second line) in that state.
 func TestPayoutBatch_RefusesNegativeNet(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
@@ -1301,21 +1303,16 @@ func TestPayoutBatch_RefusesNegativeNet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CloseBatch: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE settlement_batches SET net_payout_fils = -500 WHERE id = $1`, closed.BatchID); err != nil {
-		t.Fatalf("force negative net: %v", err)
+	// Migration 0079 makes the database refuse a negative net itself, so the
+	// state PayoutBatch guards against can no longer be forced: assert the
+	// refusal and that the batch is left as it was.
+	_, err = pool.Exec(ctx, `UPDATE settlement_batches SET net_payout_fils = -500 WHERE id = $1`, closed.BatchID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" || pgErr.ConstraintName != "settlement_batches_net_payout_non_negative" {
+		t.Fatalf("negative net update error = %v, want check violation settlement_batches_net_payout_non_negative", err)
 	}
-
-	if _, err := PayoutBatch(ctx, pool, closed.BatchID); err == nil {
-		t.Fatal("PayoutBatch accepted a negative net payout")
-	}
-	if n := countRows(t, pool, `SELECT count(*) FROM settlement_batches WHERE id = $1 AND status = 'closed'`, closed.BatchID); n != 1 {
-		t.Errorf("batch left 'closed' state after a refused payout")
-	}
-	if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE settlement_batch_id = $1`, closed.BatchID); n != 0 {
-		t.Errorf("refused payout posted %d ledger legs", n)
-	}
-	if cache := cachedPayable(t, pool, merchantID); cache != 0 {
-		t.Errorf("cached_payable_fils = %d after a refused payout, want 0", cache)
+	if n := countRows(t, pool, `SELECT count(*) FROM settlement_batches WHERE id = $1 AND net_payout_fils = $2`, closed.BatchID, int64(closed.NetPayoutFils)); n != 1 {
+		t.Fatalf("batch net changed despite the refused update")
 	}
 }
 
