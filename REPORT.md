@@ -762,6 +762,14 @@
 - **Breaks:** Historical batch detail rewrote itself after the fact, so a merchant or finance reviewer reconciling a closed batch saw a false mismatch.
 - **Fix:** Captured is now the sum of that transaction's capture events stamped with this batch, the same deltas CloseBatch used. The column already existed, so no schema change. Test added: capture 4.000 BD, close the batch, capture 3.000 BD more, and the batch still shows 4.000 BD. The seed now stamps its ready-made closed batches on their capture events too, so freshly seeded demo batches show their real Captured figure.
 
+### Bug: A database error after the acquirer approves a refund or capture moves the money again on retry (BHA-170)
+- **Status:** Fixed
+- **Type:** Money, low
+- **Problem:** If the database failed after the acquirer had approved a refund or capture (a deadlock, a dropped connection, a constraint), the request failed with nothing recorded, and retrying it with the same Idempotency-Key made the acquirer refund or capture a second time.
+- **Cause:** `processRefund.ts` and `capture.ts` run the idempotency claim, the acquirer call and the journal in one transaction, and built the acquirer's idempotency key from the claim's row id. The rollback discarded that row, so the retry got a new row id, a new acquirer key, and a fresh refund or capture instead of the acquirer's cached first answer.
+- **Breaks:** Money left the acquirer twice for one client request, and the first movement never reached the ledger.
+- **Fix:** The acquirer key is now built from the claim's own scope (merchant, endpoint, client Idempotency-Key) plus the attempt count, so a retry after a rollback reuses the first key and the acquirer replays its approval; the journal then posts once. The attempt count stays so a retry after a recorded acquirer error still gets a fresh acquirer call. No schema change. Test added for both paths: a trigger rejects the ledger insert after approval, then the retry must reach the acquirer under one key and post one ledger entry. `authorize.ts` builds its key the same way and is left for a follow-up because another open PR is editing it.
+- **Known limit:** A full refund sent without `amountFils` resolves its amount inside the transaction. If another refund on the same transaction commits between the rolled-back try and the retry, the retry asks the acquirer under the same key for a smaller remainder, and the acquirer replays the first, larger answer. Keying on the resolved amount would close it.
 ### Bug: A freshly seeded stack shows blank analytics and a "No data yet" badge (BHA-176, BHA-175)
 - **Status:** Fixed
 - **Type:** UX, low

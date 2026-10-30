@@ -131,7 +131,9 @@ export async function processRefund(
     const acquirerResult = await acquirer.refund({
       acquirerReference: txn.acquirer_reference,
       amountFils: requestedAmount,
-      idempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+      // Keyed on the claim's scope, not its row id: a rollback after the acquirer
+      // approved discards the row, and the retry must replay that approval.
+      idempotencyKey: `${claim.row.merchantId}:${claim.row.endpoint}:${claim.row.key}:${claim.row.attemptCount}`,
     });
 
     if (acquirerResult.outcome === "declined") {
