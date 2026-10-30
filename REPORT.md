@@ -911,6 +911,14 @@
 - **Cause:** `CreditsPage` passed every failure to `describeError`, which prints the API's `message` or else its raw `code`, and the API raises this one as a bare code (`creditApproval.ts:13`).
 - **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
 - **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
+
+### Bug: Rebuilding payout trends brings back the pre-MDR fee and net
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** After an admin ran an MDR recalculation, the payout trends page showed the old fee and net payout again as soon as the trends were rebuilt.
+- **Cause:** `applyBatchClosed` (`apps/reporting/src/consumer/applyEvent.ts:113`) wrote gross, fee and net from the original `settlement.batch_closed` payload. `recalculate_mdr.go` rewrites `fee_fils` and `net_payout_fils` on the batch row and emits no outbox event, so the payload is stale for every recalculated batch and the rebuild replay restored it.
+- **Breaks:** Reporting disagreed with `settlement_batches` and the ledger for any recalculated batch, so a merchant saw a fee and payout that was not what they were charged and paid.
+- **Fix:** `applyBatchClosed` now reads gross, fee and net from the `settlement_batches` row it already looks up for status and paid_at, the same source `applySettlementPaid` uses. Test added in `applyEvent.test.ts`: a recalculated batch (fee 300) replayed with a payload fee of 250 records 300; it recorded 250 before. A live trend row stays stale until the next rebuild or `settlement.paid` event, because the recalculation still emits no event. PR: https://github.com/SilentYsf/fils-pay/pull/122
 ### Bug: A payment link older than the newest 100 cannot be opened or canceled
 - **Status:** Fixed
 - **Type:** UX, low

@@ -34,13 +34,13 @@ async function createMerchant(label: string): Promise<string> {
 
 async function createSettlementBatch(
   merchantId: string,
-  opts: { status?: string; paidAt?: Date | null } = {},
+  opts: { status?: string; paidAt?: Date | null; gross?: number; fee?: number; net?: number } = {},
 ): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at)
-     VALUES ($1, $2, $3, 0, 0, 0, now(), $4)
+     VALUES ($1, $2, $3, $5, $6, $7, now(), $4)
      RETURNING id`,
-    [merchantId, "2026-01-05", opts.status ?? "closed", opts.paidAt ?? null],
+    [merchantId, "2026-01-05", opts.status ?? "closed", opts.paidAt ?? null, opts.gross ?? 0, opts.fee ?? 0, opts.net ?? 0],
   );
   return result.rows[0]!.id;
 }
@@ -122,6 +122,7 @@ test("applyBatchClosed (via applyEvent): creates a merchant_payout_trends row co
   const merchantId = await createMerchant("batch-closed");
   const paidAt = new Date("2026-01-06T12:00:00Z");
   const batchId = await createSettlementBatch(merchantId, { status: "paid", paidAt });
+  await pool.query(`UPDATE settlement_batches SET gross_fils = 10000, fee_fils = 250, net_payout_fils = 9750 WHERE id = $1`, [batchId]);
   const row = makeRow({
     event_type: "settlement.batch_closed",
     payload: { merchantId, batchId, batchDate: "2026-01-05", grossFils: 10_000, feeFils: 250, netPayoutFils: 9_750 },
@@ -139,6 +140,27 @@ test("applyBatchClosed (via applyEvent): creates a merchant_payout_trends row co
   assert.equal(Number(result.rows[0].fee_fils), 250);
   assert.equal(Number(result.rows[0].net_payout_fils), 9_750);
   assert.equal(result.rows[0].paid_at.toISOString(), paidAt.toISOString());
+});
+
+test("applyBatchClosed (via applyEvent): replaying the event after an MDR recalculation records the batch's current fee/net, not the payload's", async () => {
+  const merchantId = await createMerchant("batch-closed-mdr");
+  const batchId = await createSettlementBatch(merchantId);
+  // recalculate_mdr.go rewrites these two columns and emits no event.
+  await pool.query(`UPDATE settlement_batches SET gross_fils = 10000, fee_fils = 300, net_payout_fils = 9700 WHERE id = $1`, [batchId]);
+  const row = makeRow({
+    event_type: "settlement.batch_closed",
+    payload: { merchantId, batchId, batchDate: "2026-01-05", grossFils: 10_000, feeFils: 250, netPayoutFils: 9_750 },
+  });
+
+  await withTransaction(pool, (client) => applyEvent(client, row));
+
+  const result = await pool.query(
+    `SELECT gross_fils, fee_fils, net_payout_fils FROM merchant_payout_trends WHERE merchant_id = $1 AND settlement_batch_id = $2`,
+    [merchantId, batchId],
+  );
+  assert.equal(Number(result.rows[0].gross_fils), 10_000);
+  assert.equal(Number(result.rows[0].fee_fils), 300);
+  assert.equal(Number(result.rows[0].net_payout_fils), 9_700);
 });
 
 // FH: covers no batch row. anything cover a missing rollup row? claude: "Yes, the next test covers it."
@@ -164,7 +186,7 @@ test("applyBatchClosed (via applyEvent): a missing settlement_batches row is a n
 
 test("applyBatchClosed (via applyEvent): a day with real capture activity whose rollup already matches ground truth is silent and safe", async () => {
   const merchantId = await createMerchant("batch-closed-rollup-parity");
-  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null });
+  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null, gross: 4750, fee: 119, net: 4631 });
 
   // One real captured transaction + its transaction_events row (ground
   // truth), occurring inside Asia/Bahrain's 2026-01-05 local day.
@@ -225,7 +247,7 @@ test("applyBatchClosed (via applyEvent): a day with real capture activity whose 
 
 test("applyBatchClosed (via applyEvent): a day with real capture activity but no rollup row yet warns instead of throwing, and still records the trend", async () => {
   const merchantId = await createMerchant("batch-closed-missing-rollup");
-  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null });
+  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null, gross: 4750, fee: 119, net: 4631 });
 
   // Ground truth has a capture on 2026-01-05, but its outbox event was never
   // applied, so merchant_daily_volume has no row for that merchant/day.
@@ -275,7 +297,7 @@ test("applyBatchClosed (via applyEvent): a day with real capture activity but no
 
 test("applyBatchClosed (via applyEvent) is idempotent: applying the identical event twice produces no duplicate row and no drift", async () => {
   const merchantId = await createMerchant("batch-closed-idempotent");
-  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null });
+  const batchId = await createSettlementBatch(merchantId, { status: "closed", paidAt: null, gross: 5000, fee: 125, net: 4875 });
   const row = makeRow({
     event_type: "settlement.batch_closed",
     payload: { merchantId, batchId, batchDate: "2026-01-05", grossFils: 5_000, feeFils: 125, netPayoutFils: 4_875 },

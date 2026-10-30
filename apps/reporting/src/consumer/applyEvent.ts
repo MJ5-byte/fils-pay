@@ -70,8 +70,8 @@ function bahrainLocalMidnightUtc(dateStr: string): Date {
 
 /**
  * settlement.batch_closed — a single-row lookup against settlement_batches
- * by id (not a fan-out join), capturing whatever
- * status/paid_at it carries at the moment this event is applied. A missing
+ * by id (not a fan-out join), capturing whatever status/paid_at and
+ * gross/fee/net it carries at the moment this event is applied. A missing
  * batch row (only possible for a hand-constructed test event — CloseBatch
  * always inserts the row in the same transaction it enqueues this event
  * from) is a no-op, never a thrown error that would poison the whole pass.
@@ -90,8 +90,17 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
     netPayoutFils: number;
   };
 
-  const batchResult = await client.query<{ status: string; paid_at: Date | null }>(
-    `SELECT status, paid_at FROM settlement_batches WHERE id = $1`,
+  // Money columns come from the batch row, not the payload: recalculate_mdr.go
+  // rewrites fee_fils/net_payout_fils after close and emits no event, so the
+  // payload's figures go stale and a rebuild replay would restore them.
+  const batchResult = await client.query<{
+    status: string;
+    paid_at: Date | null;
+    gross_fils: string;
+    fee_fils: string;
+    net_payout_fils: string;
+  }>(
+    `SELECT status, paid_at, gross_fils, fee_fils, net_payout_fils FROM settlement_batches WHERE id = $1`,
     [payload.batchId],
   );
   const batch = batchResult.rows[0];
@@ -110,9 +119,9 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
       payload.batchId,
       payload.batchDate,
       batch.status,
-      payload.grossFils,
-      payload.feeFils,
-      payload.netPayoutFils,
+      batch.gross_fils,
+      batch.fee_fils,
+      batch.net_payout_fils,
       batch.paid_at,
     ],
   );
