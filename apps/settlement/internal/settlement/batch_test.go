@@ -620,6 +620,77 @@ func TestCloseBatchNetPayoutIsWholeFils(t *testing.T) {
 	}
 }
 
+// One merchant whose batch cannot close must not stop the merchants after
+// it: the daily run settles the rest and returns an error naming the
+// failing merchant. runMerchants is RunDailyBatch's own merchant loop, run
+// here on just the two test merchants, failing first, so the test leaves
+// every other merchant in the shared test database alone.
+func TestRunDailyBatch_MerchantErrorDoesNotStopOthers(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+
+	failing := insertActiveMerchant(t, pool, mdrBps)
+	healthy := insertActiveMerchant(t, pool, mdrBps)
+	// Its capture is left unsettled, so keep the merchant out of every later
+	// all-merchant run.
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `UPDATE merchants SET status = 'suspended' WHERE id = $1`, failing); err != nil {
+			t.Errorf("suspend failing merchant: %v", err)
+		}
+	})
+
+	businessDate := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+	refuseBatchInsert(t, pool, failing, businessDate)
+	insertCaptureEvent(t, pool, failing, mdrBps, 1000, start.Add(time.Hour))
+	insertCaptureEvent(t, pool, healthy, mdrBps, 4750, start.Add(time.Hour))
+
+	report, err := runMerchants(ctx, pool, businessDate, []uuid.UUID{failing, healthy})
+	if err == nil || !strings.Contains(err.Error(), failing.String()) {
+		t.Errorf("runMerchants error = %v, want one naming merchant %s", err, failing)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM settlement_batches WHERE merchant_id = $1`, failing); n != 0 {
+		t.Errorf("failing merchant has %d batch row(s), want 0 after the rollback", n)
+	}
+
+	if len(report.MerchantResults) != 1 || report.MerchantResults[0].MerchantID != healthy || report.MerchantResults[0].GrossFils != 4750 {
+		t.Fatalf("report = %+v, want one result for the healthy merchant with gross 4750", report.MerchantResults)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM settlement_batches WHERE merchant_id = $1 AND status = 'paid'`, healthy); n != 1 {
+		t.Errorf("healthy merchant has %d paid batch(es), want 1", n)
+	}
+}
+
+// refuseBatchInsert makes CloseBatch fail for one merchant and business date
+// only: a test-only trigger rejects that merchant's settlement_batches insert
+// for that date, so its close rolls back. Dropped when the test ends.
+func refuseBatchInsert(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	// DDL takes no bind parameters; the id and date come from the test itself.
+	name := "test_refuse_batch_" + strings.ReplaceAll(merchantID.String(), "-", "")
+	_, err := pool.Exec(ctx, `CREATE FUNCTION `+name+`() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN RAISE EXCEPTION 'test: batch insert refused'; END $$`)
+	if err != nil {
+		t.Fatalf("refuseBatchInsert: create function: %v", err)
+	}
+	_, err = pool.Exec(ctx, `CREATE TRIGGER `+name+` BEFORE INSERT ON settlement_batches FOR EACH ROW
+		WHEN (NEW.merchant_id = '`+merchantID.String()+`' AND NEW.batch_date = '`+businessDate.Format("2006-01-02")+`')
+		EXECUTE FUNCTION `+name+`()`)
+	if err != nil {
+		t.Fatalf("refuseBatchInsert: create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS `+name+` ON settlement_batches`); err != nil {
+			t.Errorf("drop trigger: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DROP FUNCTION IF EXISTS `+name+`()`); err != nil {
+			t.Errorf("drop function: %v", err)
+		}
+	})
+}
+
 func TestCloseBatch_RefusesBusinessDayThatHasNotEnded(t *testing.T) {
 	pool := mustPool(t)
 	const mdrBps = 250

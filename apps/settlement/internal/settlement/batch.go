@@ -407,7 +407,12 @@ type MerchantBatchOutcome struct {
 
 // RunDailyBatch closes and pays out every eligible merchant's batch for
 // one business date. Called by `run-batch` directly, and by `daemon` once
-// per scheduled wake-up for the business day that just completed.
+// per scheduled wake-up for every business day it has not yet settled.
+//
+// One merchant's failure does not stop the merchants after it: each
+// merchant's close and payout are their own transactions, so the run moves
+// on and returns every failure joined into one error alongside the report
+// of the merchants that did settle.
 //
 // Sequential processing (one merchant at a time, never concurrently) is a
 // deliberate simplicity choice: each merchant's batch is its own pair of
@@ -442,8 +447,22 @@ func RunDailyBatch(ctx context.Context, db *pgxpool.Pool, businessDate time.Time
 
 	sort.Slice(merchantIDs, func(i, j int) bool { return merchantIDs[i].String() < merchantIDs[j].String() })
 
+	return runMerchants(ctx, db, businessDate, merchantIDs)
+}
+
+// runMerchants closes and pays out each merchant's batch for businessDate,
+// in the order given. A merchant that fails is recorded and skipped, so the
+// merchants after it still settle; every failure comes back joined into
+// one error.
+func runMerchants(ctx context.Context, db *pgxpool.Pool, businessDate time.Time, merchantIDs []uuid.UUID) (DailyBatchReport, error) {
 	report := DailyBatchReport{BusinessDate: businessDate}
+	var errs []error
 	for _, merchantID := range merchantIDs {
+		// Shutting down: stop here rather than fail every remaining merchant.
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
 		closeResult, err := CloseBatch(ctx, db, merchantID, businessDate)
 		if err != nil {
 			if errors.Is(err, ErrMerchantNotEligible) {
@@ -452,7 +471,8 @@ func RunDailyBatch(ctx context.Context, db *pgxpool.Pool, businessDate time.Time
 				// merchant scan already would have.
 				continue
 			}
-			return report, fmt.Errorf("settlement: RunDailyBatch: CloseBatch(%s): %w", merchantID, err)
+			errs = append(errs, fmt.Errorf("settlement: RunDailyBatch: CloseBatch(%s): %w", merchantID, err))
+			continue
 		}
 
 		// A merchant with configured sub-merchant split children is paid
@@ -461,20 +481,23 @@ func RunDailyBatch(ctx context.Context, db *pgxpool.Pool, businessDate time.Time
 		// payout leg differs.
 		isSplitParent, err := splits.IsSplitParent(ctx, db, merchantID)
 		if err != nil {
-			return report, fmt.Errorf("settlement: RunDailyBatch: IsSplitParent(%s): %w", merchantID, err)
+			errs = append(errs, fmt.Errorf("settlement: RunDailyBatch: IsSplitParent(%s): %w", merchantID, err))
+			continue
 		}
 
 		var alreadyPaid bool
 		if isSplitParent {
 			splitResult, err := splits.PayoutSplitBatch(ctx, db, closeResult.BatchID)
 			if err != nil {
-				return report, fmt.Errorf("settlement: RunDailyBatch: PayoutSplitBatch(%s): %w", closeResult.BatchID, err)
+				errs = append(errs, fmt.Errorf("settlement: RunDailyBatch: PayoutSplitBatch(%s): %w", closeResult.BatchID, err))
+				continue
 			}
 			alreadyPaid = splitResult.AlreadyPaid
 		} else {
 			payoutResult, err := PayoutBatch(ctx, db, closeResult.BatchID)
 			if err != nil {
-				return report, fmt.Errorf("settlement: RunDailyBatch: PayoutBatch(%s): %w", closeResult.BatchID, err)
+				errs = append(errs, fmt.Errorf("settlement: RunDailyBatch: PayoutBatch(%s): %w", closeResult.BatchID, err))
+				continue
 			}
 			alreadyPaid = payoutResult.AlreadyPaid
 		}
@@ -490,5 +513,5 @@ func RunDailyBatch(ctx context.Context, db *pgxpool.Pool, businessDate time.Time
 		})
 	}
 
-	return report, nil
+	return report, errors.Join(errs...)
 }
