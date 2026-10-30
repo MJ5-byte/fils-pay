@@ -378,7 +378,11 @@ interface SettlementSummaryRow {
   total_captured_fils: string | number | null;
 }
 
-/** Gross captured in window, joined through transaction_events for batch parity. */
+/**
+ * Gross captured in window, summed per capture event like CloseBatch does.
+ * transactions.captured_fils is a running total, so summing it per event
+ * counted multi-capture transactions more than once (BHA-27).
+ */
 export async function getSettlementSummary(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
@@ -387,17 +391,13 @@ export async function getSettlementSummary(
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
   const result = await pool.query<SettlementSummaryRow>(
-    `WITH captured AS (
-       SELECT t.id, t.captured_fils
-         FROM transactions t
-         JOIN transaction_events te ON te.transaction_id = t.id
-        WHERE t.merchant_id = $1
-          AND te.event_type IN ('captured', 'partially_captured')
-          AND te.occurred_at >= $2 AND te.occurred_at < $3
-     )
-     SELECT COUNT(DISTINCT id) AS transaction_count,
-            COALESCE(SUM(captured_fils), 0) AS total_captured_fils
-       FROM captured`,
+    `SELECT COUNT(DISTINCT te.transaction_id) AS transaction_count,
+            COALESCE(SUM(te.amount_fils), 0) AS total_captured_fils
+       FROM transaction_events te
+       JOIN transactions t ON t.id = te.transaction_id
+      WHERE t.merchant_id = $1
+        AND te.event_type IN ('captured', 'partially_captured')
+        AND te.occurred_at >= $2 AND te.occurred_at < $3`,
     [input.merchantId, windowStart, windowEnd],
   );
 

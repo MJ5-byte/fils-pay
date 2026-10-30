@@ -530,6 +530,49 @@ test("GET /v1/settlement/summary sums captured amounts for transactions with a s
   assert.equal(body.totalCapturedFils, 10_000 + 3_333);
 });
 
+// BHA-27: the summary summed the running transactions.captured_fils once per
+// capture event, so a transaction captured in two parts counted twice.
+test("GET /v1/settlement/summary counts a transaction captured in two parts once", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("summary-two-captures", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id, { amountFils: 4_000 });
+  await capture(rawKey, txn.id, { amountFils: 6_000 });
+
+  const businessDate = todayBahrainDateString();
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/summary?from=${businessDate}&to=${addOneCalendarDay(businessDate)}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { transactionCount: number; totalCapturedFils: number };
+  assert.equal(body.transactionCount, 1);
+  assert.equal(body.totalCapturedFils, 10_000);
+});
+
+test("GET /v1/settlement/summary leaves out the part of a transaction captured before the window", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("summary-capture-outside-window", 250);
+  const txn = await authorize(rawKey, 10_000);
+  await capture(rawKey, txn.id, { amountFils: 3_000 });
+  await pool.query(
+    `UPDATE transaction_events SET occurred_at = occurred_at - interval '2 days'
+      WHERE transaction_id = $1 AND event_type = 'partially_captured'`,
+    [txn.id],
+  );
+  await capture(rawKey, txn.id, { amountFils: 2_000 });
+
+  const businessDate = todayBahrainDateString();
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/settlement/summary?from=${businessDate}&to=${addOneCalendarDay(businessDate)}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { transactionCount: number; totalCapturedFils: number };
+  assert.equal(body.transactionCount, 1);
+  assert.equal(body.totalCapturedFils, 2_000);
+});
+
 test("GET /v1/settlement/summary is forbidden for a 'support' session role", async () => {
   const { merchantId } = await createApprovedMerchantWithApiKey("summary-role");
   const supportToken = await createSessionWithRole(merchantId, "support");

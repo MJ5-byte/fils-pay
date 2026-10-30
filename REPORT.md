@@ -282,6 +282,13 @@
 - **Cause:** `verifyAcquirerCallbackSignature` in `apps/api/src/webhooks/inboundVerify.ts` compared signatures with `Buffer.compare(...) === 0`, which short-circuits on the first differing byte and is not constant time, and it parsed the signed timestamp but never checked its freshness.
 - **Breaks:** An attacker who observed one signed callback could replay it indefinitely, and the timing side channel helped forge a valid signature.
 - **Fix:** The compare now uses the repo's constant-time `timingSafeEqualHex`, as `webhooks/sign.ts` already does, and a callback whose signed timestamp is older than a 300 second window is rejected with a new `stale_timestamp` reason. Additive: the require-signature behaviour from BHA-14 is unchanged and no existing reason was removed. No schema change. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/40
+### Bug: The settlement summary counts split captures twice
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** A merchant's settlement summary showed more captured money than they took: Alpha Retail's 1 August to 2 September summary said 1,500,000 fils for 5 transactions that captured 650,000 fils.
+- **Cause:** `getSettlementSummary` (`apps/api/src/settlement/query.ts:368-380`) joined capture events to transactions and summed the running total `transactions.captured_fils` once per event, so a transaction captured in two parts counted its full total twice, and a part captured before the window still added its whole total.
+- **Breaks:** The summary disagrees with what settlement actually pays out, so finance and merchants read inflated gross captured figures.
+- **Fix:** The query now sums each capture event's own `amount_fils` inside the window, the same source the Go `CloseBatch` uses. Query timings are unchanged on the seeded data (1.56 ms to 1.53 ms); no index was added. Test added. PR: https://github.com/SilentYsf/fils-pay/pull/43
 ### Bug: Admin analytics rebuild double-applies outbox events
 - **Status:** Fixed
 - **Type:** Data, medium
