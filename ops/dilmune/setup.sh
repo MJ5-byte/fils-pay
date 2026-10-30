@@ -12,17 +12,38 @@
 #   filspay-reporting   Node worker      CPUQuota=20%  MemoryMax=256M  (outbox -> reporting rollups)
 #
 # Postgres and nginx are managed by Dilmune. Settings come from the site's
-# .env, which Dilmune writes from the dashboard's Environment variables on
-# each deploy. Nothing secret lives in this file.
+# .env. Dilmune writes it from the site's Environment variables only when
+# "env in deploy" is on for the site; otherwise copy it there yourself
+# (see docs/DEPLOY.md). Nothing secret lives in this file.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 RUN_USER="$(id -un)"
 GO_VERSION="1.22.12"
-LOAD_SHED_MAX_INFLIGHT="${LOAD_SHED_MAX_INFLIGHT:-10}"
 
 cd "$ROOT"
-[ -f .env ] || { echo "setup: $ROOT/.env is missing (Dilmune writes it on deploy)"; exit 1; }
+if [ ! -f .env ]; then
+  echo "setup: $ROOT/.env is missing."
+  echo "       Turn on 'env in deploy' for this site in Dilmune and redeploy,"
+  echo "       or copy the site's variables into $ROOT/.env, then re-run."
+  exit 1
+fi
+chmod 600 .env
+
+# Load .env for this script (migrate and the KYC dir below need it).
+set -a; . ./.env; set +a
+for var in DATABASE_URL NODE_ENV WEBHOOK_SECRET_ENCRYPTION_KEY SETTLEMENT_INTERNAL_TOKEN ACQUIRER_CALLBACK_SIGNING_SECRET; do
+  [ -n "${!var:-}" ] || { echo "setup: $var is not set in .env"; exit 1; }
+done
+LOAD_SHED_MAX_INFLIGHT="${LOAD_SHED_MAX_INFLIGHT:-10}"
+
+if [ -n "${KYC_UPLOAD_DIR:-}" ]; then
+  mkdir -p "$KYC_UPLOAD_DIR"
+  chmod 700 "$KYC_UPLOAD_DIR"
+fi
+
+echo "setup: applying database migrations"
+"$ROOT/node_modules/.bin/tsx" db/migrate.ts
 
 # --- Go toolchain (only needed to build settlement) -------------------------
 GO="$(command -v go || true)"
@@ -118,11 +139,20 @@ for svc in filspay-api filspay-settlement filspay-reporting; do
 done
 
 # --- check ------------------------------------------------------------------
+ready=0
 for i in $(seq 1 30); do
-  if curl -fsS -m 2 http://127.0.0.1:3000/readyz >/dev/null 2>&1; then break; fi
+  if curl -fsS -m 2 http://127.0.0.1:3000/readyz >/dev/null 2>&1; then ready=1; break; fi
   sleep 1
 done
+failed=0
 for svc in filspay-api filspay-settlement filspay-reporting; do
-  printf '%-20s %s\n' "$svc" "$(systemctl is-active "$svc")"
+  state="$(systemctl is-active "$svc" || true)"
+  printf '%-20s %s\n' "$svc" "$state"
+  [ "$state" = "active" ] || failed=1
 done
 echo "api readyz: $(curl -s -m 2 http://127.0.0.1:3000/readyz || echo unreachable)"
+if [ "$ready" -ne 1 ] || [ "$failed" -ne 0 ]; then
+  echo "setup: FAILED. See: journalctl -u filspay-api -u filspay-settlement -u filspay-reporting -n 50"
+  exit 1
+fi
+echo "setup: OK"

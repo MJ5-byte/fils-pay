@@ -4,13 +4,10 @@
 # database. apps/web and apps/admin are not included here — neither one
 # opens its own database connection; they call apps/api over HTTP.
 #
-#
-# The hosted demo box runs this same file. Service settings that aren't
-# listed under each service's `environment:` come from ops/.env.docker,
-# which compose picks up automatically. — AM, July
-#
-# — M?: Dockerfile.node / Dockerfile.go live next to this file. if they're
-# missing for you, pull main again.
+# Local development only. Every setting a service needs is listed under its
+# `environment:` below; compose does not read any other env file here
+# (it only auto-loads a file named `.env`, for ${VAR} interpolation).
+# The hosted Dilmune box does not use this file: see ops/dilmune/setup.sh.
 #
 # Run from the repo root: `docker compose -f ops/docker-compose.yml up`.
 
@@ -53,8 +50,10 @@ services:
 
   # One-off: deterministic seed data. Re-run any time; db/seed/index.ts
   # resets and regenerates from scratch on every invocation.
-  # AM: the seed only truncates its own fixture tables, so pointing this at a
-  # shared database is fine. MK: correct. (see RUNBOOK)
+  # WARNING: the reset is `TRUNCATE ... CASCADE` on merchants, transactions,
+  # ledger_entries, settlement_batches, outbox_events, admin_users and more
+  # (db/seed/generate.ts TABLES_TO_RESET). Never point it at a database
+  # whose data you want to keep.
   seed:
     build:
       context: ..
@@ -70,8 +69,9 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
-    # WEBHOOK_SECRET_ENCRYPTION_KEY isn't needed in dev; the api uses a built-in
-    # dev key unless NODE_ENV=production. (copilot, pasted by FH — unverified)
+    # NODE_ENV is unset here, so the api runs in development mode: it uses a
+    # built-in dev WEBHOOK_SECRET_ENCRYPTION_KEY and does not require
+    # ACQUIRER_CALLBACK_SIGNING_SECRET (apps/api/src/config.ts).
     command: ["npx", "tsx", "apps/api/src/index.ts"]
     ports:
       - "3000:3000"
@@ -84,6 +84,8 @@ services:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
       # TODO(YA, Jan): give the api its own role before anything is hosted.
       SETTLEMENT_INTERNAL_URL: http://settlement:8091
+      # Must match the settlement service's value below. Dev-only.
+      SETTLEMENT_INTERNAL_TOKEN: dev-internal-token
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,17 +94,16 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.go
-    # The daemon falls back to SETTLEMENT_INTERNAL_TOKEN=dev-token when it isn't
-    # set, so nothing extra is needed here for local runs.
-    # FH: it exits at boot without the token for me. set it.
+    # `daemon` exits at boot without SETTLEMENT_INTERNAL_TOKEN (there is no
+    # default). Its internal API binds every interface here, which is what
+    # the api container needs to reach it at settlement:8091.
     command: ["./settlement", "daemon"]
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
-      # Batch close and scheme export get their own pool so a long close
-      # can't starve the API's connections.
-      # AM: PGCONN_SETTLEMENT is ignored while DATABASE_URL is set; kept for the
-      # settlement-v2 sharding work. safe to leave.
-      PGCONN_SETTLEMENT: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
+      SETTLEMENT_INTERNAL_TOKEN: dev-internal-token
+      TZ: Asia/Bahrain
+      # Optional: PGCONN_SETTLEMENT, when set, REPLACES DATABASE_URL for this
+      # worker (apps/settlement/internal/config). Leave it unset locally.
     depends_on:
       postgres:
         condition: service_healthy
@@ -111,7 +112,6 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.node
-    # No subcommand = `worker`. (MK)
     command: ["npx", "tsx", "apps/reporting/src/index.ts"]
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable

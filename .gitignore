@@ -2,7 +2,18 @@ node_modules/
 dist/
 *.tsbuildinfo
 .env
-.env.local
+.env.*
+!.env.example
+!.env.*.example
+
+# Local credentials and scratch output; never commit these.
+filspay-admin-login.txt
+merchant-details.json
+merchant-login.txt
+server-check.txt
+server-switch.txt
+git-history.txt
+bin/
 npm-debug.log*
 .DS_Store
 .claude/

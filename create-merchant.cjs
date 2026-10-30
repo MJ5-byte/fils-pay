@@ -1,8 +1,9 @@
 // Signs up one merchant (and its owner login) on the live FilsPay API.
 //
-// 1. Fill in merchant-details.json (replace every "CHANGE ME").
-// 2. Check it first without sending anything:   node create-merchant.js --dry-run
-// 3. Create the merchant for real:              node create-merchant.js
+// 1. Copy merchant-details.example.json to merchant-details.json and replace
+//    every "CHANGE ME" (merchant-details.json is gitignored).
+// 2. Check it first without sending anything:   node create-merchant.cjs --dry-run
+// 3. Create the merchant for real:              node create-merchant.cjs
 //
 // The owner's password is generated here and saved, together with the
 // merchant ID you need to log in, to merchant-login.txt. It is never printed.
@@ -10,8 +11,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const API = "https://filspay-api-tzakir.dilmune.app";
-const LOGIN_URL = "https://filspay-web-0siu-tzakir.dilmune.app/dashboard/login";
+const API = "https://fp-api-tzakir.dilmune.app";
+const LOGIN_URL = "https://fp-pay-tzakir.dilmune.app/dashboard/login";
 const BUSINESS_TYPES = ["sole_proprietorship", "llc", "partnership", "public_company", "other"];
 const REQUIRED = ["legalName", "registrationNumber", "businessType", "contactEmail", "contactPhone", "addressLine1", "city"];
 
