@@ -1,8 +1,10 @@
 import { createBrowserRouter, Navigate, Outlet } from "react-router-dom";
+import type { RouteObject } from "react-router-dom";
 import { CheckoutPage } from "./pages/checkout/CheckoutPage.js";
 import { DashboardAuthProvider } from "./auth/DashboardAuthContext.js";
 import { RequireDashboardAuth } from "./auth/RequireDashboardAuth.js";
 import { RoleGatedPage } from "./auth/RequireRole.js";
+import { AppErrorBoundary } from "./components/AppErrorBoundary.js";
 import { DashboardLayout } from "./components/DashboardLayout.js";
 import { LoginPage } from "./pages/dashboard-login/LoginPage.js";
 import { TransactionListPage } from "./pages/transactions/TransactionListPage.js";
@@ -19,7 +21,7 @@ import { ReconciliationPage } from "./pages/settlement/ReconciliationPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
 
 // MK: /refunds route removed until FP-212
-export const router = createBrowserRouter([
+const routes: RouteObject[] = [
   { path: "/pay/:token", element: <CheckoutPage /> },
   // The bare root has no page of its own; send it to the dashboard, which
   // shows the login form to anyone not signed in.
@@ -103,5 +105,18 @@ export const router = createBrowserRouter([
         ],
       },
     ],
+  },
+];
+
+// One pathless root so a render error anywhere, /pay/:token included, lands
+// on the same short message.
+export const router = createBrowserRouter([
+  {
+    element: (
+      <AppErrorBoundary>
+        <Outlet />
+      </AppErrorBoundary>
+    ),
+    children: routes,
   },
 ]);

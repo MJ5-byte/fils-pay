@@ -1104,3 +1104,11 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: An API outage signs the user out without a word
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** When the API was down or answered a 5xx, opening the merchant dashboard or the admin console sent the user straight to the login form with no message, though their session was still valid. A render error on any page showed React Router's default screen with the raw error and stack trace.
+- **Cause:** `refresh()` in `apps/web/src/auth/DashboardAuthContext.tsx` and `apps/admin/src/auth/AdminAuthContext.tsx` caught every `/me` failure and set the status to signed out, and neither router had an error boundary of its own.
+- **Breaks:** During any outage, signed-in merchants and operators were told to log in again, which fails too, with nothing saying the server was the problem. A crash on a page put internals on screen.
+- **Fix:** Only a 401, the one answer `/me` gives for a missing or expired session, now means signed out. A network error or another status sets a new `unavailable` status, and both route guards show "The server could not be reached, so your session could not be checked." with a Retry button. Each app gets one small class component error boundary in a pathless root route, which shows "Something went wrong on this page." and a reload link. Reproduced with the dev servers pointed at a closed port and at a stub answering 500: both apps landed on login before the change and show the retry message after; with the stub answering 401, Retry lands on login. No test added, since a break here shows on screen.
+

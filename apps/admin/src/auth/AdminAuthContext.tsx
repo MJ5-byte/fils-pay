@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { logout as logoutRequest, me as fetchMe } from "../api/auth.js";
+import { ApiError } from "../api/client.js";
 import {
   clearActiveImpersonation,
   endImpersonation,
@@ -10,7 +11,7 @@ import {
 import type { ActiveImpersonation } from "../api/impersonation.js";
 import type { AdminMe } from "../types.js";
 
-export type AdminAuthStatus = "loading" | "authenticated" | "anonymous";
+export type AdminAuthStatus = "loading" | "authenticated" | "anonymous" | "unavailable";
 
 export interface AdminAuthValue {
   status: AdminAuthStatus;
@@ -50,11 +51,12 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       const current = await fetchMe();
       setAdmin(current);
       setStatus("authenticated");
-    } catch {
-      // Any failure — 401, a revoked session, the API being down — lands the
-      // operator on the login screen rather than a half-rendered console.
+    } catch (err) {
+      // Only a 401 means there is no live session. A network error or a 5xx
+      // says nothing about the session, so the guard shows a retry instead of
+      // sending a signed-in operator to the login screen.
       setAdmin(null);
-      setStatus("anonymous");
+      setStatus(err instanceof ApiError && err.statusCode === 401 ? "anonymous" : "unavailable");
     }
   }, []);
 

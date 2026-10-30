@@ -1,9 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { ApiError } from "../api/client.js";
 import { logout as logoutRequest, me as fetchMe } from "../api/dashboardAuth.js";
 import type { DashboardMe } from "../types.js";
 
-export type DashboardAuthStatus = "loading" | "authenticated" | "anonymous";
+export type DashboardAuthStatus = "loading" | "authenticated" | "anonymous" | "unavailable";
 
 /** status is "loading" until the first me() call settles. */
 export interface DashboardAuthValue {
@@ -64,11 +65,12 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
       const current = await fetchMe();
       setMe(current);
       setStatus("authenticated");
-    } catch {
-      // Any failure — 401, a revoked session, the API being down — lands on
-      // the login screen rather than a half-rendered dashboard.
+    } catch (err) {
+      // Only a 401 means there is no live session. A network error or a 5xx
+      // says nothing about the session, so the guard shows a retry instead of
+      // sending a signed-in merchant to the login screen.
       setMe(null);
-      setStatus("anonymous");
+      setStatus(err instanceof ApiError && err.statusCode === 401 ? "anonymous" : "unavailable");
     }
   }, []);
 
