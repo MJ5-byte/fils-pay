@@ -10,8 +10,8 @@ import (
 // processed-volume counter with a row lock, so two batches closing
 // concurrently for different merchants serialize on this single shared
 // counter row instead of racing a lost update. Returns the current value
-func ReadAndLockPlatformProcessedFils(ctx context.Context, tx pgx.Tx) (int32, error) {
-	var current int32
+func ReadAndLockPlatformProcessedFils(ctx context.Context, tx pgx.Tx) (int64, error) {
+	var current int64
 	err := tx.QueryRow(ctx, `
 		SELECT total_processed_fils FROM platform_stats WHERE id = 1 FOR UPDATE
 	`).Scan(&current)
@@ -22,8 +22,8 @@ func ReadAndLockPlatformProcessedFils(ctx context.Context, tx pgx.Tx) (int32, er
 // already-locked running total and writes the result back. The addition
 // happens here rather than as SQL `SET x = x + $2` so the value written is
 // derived from exactly the value this batch's fee calculation read.
-func RecordPlatformProcessedVolume(ctx context.Context, tx pgx.Tx, current int32, batchGrossFils int64) error {
-	updated := current + int32(batchGrossFils)
+func RecordPlatformProcessedVolume(ctx context.Context, tx pgx.Tx, current int64, batchGrossFils int64) error {
+	updated := current + batchGrossFils
 	_, err := tx.Exec(ctx, `
 		UPDATE platform_stats SET total_processed_fils = $1, updated_at = now() WHERE id = 1
 	`, updated)
@@ -35,9 +35,8 @@ func RecordPlatformProcessedVolume(ctx context.Context, tx pgx.Tx, current int32
 // volume reaches the platform's volume-tier threshold — a loyalty-style
 // discount for the platform having processed enough real activity to have
 // earned better acquirer-side economics to pass through.
-//
-func VolumeTierMdrBonusBps(totalProcessedFils int32) int64 {
-	const volumeTierThresholdFils int32 = 2_000_000_000 // 2,000,000.000 BD
+func VolumeTierMdrBonusBps(totalProcessedFils int64) int64 {
+	const volumeTierThresholdFils int64 = 2_000_000_000 // 2,000,000.000 BD
 	const volumeTierBonusBps int64 = 15                 // 0.15%
 	if totalProcessedFils >= volumeTierThresholdFils {
 		return volumeTierBonusBps

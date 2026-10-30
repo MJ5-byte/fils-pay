@@ -659,6 +659,13 @@
 - **Breaks:** No batch containing a large capture could be closed; settlement stalled for that merchant and day. The float copy also disagreed with `amount_fils` by up to 9 fils (it rounded the untruncated gross), against ADR-0002's "amount must be exactly amount_fils / 1000 formatted to two decimals".
 - **Fix:** Stop writing the overflow-prone float column at close (it is nullable and no reader needs it) and format the exported BD figure from the `BIGINT` `amount_fils` with the existing `formatFilsAsTwoDecimalString`, which is exact and cannot overflow. Removed the now-unused `SchemeAmountBD` float helper. No schema change. Test added: a 100,000,000.00 BD capture now closes and exports "100000000.00".
 
+### Bug: Platform volume counter overflows int32 (BHA-48)
+- **Status:** Fixed
+- **Type:** Money, medium
+- **Problem:** Once the platform's lifetime processed volume passes 2,147,483,647 fils (about 2,147,483 BD), the running counter wraps to a negative value, so the volume-based fee tier reads a wrong total and stops applying the discount it should.
+- **Cause:** `apps/settlement/internal/settlement/platform_volume.go` read, accumulated and compared the counter as `int32`, casting each batch's gross with `int32(batchGrossFils)` and summing into an `int32`, then storing into `platform_stats.total_processed_fils`, an `INTEGER` column (migration 0049). The counter only ever grows and `apps/api/src/fees/platformVolumeTier.ts` already treats the column as a 64-bit value, so the two sides disagreed above the ceiling. Latent today because real volume has not reached it.
+- **Breaks:** Above the ceiling, every merchant's volume-tier MDR bonus is priced off a wrapped, negative total: the discount silently turns off, so merchants are overcharged against the stated fee schedule.
+- **Fix:** Widened the three functions in `platform_volume.go` to `int64` (the DB round-trip no longer narrows) and added migration `0076_platform_stats_total_bigint.sql` widening the column to `BIGINT`. Additive and data-preserving: a type widen keeps every existing value and the default. Test added: a lifetime total accumulated past the old int32 ceiling reads back as the true positive sum and still trips the tier.
 ### Bug: Reporting transactions silently truncates at 500 rows (BHA-105)
 - **Status:** Fixed
 - **Type:** Data, high
