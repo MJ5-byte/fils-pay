@@ -60,6 +60,13 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
   await request<unknown>(path, init);
 }
 
+/** Plain-language copy for the login error codes the API answers with. */
+const ERROR_COPY: Record<string, string> = {
+  invalid_code: "That code is wrong or has expired. Check it and try again.",
+  too_many_attempts: "Too many wrong attempts. Start over to get a new code.",
+  resend_too_soon: "A code was just sent. Wait a few seconds before asking for another.",
+};
+
 /** Human-readable text for anything thrown by `request` — used by every
  *  page's error banner so a failure (including a server-side `403` from a
  *  role gate) is always *shown*, never silently swallowed. */
@@ -68,7 +75,7 @@ export function describeError(err: unknown): string {
     if (err.statusCode === 403) {
       return `Not permitted (${err.code}) — your admin role does not allow this action.`;
     }
-    return err.body.message ?? err.code;
+    return ERROR_COPY[err.code] ?? err.body.message ?? err.code;
   }
   if (err instanceof Error) return err.message;
   return "Something went wrong.";

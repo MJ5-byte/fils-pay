@@ -958,6 +958,13 @@
 - **Breaks:** Merchants saw a dead link as live and could not filter expired links; the dashboard and checkout disagreed about the same link.
 - **Fix:** The serializer returns `expired` for a stored `active` link past `expires_at`, and the list filter matches the same meaning in SQL (`active` means not yet expired, `expired` means stored active and past expiry); `reserved`, `paid` and `canceled` are unchanged, pagination is unchanged, no schema change. The dashboard gets an `expired` filter and colour. Test added in `routes/paymentLinks.test.ts` (red before: list showed `active`). PR: https://github.com/SilentYsf/fils-pay/pull/132
 
+### Bug: A wrong login code shows the raw error string `invalid_code`
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** Typing a wrong or expired one-time code on the merchant or admin login showed the text `invalid_code` in the error banner.
+- **Cause:** An `AppError` thrown without a message uses its code as the message (`apps/api/src/lib/errors.ts`), so the API answers `{"error":"invalid_code","message":"invalid_code"}`, and `describeError` in both apps' `api/client.ts` showed that message as is.
+- **Breaks:** The user saw a developer string instead of being told the code was wrong. The same fallback showed `too_many_attempts` and `resend_too_soon` raw.
+- **Fix:** A small code-to-copy map in `describeError` (web and admin), looked up before the API message,, the function every login and dashboard error banner already uses. `invalid_code` now reads "That code is wrong or has expired. Check it and try again."; the two rate-limit codes get a sentence too. Unknown codes still fall through to the code. No test: this is on-screen copy.
 ### Bug: The acquirer callback signing secret is committed in git
 - **Status:** Fixed
 - **Type:** Security, medium
