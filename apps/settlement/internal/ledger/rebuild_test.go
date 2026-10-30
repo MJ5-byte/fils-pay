@@ -331,6 +331,78 @@ func TestRebuildAllBalances_KeepsConcurrentCloseWithoutCacheRow(t *testing.T) {
 	}
 }
 
+// TestRebuildMerchantBalance_KeepsConcurrentClose runs a per-merchant rebuild
+// while a batch close for the same merchant is open, shaped like CloseBatch:
+// the batch row written as closed, then balances.ApplyBatchClose. The rebuild
+// must wait for the close and count its batch.
+func TestRebuildMerchantBalance_KeepsConcurrentClose(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	merchantID := insertActiveMerchant(t, pool)
+	insertBatch(t, pool, merchantID, 2, "closed", 10000)
+	if _, err := RebuildMerchantBalance(ctx, pool, merchantID); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	closing, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin close: %v", err)
+	}
+	defer closing.Rollback(ctx) //nolint:errcheck
+	var closePID int
+	if err := closing.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&closePID); err != nil {
+		t.Fatalf("close pid: %v", err)
+	}
+	var batchID uuid.UUID
+	err = closing.QueryRow(ctx, `
+		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+		VALUES ($1, current_date - 1, 'closed', 500, 0, 500, now())
+		RETURNING id
+	`, merchantID).Scan(&batchID)
+	if err != nil {
+		t.Fatalf("close batch row: %v", err)
+	}
+	if err := balances.ApplyBatchClose(ctx, closing, merchantID, batchID, 500); err != nil {
+		t.Fatalf("close cache upsert: %v", err)
+	}
+
+	type rebuildResult struct {
+		balance int64
+		err     error
+	}
+	done := make(chan rebuildResult, 1)
+	go func() {
+		balance, err := RebuildMerchantBalance(ctx, pool, merchantID)
+		done <- rebuildResult{balance: int64(balance), err: err}
+	}()
+
+	waitUntilBlockedBy(t, pool, closePID)
+	if err := closing.Commit(ctx); err != nil {
+		t.Fatalf("commit close: %v", err)
+	}
+
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("RebuildMerchantBalance: %v", result.err)
+		}
+		if result.balance != 10500 {
+			t.Errorf("RebuildMerchantBalance = %d, want 10500 (both closed batches)", result.balance)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("RebuildMerchantBalance did not finish after the close committed")
+	}
+
+	var cached int64
+	err = pool.QueryRow(ctx, `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`, merchantID).Scan(&cached)
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	if cached != 10500 {
+		t.Errorf("cached_payable_fils = %d, want 10500 (both closed batches); the per-merchant rebuild overwrote the close", cached)
+	}
+}
+
 // TestRebuildAllBalances_DoesNotDeadlockWithAdjustment runs a rebuild while
 // an admin balance adjustment is open, shaped like applyBalanceCorrection in
 // apps/api/src/admin/balanceAdjustments.ts: SELECT ... FOR UPDATE on the

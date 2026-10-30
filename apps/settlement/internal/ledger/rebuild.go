@@ -32,11 +32,32 @@ const closedUnpaidNetSQL = `
 
 // RebuildMerchantBalance recomputes merchantID's cached balance from its
 // closed, unpaid batches and overwrites merchant_balances with it, the same write
-// RebuildAllBalances makes per merchant. CLI-only; the incremental path is
-// in internal/balances.
+// RebuildAllBalances makes per merchant. It takes the same table lock as
+// RebuildAllBalances. CLI-only; the incremental path is in internal/balances.
 func RebuildMerchantBalance(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID) (money.Fils, error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): begin: %w", merchantID, err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
+		return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): set lock timeout: %w", merchantID, err)
+	}
+	// Take the same lock as RebuildAllBalances (see its comment) so a close
+	// or payout that wrote the cache but has not committed finishes before
+	// the sum is read, instead of being overwritten by a sum taken before
+	// it committed.
+	if _, err := tx.Exec(ctx, `LOCK TABLE merchant_balances IN EXCLUSIVE MODE`); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+			return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): merchant_balances is busy, lock not granted within 5s, nothing changed; try again: %w", merchantID, err)
+		}
+		return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): lock balances: %w", merchantID, err)
+	}
+
 	var balance int64
-	err := db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
 		SELECT $1, (`+closedUnpaidNetSQL+`), now()
 		ON CONFLICT (merchant_id) DO UPDATE
@@ -45,6 +66,9 @@ func RebuildMerchantBalance(ctx context.Context, db *pgxpool.Pool, merchantID uu
 	`, merchantID).Scan(&balance)
 	if err != nil {
 		return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): %w", merchantID, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("ledger: RebuildMerchantBalance(%s): commit: %w", merchantID, err)
 	}
 	return money.Fils(balance), nil
 }

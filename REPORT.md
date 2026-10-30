@@ -928,7 +928,7 @@
 - **Problem:** After a balance rebuild, the next settlement close added the day's captures to the merchant's cached balance a second time. A 10,000 fils capture plus a 1,500 fils credit, then a rebuild, then the close left the cache at 21,000 fils against a batch net of 11,250, and at 9,750 after the payout instead of 0.
 - **Cause:** `merchant_balances` had two meanings. The rebuild (`ledger.RebuildAllBalances`, ADR-0007) wrote the ledger's `merchant_payable`, which counts a capture the moment it posts, while `CloseBatch` step 14 (`balances.ApplyBatchClose`) adds the batch net at close, assuming the cache only holds closed batches. Manual credits were also added to the cache at posting, with the close adding only `net - credits`.
 - **Breaks:** Any rebuild between a capture and its close inflated the payable figure ops see on the merchant page by that day's net, and it never came back down.
-- **Fix:** The cache now means "closed but not yet paid out", which is what `ApplyBatchClose`, `ApplyPayout` and their missing-row rules already assumed. Both rebuild functions write `SUM(net_payout_fils)` of the merchant's closed batches under the same lock, a posted credit no longer writes the cache, and step 14 adds the whole batch net. ADR-0007 has an amendment saying so. Test added (`TestRebuildThenClose_CountsEachCaptureAndCreditOnce`).
+- **Fix:** The cache now means "closed but not yet paid out", which is what `ApplyBatchClose`, `ApplyPayout` and their missing-row rules already assumed. Both rebuild functions write `SUM(net_payout_fils)` of the merchant's closed batches under the same table lock (the per-merchant one since BHA-200), a posted credit no longer writes the cache, and step 14 adds the whole batch net. ADR-0007 has an amendment saying so. Test added (`TestRebuildThenClose_CountsEachCaptureAndCreditOnce`).
 
 ### Bug: Resending an adjustment CSV import posts every row again
 - **Status:** Fixed
@@ -1025,6 +1025,14 @@
 - **Cause:** The file was committed before `.gitignore` listed it, and an ignore rule has no effect on a file git already tracks. Its own comments claimed it was gitignored and that the committed value was safe to keep; both claims were false, and the "rotated everything again" commit left the value in the tree.
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
+
+### Bug: Per-merchant balance rebuild can overwrite a batch close
+- **Status:** Fixed
+- **Type:** Concurrency, low
+- **Problem:** Running `rebuild-balances --merchant` while a batch close or payout for that merchant was in flight could leave the cached balance missing the batch that close just committed.
+- **Cause:** `RebuildMerchantBalance` in `apps/settlement/internal/ledger/rebuild.go` ran one upsert with no lock. Its batch sum was read when the statement started, then the upsert waited on the close's row lock and, once the close committed, wrote the old sum over the close's increment. `RebuildAllBalances` already locked the table first; the per-merchant path did not.
+- **Breaks:** The displayed balance disagreed with the merchant's closed, unpaid batches until the next rebuild.
+- **Fix:** The per-merchant rebuild now runs in a transaction that takes the same `EXCLUSIVE` lock on `merchant_balances` as the full rebuild before it reads the sum, with the same 5 s lock timeout. Test added (`TestRebuildMerchantBalance_KeepsConcurrentClose`), red before the fix (cache 10000, want 10500) and green after.
 
 ### Improvement: Capture and new payment link amounts are typed in BHD
 - **Type:** UX
