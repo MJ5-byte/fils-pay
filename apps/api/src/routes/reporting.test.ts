@@ -95,6 +95,8 @@ test("GET /v1/reporting/transactions answers 400 for a malformed date or filter 
   assert.equal((await get(filter({ to: "2026-04-31" }))).statusCode, 400);
   assert.equal((await get(filter({ merchantId: "abc" }))).statusCode, 400);
   assert.equal((await get(filter({ status: ["a"] }))).statusCode, 400);
+  // BHA-105: an undecodable cursor is a 400, never a silent page one.
+  assert.equal((await get("cursor=junk")).statusCode, 400);
   assert.equal((await get(filter({ from: "2026-10-01", to: "2026-10-31" }))).statusCode, 200);
 });
 

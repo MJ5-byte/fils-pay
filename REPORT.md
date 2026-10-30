@@ -626,6 +626,13 @@
 - **Breaks:** No batch containing a large capture could be closed; settlement stalled for that merchant and day. The float copy also disagreed with `amount_fils` by up to 9 fils (it rounded the untruncated gross), against ADR-0002's "amount must be exactly amount_fils / 1000 formatted to two decimals".
 - **Fix:** Stop writing the overflow-prone float column at close (it is nullable and no reader needs it) and format the exported BD figure from the `BIGINT` `amount_fils` with the existing `formatFilsAsTwoDecimalString`, which is exact and cannot overflow. Removed the now-unused `SchemeAmountBD` float helper. No schema change. Test added: a 100,000,000.00 BD capture now closes and exports "100000000.00".
 
+### Bug: Reporting transactions silently truncates at 500 rows (BHA-105)
+- **Status:** Fixed
+- **Type:** Data, high
+- **Problem:** `GET /v1/reporting/transactions` returned at most 500 rows and gave no sign more existed, so a merchant with more than 500 matching transactions quietly lost every row past the first 500 from their report.
+- **Cause:** `runTransactionsReport` ran a single `... ORDER BY occurred_at DESC LIMIT 500` with no pagination and returned a bare array (`apps/api/src/reporting/transactionsReportQuery.ts`), so rows beyond 500 were dropped with nothing to signal the cut.
+- **Breaks:** Reports and reconciliation built on this endpoint understated a busy merchant's activity with no error or warning.
+- **Fix:** Keyset-paginate on `(occurred_at, id)` with a `nextCursor`, the same pattern the transactions list and export already use (`apps/api/src/transactions/query.ts`, BHA-89). The query returns a bounded page (house default 25, max 100) plus a `nextCursor`, so the caller reads the whole result set and knows when more remains instead of losing rows in silence. Only the needed columns are selected and all values stay parameterized. Test added that pages the full set by cursor and checks every row appears exactly once.
 ### Bug: Webhook failed-status filter is a permanent no-op (BHA-143)
 - **Status:** Fixed
 - **Type:** UX, low

@@ -10,6 +10,17 @@ interface ReportQuery {
   filter?: string;
   from?: string;
   to?: string;
+  limit?: string;
+  cursor?: string;
+}
+
+/** A present limit must be a positive integer; the query module clamps it to the house maximum. */
+function parseLimit(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  if (!/^\d+$/.test(raw) || Number(raw) < 1) {
+    throw new BadRequestError("invalid_limit", "limit must be a positive integer");
+  }
+  return Number(raw);
 }
 
 /** Leading YYYY-MM-DD must be a real calendar day: V8's Date.parse rolls 2026-02-30 over to March, Postgres rejects it. */
@@ -79,6 +90,8 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
         status: parsed.status,
         from,
         to,
+        limit: parseLimit(request.query.limit),
+        cursor: request.query.cursor,
       });
     },
   );
