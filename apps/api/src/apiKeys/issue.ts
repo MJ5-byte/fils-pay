@@ -105,7 +105,15 @@ export interface ApiKeySummary {
   revokedAt: Date | null;
 }
 
-export async function listApiKeys(pool: Pool, merchantId: string): Promise<ApiKeySummary[]> {
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 100;
+
+export async function listApiKeys(
+  pool: Pool,
+  merchantId: string,
+  limit?: number,
+): Promise<ApiKeySummary[]> {
+  const boundedLimit = Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT));
   const result = await pool.query<{
     id: string;
     key_prefix: string;
@@ -117,8 +125,9 @@ export async function listApiKeys(pool: Pool, merchantId: string): Promise<ApiKe
     `SELECT id, key_prefix, label, created_at, last_used_at, revoked_at
        FROM api_keys
       WHERE merchant_id = $1
-      ORDER BY created_at DESC`,
-    [merchantId],
+      ORDER BY created_at DESC
+      LIMIT $2`,
+    [merchantId, boundedLimit],
   );
   return result.rows.map((row) => ({
     id: row.id,

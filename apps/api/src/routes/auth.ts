@@ -11,6 +11,7 @@ import {
   revokeSession,
 } from "../auth/sessions.js";
 import { findOtpRecipient } from "../auth/users.js";
+import { UUID_RE } from "../admin/merchants.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
@@ -75,6 +76,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const { merchantId, email, password } = request.body ?? {};
     if (!merchantId || !email || !password) {
       throw new BadRequestError("invalid_request", "merchantId, email and password are required");
+    }
+    // merchant_id is a uuid column; a non-uuid value reaches Postgres as a
+    // 22P02 cast error and surfaces as a 500 on this unauthenticated route.
+    // Reject it at the boundary, the same shape as the other id checks.
+    if (!UUID_RE.test(merchantId)) {
+      throw new BadRequestError("invalid_request", "merchantId must be a valid id");
     }
 
     const userResult = await app.db.query<MerchantUserRow>(

@@ -363,6 +363,21 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Login crashes on a non-UUID merchant id
+- **Status:** Fixed (BHA-75)
+- **Type:** UX, low
+- **Problem:** POST /v1/auth/login with a merchantId that is not UUID-shaped answered 500 instead of a clean 4xx, on an unauthenticated endpoint.
+- **Cause:** `routes/auth.ts` passed `merchantId` straight into the login query, where `merchant_id` is a uuid column; a non-uuid value raised Postgres 22P02 (invalid_text_representation), which surfaced as a 500.
+- **Breaks:** An unauthenticated endpoint leaked a server error and could not tell bad input from a real failure; every malformed login probe produced an internal error.
+- **Fix:** Validate `merchantId` against the repo's shared `UUID_RE` at the route boundary, right after the required-fields check, and answer 400 `invalid_request` before the query, the same shape BHA-91 used for the other id routes. The generic `invalid_credentials` path for a well-formed but unknown merchant is unchanged, so nothing new is disclosed. Test added in `app.test.ts`.
+
+### Bug: Listing API keys has no row limit
+- **Status:** Fixed (BHA-78)
+- **Type:** Performance, low
+- **Problem:** GET /v1/merchants/:merchantId/api-keys ran a SELECT with no LIMIT, so the response grew without bound as a merchant's key count grew.
+- **Cause:** `listApiKeys` in `apps/api/src/apiKeys/issue.ts` selected every row for the merchant ordered by created_at, with no LIMIT and no way for the caller to cap the page.
+- **Breaks:** A merchant with many keys loaded an arbitrarily large response in a single call.
+- **Fix:** `listApiKeys` now clamps a page size the same way every other list query in the repo does (`Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT))`, default 25, max 100) and adds `LIMIT $2`; the route accepts an optional `?limit=` and rejects a non-numeric value with 400, matching BHA-91. The query already selected only the display columns, never key_hash. Test added in `app.test.ts`.
 ### Bug: Authorize, API key delete and business profile routes crash with 500 on bad input, and profile update builds SQL from request keys
 - **Status:** Fixed (BHA-79, BHA-77, BHA-99, BHA-100, BHA-101)
 - **Type:** Data, medium

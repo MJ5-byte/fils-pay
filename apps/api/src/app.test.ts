@@ -396,6 +396,39 @@ test("API key issuance shows the raw key exactly once; a subsequent list never e
   assert.equal("keyHash" in (listBody[0] ?? {}), false);
 });
 
+test("login with a non-UUID merchantId is rejected with 400, not a 500 cast error (BHA-75)", async () => {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    payload: { merchantId: "not-a-uuid", email: "someone@example.test", password: "whatever-123" },
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().error, "invalid_request");
+});
+
+test("listing API keys is bounded by the limit query parameter (BHA-78)", async () => {
+  const { merchantId, cookie } = await signupLoginAndVerify("apikey-limit");
+
+  for (let i = 0; i < 3; i += 1) {
+    const issueRes = await app.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/api-keys`,
+      headers: { cookie },
+      payload: { label: `key ${i}` },
+    });
+    assert.equal(issueRes.statusCode, 201, issueRes.body);
+  }
+
+  const listRes = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/api-keys?limit=2`,
+    headers: { cookie },
+  });
+  assert.equal(listRes.statusCode, 200, listRes.body);
+  const listBody = listRes.json() as Array<Record<string, unknown>>;
+  assert.equal(listBody.length, 2);
+});
+
 test("revoking an API key with a non-UUID id answers 404, not 500 (BHA-77)", async () => {
   const { merchantId, cookie } = await signupLoginAndVerify("apikeybadid");
   for (const id of ["not-a-uuid", "123", "%27%20OR%201%3D1"]) {
