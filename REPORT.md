@@ -407,6 +407,13 @@
 - **Cause:** `callSettlementInternal` (`apps/api/src/admin/settlementClient.ts:133`) copied the first 500 characters of the non-2xx body into the `AppError` message, and all admin settlement calls route through it.
 - **Breaks:** Table names, SQL and driver text from an internal service reached the admin browser.
 - **Fix:** The body is now logged server-side only. The message keeps the path and status, plus Go's own `{"error":"<code>"}` code when the body is exactly that shape, so the admin UI still shows validation codes. Test added in `settlementClient.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/76.
+### Bug: Merchant login cookie expires after 10 minutes even though the session lasts 12 hours
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** After a merchant passed the OTP step, the browser dropped the session cookie about 10 minutes after login, so the merchant was logged out long before the session's 12 hours.
+- **Cause:** `POST /v1/auth/login` sets the cookie with the pending maxAge (10 minutes), and `/otp/verify` (`apps/api/src/routes/auth.ts:199`) promoted the session on the server but never re-issued the cookie. The admin verify (`adminAuth.ts:217`) already does.
+- **Breaks:** Merchants were signed out mid-work, and the server-side session TTL setting had no effect on how long a login really lasted.
+- **Fix:** `/otp/verify` now re-sets the same cookie with `sessionTtlHours * 3600` after a successful verify, mirroring the admin flow. Test added in `routes/auth.test.ts`. PR: https://github.com/SilentYsf/fils-pay/pull/81.
 
 ### Bug: A KYC document with an Arabic filename cannot be downloaded
 - **Status:** Fixed (BHA-64)

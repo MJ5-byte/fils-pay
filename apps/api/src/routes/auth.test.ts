@@ -181,3 +181,29 @@ test("a resend racing wrong OTP verifies never deadlocks into a 500", async () =
   }
   assert.equal(statuses.filter((s) => s >= 500).length, 0, `statuses: ${statuses.join(",")}`);
 });
+
+test("otp verify re-issues the session cookie at the full session TTL, not the pending one", async () => {
+  const email = `otp-cookie-${randomUUID()}@auth.test`;
+  const merchantId = await createMerchantWithOwner("otp-cookie", email, "password-otp-cookie");
+  const login = await app.inject({
+    method: "POST",
+    url: "/v1/auth/login",
+    payload: { merchantId, email, password: "password-otp-cookie" },
+  });
+  assert.equal(login.statusCode, 200, login.body);
+  const pending = login.cookies.find((c) => c.name === config.cookieName);
+  assert.ok(pending);
+  assert.equal(pending.maxAge, config.pendingSessionTtlMinutes * 60);
+
+  const verify = await app.inject({
+    method: "POST",
+    url: "/v1/auth/otp/verify",
+    cookies: { [config.cookieName]: pending.value },
+    payload: { code: login.json().devOtpCode },
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+  const full = verify.cookies.find((c) => c.name === config.cookieName);
+  assert.ok(full, "verify must re-set the session cookie");
+  assert.equal(full.value, pending.value);
+  assert.equal(full.maxAge, config.sessionTtlHours * 3_600);
+});
