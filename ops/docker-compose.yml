@@ -261,7 +261,11 @@ services:
       dockerfile: ops/Dockerfile.web
     restart: unless-stopped
     logging: *logging
-    cpus: "0.1"
+    # The 400-user read-only ramp showed the static login page slowing from
+    # 126 to 514 ms in step with load, so 0.1 CPU here was the front door's
+    # ceiling. These are caps, not reservations, and the api replicas keep
+    # their 0.5 CPU between them.
+    cpus: "0.25"
     mem_limit: 64m
     ports:
       - "${FILSPAY_HTTP_PUBLISH:-80}:80"
