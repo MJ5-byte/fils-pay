@@ -37,5 +37,5 @@ export function derivePublicStatus(
   // row.status === 'reserved'
   const reservedAtMs = row.reservedAt?.getTime() ?? 0;
   const stillReserved = reservedAtMs > Date.now() - reservationTimeoutSeconds * 1000;
-  return stillReserved ? "processing" : "active";
+  return stillReserved ? "processing" : row.expiresAt.getTime() <= Date.now() ? "expired" : "active";
 }

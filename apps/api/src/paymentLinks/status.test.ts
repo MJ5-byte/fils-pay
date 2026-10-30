@@ -49,6 +49,14 @@ test("derivePublicStatus: stored 'reserved' past the timeout (self-healed) -> 'a
   );
 });
 
+test("derivePublicStatus: stored 'reserved' past the timeout with expires_at in the past -> 'expired'", () => {
+  const reservedAt = new Date(Date.now() - 120_000);
+  assert.equal(
+    derivePublicStatus({ status: "reserved", expiresAt: PAST, reservedAt }, TIMEOUT_SECONDS),
+    "expired",
+  );
+});
+
 // boundary is exclusive on the reserved side (>), matches the claim UPDATE (<). consistent — MK
 test("derivePublicStatus: stored 'reserved' with reservedAt exactly at the timeout boundary self-heals to 'active'", () => {
   const reservedAt = new Date(Date.now() - TIMEOUT_SECONDS * 1000);

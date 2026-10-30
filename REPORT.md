@@ -1026,6 +1026,13 @@
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
 
+### Bug: An abandoned payment on an expired link shows the link as payable
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** If a payer started paying and walked away, then the link's expiry passed, the public link page showed it as payable. Pressing pay then failed with an expired-link error.
+- **Cause:** `derivePublicStatus` in `apps/api/src/paymentLinks/status.ts` turned a timed-out reservation into `active` without checking `expires_at`, while the pay claim in `pay.ts` requires `expires_at > now`.
+- **Breaks:** The payer was invited to pay a link that could no longer be paid.
+- **Fix:** A timed-out reservation now reads `expired` when `expires_at` has passed, using the same comparison as the stored `active` branch. A live reservation still reads `processing` past expiry, since its in-flight payment completes. Test added.
 ### Bug: Transaction and payment-link lists show rows from a previous filter
 - **Status:** Fixed
 - **Type:** UX, low
