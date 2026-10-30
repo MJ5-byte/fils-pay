@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { authorizeTransaction } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
+import { voidTransaction } from "../payments/void.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
 
 export interface PayPaymentLinkInput {
@@ -22,6 +23,7 @@ interface ClaimedLinkRow {
   merchant_id: string;
   amount_fils: string | number;
   reference: string | null;
+  claim_stamp: string;
 }
 
 interface LinkStatusRow {
@@ -71,7 +73,7 @@ export async function payPaymentLink(
              OR (status = 'reserved' AND reserved_at < now() - ($2 || ' seconds')::interval)
             )
         AND expires_at > $3
-      RETURNING id, merchant_id, amount_fils, reference`,
+      RETURNING id, merchant_id, amount_fils, reference,reserved_at::text AS claim_stamp`,
     [input.token, config.paymentLinkReservationTimeoutSeconds, expiryCheckTime],
   );
 
@@ -110,6 +112,26 @@ export async function payPaymentLink(
   }
 
   const txnId = (authResult.body as { id: string }).id;
+
+
+  // B023: if authorize was slow, the reservation may have timed out and a
+  // second buyer may have re-claimed the link. Before taking any money, check
+  // we still hold OUR reservation (same claim stamp) and refresh it. If not,
+  // cancel our own hold and stop, so the link is never charged twice.
+  const stillOurs = await pool.query(
+    `UPDATE payment_links SET reserved_at = now()
+      WHERE id = $1 AND status = 'reserved' AND reserved_at::text = $2
+      RETURNING id`,
+    [link.id, claimedRow.claim_stamp]
+  );
+  if (!stillOurs.rows[0]) {
+    await voidTransaction(pool, {
+      transactionId: txnId,
+      merchantId: link.merchantId,
+      actor: { type: "system", id: link.id },
+    });
+    return { statusCode: 409, body: { error: "payment_link_processing" } };
+  }
 
   // NOTE: discountAdjustment is applied by the transactions route only, not here — FH
   // MK: it's applied for both now (moved into capture.ts in July)
