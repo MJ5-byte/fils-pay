@@ -6,7 +6,7 @@ import {
   listCreditRequests,
   rejectCreditRequest,
 } from "../../api/credits.js";
-import { describeError } from "../../api/client.js";
+import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { CreditRequestDto, CreditRequestStatus } from "../../types.js";
 
@@ -80,7 +80,11 @@ export function CreditsPage() {
       );
       await load();
     } catch (err) {
-      setActionError(describeError(err));
+      setActionError(
+        err instanceof ApiError && err.code === "self_approval_forbidden"
+          ? "You can't approve a credit you requested. Ask another admin to approve it."
+          : describeError(err),
+      );
     } finally {
       setBusyId(null);
     }

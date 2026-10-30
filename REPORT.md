@@ -819,3 +819,11 @@
 - **Cause:** `SettlementBatchDetailPage.tsx` did `parseFloat((grossFils / 10000).toFixed(2))`, which rounds a fils amount through a decimal float.
 - **Breaks:** Only the bar width, but it broke the rule that money stays in integer fils until display.
 - **Fix:** The percentage is now `Math.floor(grossFils / 10000)` clamped to 0 to 100, computed from the integer fils for display only.
+
+### Bug: Approving your own credit shows a raw error code
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** An admin who approved a credit request they raised saw `self_approval_forbidden` in the error banner instead of a sentence.
+- **Cause:** `CreditsPage` passed every failure to `describeError`, which prints the API's `message` or else its raw `code`, and the API raises this one as a bare code (`creditApproval.ts:13`).
+- **Breaks:** The refusal was correct, but the admin could not tell why it happened or what to do next.
+- **Fix:** `handleApprove` shows "You can't approve a credit you requested. Ask another admin to approve it." for that code and leaves every other error unchanged. The admin app has no shared code-to-message map, so the fix stays in the one component.
