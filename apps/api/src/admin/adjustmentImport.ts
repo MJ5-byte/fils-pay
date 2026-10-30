@@ -176,11 +176,11 @@ export async function listAdjustmentImports(
     uploaded_by_admin_user_id: string;
     original_filename: string;
     row_count: number;
-    applied_at: string;
+    applied_at: Date;
     created_at: string;
   }>(
     `SELECT id, uploaded_by_admin_user_id, original_filename, row_count,
-            applied_at::text AS applied_at, created_at::text AS created_at
+            applied_at, created_at::text AS created_at
        FROM adjustment_imports
       WHERE ($1::text IS NULL OR created_at::text < $1)
       ORDER BY created_at DESC
@@ -197,7 +197,7 @@ export async function listAdjustmentImports(
       uploadedByAdminUserId: row.uploaded_by_admin_user_id,
       originalFilename: row.original_filename,
       rowCount: row.row_count,
-      appliedAt: row.applied_at,
+      appliedAt: row.applied_at.toISOString(),
       createdAt: row.created_at,
     })),
     nextCursor,

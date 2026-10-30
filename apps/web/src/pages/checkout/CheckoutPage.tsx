@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { formatBhd, toFils } from "@filspay/money";
 import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
 import { ApiError } from "../../api/client.js";
+import { dateTime } from "../../format.js";
 import { loadFailureKind } from "./loadFailure.js";
 import type { PaymentLinkPublicDto, PayPaymentLinkResponse, SimulatedCardInput } from "../../types.js";
 import "./CheckoutPage.css";
@@ -128,7 +129,7 @@ export function CheckoutPage() {
           <dt>Transaction ID</dt>
           <dd>{payState.result.transactionId}</dd>
           <dt>Paid at</dt>
-          <dd>{payState.result.paidAt}</dd>
+          <dd>{dateTime(payState.result.paidAt)}</dd>
         </dl>
       </main>
     );

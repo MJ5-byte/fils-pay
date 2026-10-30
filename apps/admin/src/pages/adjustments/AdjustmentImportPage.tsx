@@ -205,7 +205,7 @@ export function AdjustmentImportPage() {
           <tbody>
             {imports.map((item) => (
               <tr key={item.id}>
-                <td>{item.appliedAt}</td>
+                <td>{new Date(item.appliedAt).toLocaleString()}</td>
                 <td>{item.originalFilename}</td>
                 <td>{item.rowCount}</td>
                 <td>

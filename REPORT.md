@@ -1079,6 +1079,12 @@
 - **Cause:** `merchant_daily_volume` had no refund columns, `runConsumerPass.ts` did not list `refund.succeeded`, and the only refund helper (`applyDailySummaryRollup` in `applyEvent.ts`) was never called and keyed its day on the UTC date of the event instead of the Bahrain business day (ADR-0003).
 - **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
 - **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.
+
+### Improvement: Checkout receipt and admin import history show raw timestamps
+- **Type:** UX
+- **Before:** The checkout receipt's "Paid at" printed the raw ISO string (`2026-10-30T13:33:27.668Z`) and the admin adjustment-import history printed Postgres text (`2026-10-30 13:33:27.668874+00`). Nothing was wrong with the data.
+- **Why it shipped:** Both are the first things a buyer or an admin reads after an action, and every other page already formats dates with `dateTime()` or `toLocaleString()`.
+- **Change:** The receipt uses the existing `dateTime()` helper. `listAdjustmentImports` returns `appliedAt` as an ISO instant (`toISOString()`, as `pay.ts` does) and the admin page renders it with `new Date(x).toLocaleString()`. Test added in `adjustmentImport.test.ts`. Contract tweak: `appliedAt` changes from Postgres text to ISO; only the admin import page reads it. Dates show in the browser's time zone, as elsewhere.
 ### Improvement: Status and reason cells read as words
 - **Type:** UX
 - **Before:** Tables showed raw codes like `partially_captured`, `refund_partial` and `dispute_resolution`. Nothing promised prettier text and nothing broke.

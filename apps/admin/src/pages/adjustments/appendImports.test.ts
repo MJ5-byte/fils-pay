@@ -9,8 +9,8 @@ function imp(id: string): AdjustmentImportSummary {
     uploadedByAdminUserId: "admin",
     originalFilename: `${id}.csv`,
     rowCount: 1,
-    appliedAt: "2026-10-01 00:00:00+00",
-    createdAt: "2026-10-01 00:00:00+00",
+    appliedAt: "2026-10-01T00:00:00.000Z",
+    createdAt: "2026-10-01T00:00:00.000Z",
   };
 }
 

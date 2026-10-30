@@ -312,6 +312,8 @@ test("listAdjustmentImports returns newest first and paginates", async () => {
   const page = await listAdjustmentImports(pool, { limit: 1 });
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]!.id, second.importId);
+  const appliedAt = page.items[0]!.appliedAt;
+  assert.equal(new Date(appliedAt).toISOString(), appliedAt, "appliedAt is an ISO instant, not Postgres text");
   assert.ok(page.nextCursor);
 
   const next = await listAdjustmentImports(pool, { limit: 1, cursor: page.nextCursor });
