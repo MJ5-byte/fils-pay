@@ -1,0 +1,290 @@
+[
+  {
+    "id": "FINDING-001",
+    "title": "`expire_holds.ts` deletes all holds when nothing has expired",
+    "original": "- **Category:** Data integrity / destructive script · **Severity:** Critical · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Critical",
+    "status": "REPRODUCED",
+    "evidence": "EVID-011",
+    "notes": "Empty expired-hold selection deletes unexpired holds; local synthetic reproduction (P001)."
+  },
+  {
+    "id": "FINDING-002",
+    "title": "Net payout computed in float32",
+    "original": "- **Category:** Financial correctness · **Severity:** Critical · **Confidence:** High (VERIFIED-CODE + VERIFIED-DATA)",
+    "severity": "Critical",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-003",
+    "title": "Scheme file amounts are rounded, ledger amounts truncated",
+    "original": "- **Category:** Financial / reconciliation · **Severity:** High · **Confidence:** High (VERIFIED-CODE + VERIFIED-DATA)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-004",
+    "title": "ADR-0002 residue posting does not exist",
+    "original": "- **Category:** Financial / doc integrity · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-005",
+    "title": "Console \"Rebuild cached balances\" uses lifetime gross scheme lines",
+    "original": "- **Category:** Financial / admin · **Severity:** Critical · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Critical",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-006",
+    "title": "Balance cache has three inconsistent writers; Adjust is cache-only",
+    "original": "- **Category:** Financial / audit · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "REPRODUCED",
+    "evidence": "EVID-023",
+    "notes": "Cache correction changes no ledger entries; local synthetic reproduction (P013)."
+  },
+  {
+    "id": "FINDING-007",
+    "title": "Payment link double payment via reservation timeout",
+    "original": "- **Category:** Payments / concurrency · **Severity:** Critical · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Critical",
+    "status": "REPRODUCED",
+    "evidence": "EVID-020",
+    "notes": "Payment link reservation can be reclaimed during capture; local synthetic reproduction (P010)."
+  },
+  {
+    "id": "FINDING-008",
+    "title": "Acquirer callback authentication is optional and non-replay-safe",
+    "original": "- **Category:** Security · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "REPRODUCED",
+    "evidence": "EVID-021",
+    "notes": "Unsigned callbacks and duplicate callback IDs append twice; local synthetic reproduction (P011)."
+  },
+  {
+    "id": "FINDING-009",
+    "title": "`reconcile_march.ts` is non-idempotent and mis-posts",
+    "original": "- **Category:** Financial / script · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-010",
+    "title": "Payout disbursement recorded by webhook delivery",
+    "original": "- **Category:** Payouts / idempotency · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "REPRODUCED",
+    "evidence": "EVID-022",
+    "notes": "Replay mints another event identity and another payout record; local synthetic reproduction (P012)."
+  },
+  {
+    "id": "FINDING-011",
+    "title": "Platform volume counter overflow (INTEGER / int32)",
+    "original": "- **Category:** Financial / availability · **Severity:** High · **Confidence:** Medium-High (VERIFIED-CODE; timing estimated)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-012",
+    "title": "Admin CSV import posts amounts 10× too small; no duplicate guard",
+    "original": "- **Category:** Financial · **Severity:** Critical · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Critical",
+    "status": "REPRODUCED",
+    "evidence": "EVID-014",
+    "notes": "CSV precision error and duplicate import both commit; local synthetic reproduction (P004)."
+  },
+  {
+    "id": "FINDING-013",
+    "title": "Refund helper defects (FP-212)",
+    "original": "- **Category:** Payments / authorization · **Severity:** Critical (if wired) · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Critical (if wired)",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-014",
+    "title": "Impersonation grants write-capable merchant roles to any admin",
+    "original": "- **Category:** Authorization · **Severity:** High · **Confidence:** High (VERIFIED-CODE + audit)",
+    "severity": "High",
+    "status": "REPRODUCED",
+    "evidence": "EVID-025",
+    "notes": "Admin impersonation carries merchant write authority after disable; local synthetic reproduction (P015)."
+  },
+  {
+    "id": "FINDING-015",
+    "title": "Second-approver check compares display names",
+    "original": "- **Category:** Authorization / maker-checker · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "REPRODUCED",
+    "evidence": "EVID-015",
+    "notes": "Second approver comparison accepts same ID renamed; local synthetic reproduction (P005)."
+  },
+  {
+    "id": "FINDING-016",
+    "title": "Predictable OTPs and payment-link tokens (`Math.random`)",
+    "original": "- **Category:** Security · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-017",
+    "title": "Session fixation on OTP promotion",
+    "original": "- **Category:** Security · **Severity:** Medium · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-018",
+    "title": "Webhook signatures over canonical JSON, body sent raw",
+    "original": "- **Category:** Integration / security · **Severity:** Medium · **Confidence:** High (VERIFIED-CODE + data)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-019",
+    "title": "Webhook replay semantics break receiver dedupe and admin controls",
+    "original": "- **Category:** Webhooks / authorization · **Severity:** Medium · **Confidence:** High (VERIFIED-CODE + audit)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-020",
+    "title": "Recalculate MDR rewrites paid batches and double-counts",
+    "original": "- **Category:** Financial immutability · **Severity:** High · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-021",
+    "title": "\"Recompute transaction statuses\" clears `test_mode`",
+    "original": "- **Category:** Admin side effect · **Severity:** High · **Confidence:** High (VERIFIED-CODE + audit)",
+    "severity": "High",
+    "status": "REPRODUCED",
+    "evidence": "EVID-024",
+    "notes": "Status recompute clears sandbox even with an open authorization; local synthetic reproduction (P014)."
+  },
+  {
+    "id": "FINDING-022",
+    "title": "Seed truncates the whole business database",
+    "original": "- **Category:** Operational · **Severity:** Critical · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Critical",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-023",
+    "title": "Settlement singleton lock (FP-208) absent; daemon/CLI overlap possible",
+    "original": "- **Category:** Settlement concurrency · **Severity:** Medium · **Confidence:** Medium (VERIFIED absence; impact not executed)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-024",
+    "title": "Daemon business date derived from UTC date",
+    "original": "- **Category:** Settlement timing · **Severity:** Low-Medium · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Low-Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-025",
+    "title": "TS and Go fee formulas diverge",
+    "original": "- **Category:** Financial consistency · **Severity:** Medium · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-026",
+    "title": "Split shares may not sum to net payout",
+    "original": "- **Category:** Financial · **Severity:** Medium · **Confidence:** Medium (VERIFIED-CODE; sum behaviour by reasoning)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-027",
+    "title": "Migrations 0054/0055 likely fail on a fresh database; numbers reused",
+    "original": "- **Category:** Schema / deployment · **Severity:** Medium · **Confidence:** Medium (STRONG SUSPICION)",
+    "severity": "Medium",
+    "status": "REPRODUCED",
+    "evidence": "EVID-006",
+    "notes": "Fresh PostgreSQL 16 chain fails; 0054/0055 independently probed."
+  },
+  {
+    "id": "FINDING-028",
+    "title": "Committed secret and production flag in compose env",
+    "original": "- **Category:** Secrets / config · **Severity:** High · **Confidence:** High (VERIFIED)",
+    "severity": "High",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-029",
+    "title": "Database exposure and shared role",
+    "original": "- **Category:** Infrastructure · **Severity:** Medium · **Confidence:** High (VERIFIED-CONFIG)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-030",
+    "title": "Reporting double-apply and outbox ordering",
+    "original": "- **Category:** Data consistency · **Severity:** Medium · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-031",
+    "title": "Credits post backdated ledger legs; fee reversal at current rate",
+    "original": "- **Category:** Financial / period integrity · **Severity:** Medium · **Confidence:** High (VERIFIED-CODE)",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  },
+  {
+    "id": "FINDING-032",
+    "title": "Admin role enforcement vs production audit evidence",
+    "original": "- **Category:** Authorization / provenance · **Severity:** Medium · **Confidence:** Medium",
+    "severity": "Medium",
+    "status": "NOT TESTED",
+    "evidence": "—",
+    "notes": "Independent verification pending."
+  }
+]

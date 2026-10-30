@@ -1,0 +1,25 @@
+Started: 2026-10-30 11:03:20 +03:00
+Finished: 2026-10-30 11:03:20 +03:00
+CWD: C:\Users\hanwd\AppData\Local\Temp\filspay-forensic-euGZtR\checkout
+Command: "C:\\Program Files\\nodejs\\node.exe" "--import" "C:\\Users\\hanwd\\AppData\\Local\\Temp\\filspay-forensic-euGZtR\\checkout\\node_modules\\tsx\\dist\\loader.mjs" "C:\\Users\\hanwd\\OneDrive\\Desktop\\fils-pay\\Evidence\\runtime-artifacts\\probes1.mjs"
+Exit: 1
+Signal: null
+Error: 
+
+node:internal/modules/esm/load:184
+    throw new ERR_UNSUPPORTED_ESM_URL_SCHEME(parsed, schemes);
+          ^
+
+Error [ERR_UNSUPPORTED_ESM_URL_SCHEME]: Only URLs with a scheme in: file, data, and node are supported by the default ESM loader. On Windows, absolute paths must be valid file:// URLs. Received protocol 'c:'
+    at throwIfUnsupportedURLScheme (node:internal/modules/esm/load:184:11)
+    at defaultLoad (node:internal/modules/esm/load:82:3)
+    at ModuleLoader.load (node:internal/modules/esm/loader:801:12)
+    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:586:43)
+    at #createModuleJob (node:internal/modules/esm/loader:610:36)
+    at #getJobFromResolveResult (node:internal/modules/esm/loader:341:34)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:309:41)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:650:25) {
+  code: 'ERR_UNSUPPORTED_ESM_URL_SCHEME'
+}
+
+Node.js v22.19.0

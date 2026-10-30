@@ -1,0 +1,2292 @@
+[
+  {
+    "path": ".gitignore",
+    "bytes": 92,
+    "sha256": "05100068f80eca419f905ebff7ab2032bf30f302e95a1e81c5186b8ae2533274"
+  },
+  {
+    "path": "CHANGELOG.md",
+    "bytes": 3851,
+    "sha256": "4764aee411bdf49a37dce431fccc2808eba0b0033c71df0b23c5d930943e5ae0"
+  },
+  {
+    "path": "Evidence/FilsPay_Git_Commit_and_Code_Comments_Evidence.md",
+    "bytes": 127774,
+    "sha256": "64513fa9a6a7d49adfe137cabb913598126ed2186d00cf4b4a112c7b59f4a600"
+  },
+  {
+    "path": "Evidence/FilsPay_The_Order_of_the_Prompt_Story.md",
+    "bytes": 8436,
+    "sha256": "040757bd3d15bf88b367fd2476e539a6c3940aa747eea5ff19ed463c6a141dc4"
+  },
+  {
+    "path": "Evidence/allcommits",
+    "bytes": 60336,
+    "sha256": "486dcd30ab501ad1fb0c54ffdd4c24960eda9735ce473e39344045cdd5b6f9f4"
+  },
+  {
+    "path": "Evidence/messages.md",
+    "bytes": 2719,
+    "sha256": "51f3a79d4bae9d28538e3b1bf2a287242d357687c7c7163824a3f33e2cd2abb9"
+  },
+  {
+    "path": "Evidence/old-agints-instration/.cursorrules",
+    "bytes": 3103,
+    "sha256": "462dd28c3ef2b4a0b1dd800f1d2b54a70aa67471ed6221dda3fc05bfb72430a3"
+  },
+  {
+    "path": "Evidence/old-agints-instration/AGENTS.md",
+    "bytes": 3478,
+    "sha256": "d16eb75bddb7f3e504bf5faa935c775c7c3dbcc08fb75b48d3bc3d4c00bb08bb"
+  },
+  {
+    "path": "Evidence/old-agints-instration/CLAUDE.md",
+    "bytes": 3197,
+    "sha256": "a77e063991bc734cc5c17a1165eb5eb19ccf573649f1c9975723fc4900581d5a"
+  },
+  {
+    "path": "apps/admin/index.html",
+    "bytes": 387,
+    "sha256": "8baca022fae2f3acb3fb30e305f61ef26d19f20c736a58ba6c54a85804fdc45c"
+  },
+  {
+    "path": "apps/admin/package.json",
+    "bytes": 535,
+    "sha256": "f07d65281c9f3af63a4406d4b955d25babc74d7101e74699a266606d3508c53f"
+  },
+  {
+    "path": "apps/admin/src/admin.css",
+    "bytes": 3910,
+    "sha256": "ecb66a8f564e1ca88c36c801616e2a249586ae3a13e5c5835466ad48aba5ac1e"
+  },
+  {
+    "path": "apps/admin/src/api/adjustmentImports.ts",
+    "bytes": 1677,
+    "sha256": "e7a08e67f3f4f358ce65faac1168527b2d16dca66cd72502b66d35eff104aa9b"
+  },
+  {
+    "path": "apps/admin/src/api/apiKeys.ts",
+    "bytes": 768,
+    "sha256": "ea631324af2b1a5c3e2be65c8bb6ad97b4254b738dec69b1d862503cf2c1d14d"
+  },
+  {
+    "path": "apps/admin/src/api/auth.ts",
+    "bytes": 1221,
+    "sha256": "6262b614352979ad6853cbd390c10d7e3100a5057fbcc05c806f169cc22db1c7"
+  },
+  {
+    "path": "apps/admin/src/api/balanceAdjustments.ts",
+    "bytes": 634,
+    "sha256": "308e5d3cfef2b78fb040de702f4407f8291aaac597008afbfcdbd6a5bbec9208"
+  },
+  {
+    "path": "apps/admin/src/api/client.ts",
+    "bytes": 3048,
+    "sha256": "7788acceb8cf34319607cad6af5036c84ec3dd66fd22710442035852d6e695b0"
+  },
+  {
+    "path": "apps/admin/src/api/credits.ts",
+    "bytes": 2020,
+    "sha256": "59999a530eacd403237a261e098af1c1831663e847ac30079e3266e86afb1193"
+  },
+  {
+    "path": "apps/admin/src/api/impersonation.ts",
+    "bytes": 4023,
+    "sha256": "6c370bca994a960c230afd585ffa39733e9dfd00f921d8adc61ed6a888b309fc"
+  },
+  {
+    "path": "apps/admin/src/api/mdrRecalculation.ts",
+    "bytes": 623,
+    "sha256": "bff049cfe135a7abc911132ce6180c5f95e7614a8bc02c793fa8b7fda32fab86"
+  },
+  {
+    "path": "apps/admin/src/api/merchants.ts",
+    "bytes": 2481,
+    "sha256": "233054a28d8313d6f95d7108191ffdeb89cf2b72aa6c8f4c50f517f608b7e8f3"
+  },
+  {
+    "path": "apps/admin/src/api/merchantsBulk.ts",
+    "bytes": 734,
+    "sha256": "9042587eda85a6e48dbc9104c5b606139459cafd8079ea044be30a8602245764"
+  },
+  {
+    "path": "apps/admin/src/api/settlement.ts",
+    "bytes": 1386,
+    "sha256": "0c9674a16186874c660bed443aea7b766dd33ce12d51e524a23302092c5f4d02"
+  },
+  {
+    "path": "apps/admin/src/api/webhooks.ts",
+    "bytes": 825,
+    "sha256": "1434dc99fbca60fdbbf1e6700607d885bf51db5481794efbed3079eb0f895fec"
+  },
+  {
+    "path": "apps/admin/src/auth/AdminAuthContext.tsx",
+    "bytes": 4620,
+    "sha256": "683b92f531aa8062a5ef8537f9a789802a162c70ebfef18f7392d78c781b84ce"
+  },
+  {
+    "path": "apps/admin/src/auth/RequireRole.tsx",
+    "bytes": 1375,
+    "sha256": "e14ccb3a38dd6daaca065471e3f061678026216f74cd091b7d63bdc4f9766066"
+  },
+  {
+    "path": "apps/admin/src/components/AdminLayout.tsx",
+    "bytes": 2864,
+    "sha256": "5709ba7f93a05968f7b814d96ea191aca0f565fe737e23960e2daf50cf04556d"
+  },
+  {
+    "path": "apps/admin/src/components/ImpersonationBanner.tsx",
+    "bytes": 2234,
+    "sha256": "498223f340967c9921db3c8fd73044fa4a1054b1e5a700a816bc7cde46c749b1"
+  },
+  {
+    "path": "apps/admin/src/components/RequireAdminAuth.tsx",
+    "bytes": 1159,
+    "sha256": "ee2275aa0cba355bbf3709959c72ab040c52bb75dc697d2989db58295c6673dc"
+  },
+  {
+    "path": "apps/admin/src/main.tsx",
+    "bytes": 573,
+    "sha256": "b2500e15e09f24af622bb219fdd82d1c2b8357f7daa5af374a033690c5761a87"
+  },
+  {
+    "path": "apps/admin/src/pages/adjustments/AdjustmentImportPage.tsx",
+    "bytes": 6711,
+    "sha256": "f956c21fc567655a3e4ed2b15ac41c4e9b7425267a7113bfa2a221de9f9460f5"
+  },
+  {
+    "path": "apps/admin/src/pages/credits/CreditsPage.tsx",
+    "bytes": 8211,
+    "sha256": "ee040c9cc4fa2436b241e751f3a9f6b75025af3977c1446cf2eb8b8f5d4dd31c"
+  },
+  {
+    "path": "apps/admin/src/pages/login/LoginPage.tsx",
+    "bytes": 4833,
+    "sha256": "40a25ad707e1d7cdeacfbad2e1579a82889fc6e7076add4172c76d220c585ef5"
+  },
+  {
+    "path": "apps/admin/src/pages/merchants/MerchantDetailPage.tsx",
+    "bytes": 23700,
+    "sha256": "76b1b8d703c6a077d232b5b2ff320ab0aba8948c830dca9a24fa81391dfcc3cd"
+  },
+  {
+    "path": "apps/admin/src/pages/merchants/MerchantListPage.tsx",
+    "bytes": 7478,
+    "sha256": "3432f6d9eb94cae3995cb973557f0d084916cdadc624c6888a465661d9a3b81a"
+  },
+  {
+    "path": "apps/admin/src/pages/settlement/SettlementPage.tsx",
+    "bytes": 15228,
+    "sha256": "f1a3248c73c22a3b73e3eccf4c91198df8e0abd01aa2a550433b22337d71f4ff"
+  },
+  {
+    "path": "apps/admin/src/pages/webhooks/WebhookReplayPage.tsx",
+    "bytes": 8386,
+    "sha256": "d98ad4561dce1f94802c54984e5aada74b51fcb56282c9cb4ce7a4c078af25d7"
+  },
+  {
+    "path": "apps/admin/src/router.tsx",
+    "bytes": 1731,
+    "sha256": "80a33ccfd785f0ef3c445ab083297704d7bb72bbc98062d813e3610a77ab88f8"
+  },
+  {
+    "path": "apps/admin/src/types.ts",
+    "bytes": 12772,
+    "sha256": "dfcd0f84a9afd483c224e42bb7305b9bb90ac843796274a51d822dfda9614c91"
+  },
+  {
+    "path": "apps/admin/tsconfig.json",
+    "bytes": 289,
+    "sha256": "e800d923d0de62da5869680af41d5285806ed51e588c8b98b41bb52e8e992c7f"
+  },
+  {
+    "path": "apps/admin/vite.config.ts",
+    "bytes": 271,
+    "sha256": "cb1caccc3c85444e7ee3ac294aae52e011c1601cc347cf95f42a904d6000f6f3"
+  },
+  {
+    "path": "apps/api/package.json",
+    "bytes": 788,
+    "sha256": "c76d758737339d5fc46439afe800d68c8f419a1ed876857deeb4f31e30d86362"
+  },
+  {
+    "path": "apps/api/src/acquirer/callbacks.test.ts",
+    "bytes": 4036,
+    "sha256": "c0fa7c344ba1ce6165ec03f3c371db0377e60bad3ab09e80b1cad9478a06ae2f"
+  },
+  {
+    "path": "apps/api/src/acquirer/callbacks.ts",
+    "bytes": 2419,
+    "sha256": "8b9e33ddad60c2d8f0e3c3aa21334eefdf47c0f4d9b6c44adf6efd6c7de5b464"
+  },
+  {
+    "path": "apps/api/src/acquirer/rng.ts",
+    "bytes": 1080,
+    "sha256": "7e3b27fd3656f85d2e39f7c6a28aad83c5078aadd6796d1f9b099818bdb3c500"
+  },
+  {
+    "path": "apps/api/src/acquirer/simulator.test.ts",
+    "bytes": 4948,
+    "sha256": "3fc563bdd87e81aa2e3c8574577c0e40fb477dabb80b783afaaa95fc348d6932"
+  },
+  {
+    "path": "apps/api/src/acquirer/simulator.ts",
+    "bytes": 6357,
+    "sha256": "ad9fd2fe296840581eed09ea0158b791b76f47a00578b9d64a1ba2ee49a16859"
+  },
+  {
+    "path": "apps/api/src/acquirer/types.ts",
+    "bytes": 1975,
+    "sha256": "fda9b674c4fa6de10a78b2cad38fd192c9a89a01794b905d7d6ab9bafade6452"
+  },
+  {
+    "path": "apps/api/src/admin/adjustmentCsvParsing.test.ts",
+    "bytes": 2203,
+    "sha256": "a920edb741499a6dc3ba838c7d3012aec7c82d671401d38b2575d7a4cb24498c"
+  },
+  {
+    "path": "apps/api/src/admin/adjustmentCsvParsing.ts",
+    "bytes": 2200,
+    "sha256": "5a739b5a8e0756f175c352b8bab06ff57fd9eec3d1b855e3c4dbb9f74a61a19c"
+  },
+  {
+    "path": "apps/api/src/admin/adjustmentImport.test.ts",
+    "bytes": 8656,
+    "sha256": "abcc4be38e0465b1c63c15cc023b0b49ed31ed6857085deb33ad74b1ada01be5"
+  },
+  {
+    "path": "apps/api/src/admin/adjustmentImport.ts",
+    "bytes": 7137,
+    "sha256": "1c560c011f727cd3a260bf04b9401fdd8d1c8d23d68b614c886c2181d2e8e6d6"
+  },
+  {
+    "path": "apps/api/src/admin/apiKeys.ts",
+    "bytes": 1802,
+    "sha256": "ba5d51d2656674cf558ca4517f5a8d8f22da51e6ea7a9eff470a9633a76be77a"
+  },
+  {
+    "path": "apps/api/src/admin/balanceAdjustments.test.ts",
+    "bytes": 9375,
+    "sha256": "0aac932711364854af5831b0364c94af7268c35340af7ed5547271064bbc97d4"
+  },
+  {
+    "path": "apps/api/src/admin/balanceAdjustments.ts",
+    "bytes": 4064,
+    "sha256": "84389cc66952c9a1a6857fb0b55a969248c4a1897573270959ff2fdb7e8b4e19"
+  },
+  {
+    "path": "apps/api/src/admin/bulkKyc.ts",
+    "bytes": 1538,
+    "sha256": "50430ad50c756334b113f92ccd55d5920a32b8ffa63995e632ff730db52cf5f2"
+  },
+  {
+    "path": "apps/api/src/admin/creditApproval.test.ts",
+    "bytes": 1032,
+    "sha256": "c6af21c3a9c9735121baf018d176d1d7e2c30e5df10a41d0906822fa636174e1"
+  },
+  {
+    "path": "apps/api/src/admin/creditApproval.ts",
+    "bytes": 522,
+    "sha256": "308d1935637a9a64a15ba3bf598e062c5519693e320d91ed4ef95a6b3619006c"
+  },
+  {
+    "path": "apps/api/src/admin/creditRequestValidation.test.ts",
+    "bytes": 4749,
+    "sha256": "9848d611938c31c60f39e8e599ae5a0cc4afb41dd173b7d944e7ebfaa49b33d3"
+  },
+  {
+    "path": "apps/api/src/admin/creditRequestValidation.ts",
+    "bytes": 3266,
+    "sha256": "826dd376f9dc907ef524416c3a664341452fa663cd7c62ee5e556b30e773c09e"
+  },
+  {
+    "path": "apps/api/src/admin/creditThreshold.test.ts",
+    "bytes": 3060,
+    "sha256": "ab8612c3846de99dee7785125b0c51594d52bb60caf8f2697304b1b417dcb4e2"
+  },
+  {
+    "path": "apps/api/src/admin/creditThreshold.ts",
+    "bytes": 892,
+    "sha256": "c88da90441cd2618f13c720bd0a9da35646b87f35edac69554ea8fb263812692"
+  },
+  {
+    "path": "apps/api/src/admin/credits.test.ts",
+    "bytes": 13830,
+    "sha256": "dfb21739cef62dddbf7ad1eb7d24b40b59b15fdae5d0bea705e488f6db2d7245"
+  },
+  {
+    "path": "apps/api/src/admin/credits.ts",
+    "bytes": 18120,
+    "sha256": "e0849e624fb137e4c5157dee92585993d2e1217de9eb8b3d3d0bc5fff11580a7"
+  },
+  {
+    "path": "apps/api/src/admin/impersonation.ts",
+    "bytes": 4727,
+    "sha256": "c20536b917da490478aadf6a20606b1c5dad19328fd4fdf46179632fd2a29cb8"
+  },
+  {
+    "path": "apps/api/src/admin/inviteCode.ts",
+    "bytes": 1858,
+    "sha256": "e09fff4732354b7dccb8e0b303e27de2f44c8af403158df84001612286e44fed"
+  },
+  {
+    "path": "apps/api/src/admin/ledgerAdjustments.ts",
+    "bytes": 1395,
+    "sha256": "7b18fffa713fa3f19958d4c1d05ab0c655eb18244db2c7d101749077b3bf1104"
+  },
+  {
+    "path": "apps/api/src/admin/merchantFlags.ts",
+    "bytes": 780,
+    "sha256": "625f1ad15ddaee034189abb3ef334d6093dc4b526a287968f90701a7bc7c0c13"
+  },
+  {
+    "path": "apps/api/src/admin/merchants.ts",
+    "bytes": 11098,
+    "sha256": "f7a5c0d15766819893ae04730f5f1f4419e0d1983c5e3fa278f1b684f6b2655e"
+  },
+  {
+    "path": "apps/api/src/admin/reportingRebuild.ts",
+    "bytes": 1905,
+    "sha256": "6bac7167205a9b668c73226a44ea4f00236cb116256d49233440789d2c75b96b"
+  },
+  {
+    "path": "apps/api/src/admin/settlementClient.test.ts",
+    "bytes": 10140,
+    "sha256": "35f10d38d5cc4f87208ca8798aa2a033cad208d3dad1c48539ed54505d97454c"
+  },
+  {
+    "path": "apps/api/src/admin/settlementClient.ts",
+    "bytes": 10271,
+    "sha256": "f43235efe9585ce3661d6ff83762942a8cc8e9c7cee55d493b0a2d37c25341b0"
+  },
+  {
+    "path": "apps/api/src/admin/transactionStatusRecompute.ts",
+    "bytes": 1622,
+    "sha256": "ef798380348aa182e7615fa8b4fa3eafd68e0421c5855855a96d204f9b8dee17"
+  },
+  {
+    "path": "apps/api/src/adminAudit/log.ts",
+    "bytes": 4397,
+    "sha256": "f8107d6a81df1f75d2bf3719f66c1f9bd0f6efd61d0be96656e0a697b94524a8"
+  },
+  {
+    "path": "apps/api/src/adminAuth/middleware.ts",
+    "bytes": 2552,
+    "sha256": "2aef4c6e6bf7fb4c1b48c2a9eb663673e3e5bbd4e7445ad9c7a9850c5405808a"
+  },
+  {
+    "path": "apps/api/src/adminAuth/notifier.ts",
+    "bytes": 967,
+    "sha256": "634c18c34d19ef3d418b784c6cd542dc5671f9a22c6e1ddb4c9f8e1b02c4159e"
+  },
+  {
+    "path": "apps/api/src/adminAuth/otp.ts",
+    "bytes": 1833,
+    "sha256": "8c986bdcaf01620c0bc6b569bce8204fb4d43484a6cbbebb1a0242c3d74a581f"
+  },
+  {
+    "path": "apps/api/src/adminAuth/passwords.ts",
+    "bytes": 482,
+    "sha256": "d390d85dc7ff5287d6e731862cceea7eefb33525bbb5d55c8deb9320c09e4db9"
+  },
+  {
+    "path": "apps/api/src/adminAuth/sessions.ts",
+    "bytes": 5907,
+    "sha256": "11430909e4835f51440dc3f54cf68d4f42e7343f74458d259ffa7a3080ff915c"
+  },
+  {
+    "path": "apps/api/src/analytics/query.ts",
+    "bytes": 10695,
+    "sha256": "73c5f3fdeac1300537d28aa58472ffdf5eeb9e0c1e36e96fdab6715d92d0ebf2"
+  },
+  {
+    "path": "apps/api/src/apiKeys/issue.ts",
+    "bytes": 5227,
+    "sha256": "fb7e44b5554cb2bac57cce7a2fe55367293142ba5dea88f78b87a56a2ae39554"
+  },
+  {
+    "path": "apps/api/src/apiKeys/verify.ts",
+    "bytes": 1769,
+    "sha256": "654357f7da645c7a31ae2da2310b5276c99c4377334693199bae7987315c36a9"
+  },
+  {
+    "path": "apps/api/src/app.test.ts",
+    "bytes": 12544,
+    "sha256": "67931cc63d2ffea2f17eb429a5790b23ee67f5d526239b76f8dade8f736bf104"
+  },
+  {
+    "path": "apps/api/src/app.ts",
+    "bytes": 4590,
+    "sha256": "201f68364de789d4418d4337875335dc45e236f21a1749b5df9c97ba36b7e78d"
+  },
+  {
+    "path": "apps/api/src/auth/middleware.ts",
+    "bytes": 2056,
+    "sha256": "8316ae2ddb43164fe5b334049e9f6b104b5e44c8161abafc6fd4320d5f87bd48"
+  },
+  {
+    "path": "apps/api/src/auth/notifier.ts",
+    "bytes": 1111,
+    "sha256": "4168034cd7b8154f88df244376af9d72ee10b435c1741bddc6ac7a5fe54f6743"
+  },
+  {
+    "path": "apps/api/src/auth/otp.test.ts",
+    "bytes": 1413,
+    "sha256": "b024d503d23056c5bb4a5112bac48238518bfda348826ead920b55235762f73c"
+  },
+  {
+    "path": "apps/api/src/auth/otp.ts",
+    "bytes": 2283,
+    "sha256": "e7d68a147098e38cf7b6412ea9189373b76a27700561289ebbf8c388e4188aae"
+  },
+  {
+    "path": "apps/api/src/auth/passwords.test.ts",
+    "bytes": 1428,
+    "sha256": "346fac7ae66689410cfa0155454690f86ab4ba9c3357d04083fe584ee3517c3e"
+  },
+  {
+    "path": "apps/api/src/auth/passwords.ts",
+    "bytes": 1324,
+    "sha256": "7205dcf89b98e204b1b818fda27a0f4c81731d08568e0ddddc2d7903749cc7b9"
+  },
+  {
+    "path": "apps/api/src/auth/requireMerchantAuth.ts",
+    "bytes": 7174,
+    "sha256": "ad02399ee3f94ff6bf1dfdaccd9762a005c5cab5ee379f78443c05e1d45300f3"
+  },
+  {
+    "path": "apps/api/src/auth/sessions.test.ts",
+    "bytes": 4340,
+    "sha256": "0236076fb5061a12b5e9815a1c9ef4c198bbbbb8568fd9b4539c78f4a30dd5bd"
+  },
+  {
+    "path": "apps/api/src/auth/sessions.ts",
+    "bytes": 4538,
+    "sha256": "21b2cb8a383bcb1a8058d3ac08413db42b044f0ce745a248c8a56ca10ee62ad5"
+  },
+  {
+    "path": "apps/api/src/auth/users.ts",
+    "bytes": 674,
+    "sha256": "31be9ebf72b1bfa50aeefbc6071adbcff40cacdf2cd641042a090d5cfb458c71"
+  },
+  {
+    "path": "apps/api/src/config.ts",
+    "bytes": 11858,
+    "sha256": "62fd339ba2683bd4cf5740253509501824f9536530710bbf373b99324450a549"
+  },
+  {
+    "path": "apps/api/src/db/pool.test.ts",
+    "bytes": 1102,
+    "sha256": "9c1e6fdb3336d4d026e4e8feae121df9bb5c406492d83da3cc91ec4181f74518"
+  },
+  {
+    "path": "apps/api/src/db/pool.ts",
+    "bytes": 2110,
+    "sha256": "99b2449430b8137b423e764a6ceed5738612fbfdc10b62236e1c1ed92b70524e"
+  },
+  {
+    "path": "apps/api/src/db/withTransaction.ts",
+    "bytes": 1600,
+    "sha256": "a7be427c151f35355a352180534fcfdc26dec8fb761c655cb2c1772953b7252d"
+  },
+  {
+    "path": "apps/api/src/fastify-instance.d.ts",
+    "bytes": 482,
+    "sha256": "5f81c0cd0461ffdca374e532bb388340828da75fd21e272eec0c35e1567d27ee"
+  },
+  {
+    "path": "apps/api/src/fees/currentFeeScheduleDisplay.test.ts",
+    "bytes": 3676,
+    "sha256": "bd8093a3daf6e88e7c744252fdbb1571e8bc6cddd02e482763e6d47d0759c5f5"
+  },
+  {
+    "path": "apps/api/src/fees/currentFeeScheduleDisplay.ts",
+    "bytes": 1775,
+    "sha256": "52650c6d2581f9ec02c0aace6f85dce14bb2b04c98f317d60989c63a492539cd"
+  },
+  {
+    "path": "apps/api/src/fees/estimate.ts",
+    "bytes": 400,
+    "sha256": "c33c634339c94eebb0adfbd0966fe6041a530a50efad89b11c32949d1d6ab0cf"
+  },
+  {
+    "path": "apps/api/src/fees/feeSchedule.test.ts",
+    "bytes": 4324,
+    "sha256": "7e6015880d26ac4ca90d12c526f0a7d6473f2419aa9b2cb4099a7311adc4561b"
+  },
+  {
+    "path": "apps/api/src/fees/feeSchedule.ts",
+    "bytes": 1627,
+    "sha256": "f1076bd889e45ce3c2ddcb8b29f3663cb0ffc3b28796a13bef94a32e2f8ec9fd"
+  },
+  {
+    "path": "apps/api/src/fees/platformVolumeTier.test.ts",
+    "bytes": 2250,
+    "sha256": "156373494fd753b2ea8a29a6cc79f5bc8c2592cb886e60f2bddbc8740a84d712"
+  },
+  {
+    "path": "apps/api/src/fees/platformVolumeTier.ts",
+    "bytes": 1515,
+    "sha256": "b914b3924ac5d6febb9deabea3ba58000539acddc1d7329d0ea474dfd148c49e"
+  },
+  {
+    "path": "apps/api/src/health/state.ts",
+    "bytes": 412,
+    "sha256": "61e55caf208f9ba2bc2373afeb5e2207c2adfe7d1fc380d36f2dd45628283016"
+  },
+  {
+    "path": "apps/api/src/index.ts",
+    "bytes": 2498,
+    "sha256": "28503edd6ff09ab8d061c4469b69a458bbfa07d23a062ef67079f172ce345a2f"
+  },
+  {
+    "path": "apps/api/src/lib/crypto.ts",
+    "bytes": 774,
+    "sha256": "c2152797446d3efc2c34f38c0c10e758fc6d9a6125b422c724a73f56d7da4758"
+  },
+  {
+    "path": "apps/api/src/lib/dateFormat.ts",
+    "bytes": 293,
+    "sha256": "4d20f30ef88d708c2328ec7c0e83122e69774f65a6abd407847c6ae4a2624e95"
+  },
+  {
+    "path": "apps/api/src/lib/dateUtil.ts",
+    "bytes": 501,
+    "sha256": "211925736041e305b0336482e76256645a76007c37023f269cc022ea5b91c2d2"
+  },
+  {
+    "path": "apps/api/src/lib/decimal.ts",
+    "bytes": 890,
+    "sha256": "805d1144ecc00ee172561c22ec0f5818f259d00ca4937164e5622fe409aeb906"
+  },
+  {
+    "path": "apps/api/src/lib/errors.ts",
+    "bytes": 2384,
+    "sha256": "279ff8efcced4e48f1962fe8a1010bbbcbfebc46759e31c09039ea5f07a148e3"
+  },
+  {
+    "path": "apps/api/src/lib/random.ts",
+    "bytes": 736,
+    "sha256": "0733267a86de9b95c5d9794c3fa4c0c63a4394eca59df0be97586a75a4442e1e"
+  },
+  {
+    "path": "apps/api/src/onboarding/businessProfile.ts",
+    "bytes": 4384,
+    "sha256": "06fbe9c57877178957d4434f8eb248d89168196fe31ef765b83a144764fbbf73"
+  },
+  {
+    "path": "apps/api/src/onboarding/fileSignature.test.ts",
+    "bytes": 1800,
+    "sha256": "dad2badeb25b35f8148dedc83c67c51d185b40d07c121866fad6f7f01cedbcb9"
+  },
+  {
+    "path": "apps/api/src/onboarding/fileSignature.ts",
+    "bytes": 1599,
+    "sha256": "f4ed65e15d535bf5396d6cf8ad4b9b2b3e16238a1a8bbfd25139eec32c4b4564"
+  },
+  {
+    "path": "apps/api/src/onboarding/kyc.ts",
+    "bytes": 8418,
+    "sha256": "43d1cc2b2e39c3976ebc977da989a69a4222d59925203b55fe898881f53e6b71"
+  },
+  {
+    "path": "apps/api/src/onboarding/kycThumbnail.test.ts",
+    "bytes": 2786,
+    "sha256": "52cec15cb1fec5677620370bc5e99e8dc696b93cda8a8dfd1c3968832d71fb35"
+  },
+  {
+    "path": "apps/api/src/onboarding/kycThumbnail.ts",
+    "bytes": 1381,
+    "sha256": "d982fd1310ca3137a14f493ba9be9bd25355653825f9f732ec5beab29e195e63"
+  },
+  {
+    "path": "apps/api/src/onboarding/review.ts",
+    "bytes": 2670,
+    "sha256": "65da094684c2a1fec7ce1a219d6a8b60657904e77430cef3db82f84d7342ee4f"
+  },
+  {
+    "path": "apps/api/src/onboarding/signup.ts",
+    "bytes": 3813,
+    "sha256": "2f18c9a79d428c383d9d56dd0b7ef1b227aa2860dbd0f0f508f68f65c17db70f"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/cancel.ts",
+    "bytes": 1021,
+    "sha256": "f8a0b839401e7fd6e871194ab64bdd3b922fd7338aab40368ca5c2db68f4c08b"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/create.ts",
+    "bytes": 2417,
+    "sha256": "c2829bb16a42df2153438614c767a7fb34d04134815624ebab1f1fbf00e07eee"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/pay.test.ts",
+    "bytes": 1318,
+    "sha256": "a68a7fee5974f28ee61ac950e00c7339d0f01fba482a87786112b2e22a7cb285"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/pay.ts",
+    "bytes": 9143,
+    "sha256": "75fd618de8a69f933916918d95858933cf88bfd3b3731d6680a01370a31fe6fc"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/query.ts",
+    "bytes": 3296,
+    "sha256": "0103f7495634d9f499c9a2b5c739605c16cfe04f0019fe2f21321a8e3314be15"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/read.ts",
+    "bytes": 2574,
+    "sha256": "c602e55e296caa7cfbc2d74b564eb3e5a4e80b8f4a94c4596bc328d712c586c2"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/serialize.ts",
+    "bytes": 2012,
+    "sha256": "2caa2e8af4d8898f5ad2f4d79d9c17c468401cec768e0173c8cbf0a6ca238e60"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/status.test.ts",
+    "bytes": 2492,
+    "sha256": "783f252bf610ed05593cb0d68741381c0df4471930b35134e3d40aaf24661463"
+  },
+  {
+    "path": "apps/api/src/paymentLinks/status.ts",
+    "bytes": 1861,
+    "sha256": "6630221ee4dd0168e9439ff893391b75bbaeb4a54d64a8024d243b89d507d6c3"
+  },
+  {
+    "path": "apps/api/src/payments/authorize.ts",
+    "bytes": 6191,
+    "sha256": "6b5a307ee78eafbd3e16907c78f04c8a8a584200244d08bb8c0d08d971a913b5"
+  },
+  {
+    "path": "apps/api/src/payments/capture.ts",
+    "bytes": 11704,
+    "sha256": "0d1f752e5042bb1ef05adc9ed1bc3f8a5b0da8ff3c4b405cdf7f698297c29a98"
+  },
+  {
+    "path": "apps/api/src/payments/discountAdjustment.test.ts",
+    "bytes": 4753,
+    "sha256": "e4d36213c9a4048161f30e37cf1cf4e73e81d6de7f11e99eab7e4803dd043e0f"
+  },
+  {
+    "path": "apps/api/src/payments/discountAdjustment.ts",
+    "bytes": 4185,
+    "sha256": "9959f97dece8862e7bf4add47657d64cb673cf0115054814e5ecba9ad4297942"
+  },
+  {
+    "path": "apps/api/src/payments/idempotency.test.ts",
+    "bytes": 2054,
+    "sha256": "023809e103ce142e1bbc0287ff82c83429f86655f9d1e265958cdeb21541504a"
+  },
+  {
+    "path": "apps/api/src/payments/idempotency.ts",
+    "bytes": 9088,
+    "sha256": "8fe144acc763fda315af6c6097ce069e2a100134c9113a0a193ea0fa94e6c4dc"
+  },
+  {
+    "path": "apps/api/src/payments/processRefund.test.ts",
+    "bytes": 19212,
+    "sha256": "dbaefada6f46e5e3192940b20fcce8429722973786a17efe83d5ff61beef2c3c"
+  },
+  {
+    "path": "apps/api/src/payments/processRefund.ts",
+    "bytes": 10197,
+    "sha256": "6357ee9842dcaaaca4c268a7c330eb4014876a27945a61cd6384872c2c2300b2"
+  },
+  {
+    "path": "apps/api/src/payments/refundState.test.ts",
+    "bytes": 2082,
+    "sha256": "4227854feb703f5bd9439bc1fba1d78c055c5cc22c9f5b800ea07e29712fb814"
+  },
+  {
+    "path": "apps/api/src/payments/refundState.ts",
+    "bytes": 2825,
+    "sha256": "ad8e4320139b1bb77f2c629d92e1810173c451f5ffb16662dc9d3c4fd4aeedd0"
+  },
+  {
+    "path": "apps/api/src/payments/refundValidation.test.ts",
+    "bytes": 4348,
+    "sha256": "e602ec7fcef2faf5716d8504c08a53130d913883a4832e03ee7f382ab2c2cdb9"
+  },
+  {
+    "path": "apps/api/src/payments/refundValidation.ts",
+    "bytes": 1716,
+    "sha256": "7b66e4f77e0cef81a4fc705fc8c1112cac40f4d8b8ee2258053ba6a4dc89592e"
+  },
+  {
+    "path": "apps/api/src/payments/void.ts",
+    "bytes": 3772,
+    "sha256": "662401d6195ff55541f39c8951900f5c2e3061fdfe06f241b843a32bf8d63b38"
+  },
+  {
+    "path": "apps/api/src/plugins/cookies.ts",
+    "bytes": 554,
+    "sha256": "ef9f5651d125e6f2499265b5e1c5d1a91691cfe09bffb9579fd7dd47f51fde90"
+  },
+  {
+    "path": "apps/api/src/plugins/errorHandler.ts",
+    "bytes": 1358,
+    "sha256": "8a0cd7c7a69801b70e0f28918acd21f6f3b9e7e7ef50169c4a276e0e2f8adae5"
+  },
+  {
+    "path": "apps/api/src/plugins/multipart.ts",
+    "bytes": 790,
+    "sha256": "a9755f9a9b03bf8f1b3b1c81ab20a0e1f658d16d8e9e6608abaf8c0d06f78788"
+  },
+  {
+    "path": "apps/api/src/refunds/initiateMerchantRefund.test.ts",
+    "bytes": 10638,
+    "sha256": "cfc06e461fd3e2176b8fc1e0e45b4498d5bb4c27c6bd9efb541b95f6b4fb8ff4"
+  },
+  {
+    "path": "apps/api/src/refunds/initiateMerchantRefund.ts",
+    "bytes": 2798,
+    "sha256": "639cbd6bef7546076cc2ce53b37cdded060c3dc83687d597e1409bc9a2cf4f64"
+  },
+  {
+    "path": "apps/api/src/reporting/savedFilters.test.ts",
+    "bytes": 3404,
+    "sha256": "9894d086f923264c37ec76eca361b15e517a6c5ba3b3ccee3c01b557d4662a84"
+  },
+  {
+    "path": "apps/api/src/reporting/savedFilters.ts",
+    "bytes": 2051,
+    "sha256": "5292b8d2a6c026e49be1ea5b5c5d559f451c5e5dda582e4b96bbc09431b0aaad"
+  },
+  {
+    "path": "apps/api/src/reporting/scope.ts",
+    "bytes": 565,
+    "sha256": "c02011d1b4eb16166b8b57f0dd9b5a2200c0b72a05e8e005fc44f37be84193d9"
+  },
+  {
+    "path": "apps/api/src/reporting/transactionsReportQuery.test.ts",
+    "bytes": 4622,
+    "sha256": "251d39dd73bd8d53d2aacb661c9189ebe5d8b5a1fdc4ebcc99ab7748b01c6ba8"
+  },
+  {
+    "path": "apps/api/src/reporting/transactionsReportQuery.ts",
+    "bytes": 2177,
+    "sha256": "a96be674ef254e696e36aa5d853f6baa4b9ccc56edf4d8ddc42e31148585bca6"
+  },
+  {
+    "path": "apps/api/src/routes/acquirerCallbacks.test.ts",
+    "bytes": 5626,
+    "sha256": "4c4cbbc85118756f8f8127cf3108d01ae26aea476e3bb20c1c59b760297a642a"
+  },
+  {
+    "path": "apps/api/src/routes/acquirerCallbacks.ts",
+    "bytes": 3066,
+    "sha256": "43f5c796f255f535353e3de2d721c41a074512f809a702de09a76402100bb543"
+  },
+  {
+    "path": "apps/api/src/routes/admin.test.ts",
+    "bytes": 68109,
+    "sha256": "4a1a9449e19a61ad1ed45f833064acb75a7753a19a8098a3f48404fc1620d75a"
+  },
+  {
+    "path": "apps/api/src/routes/admin.ts",
+    "bytes": 14380,
+    "sha256": "229ff85b4523cf89bf797206007c6798d10c7791347e1bad0f7f1c21e24b737e"
+  },
+  {
+    "path": "apps/api/src/routes/adminAdjustmentImport.test.ts",
+    "bytes": 9899,
+    "sha256": "8be0abb232cd31f85c3f8f6b3a899b227c7bbb3663eff878a828f0b1145e2762"
+  },
+  {
+    "path": "apps/api/src/routes/adminAdjustmentImport.ts",
+    "bytes": 3980,
+    "sha256": "16cfecfa7c6f9bc73d8459d7310203a26105f4c714ddbc7fc4bca44dccc988a8"
+  },
+  {
+    "path": "apps/api/src/routes/adminAuth.ts",
+    "bytes": 8394,
+    "sha256": "85c84c75411555ea9e7e85658e49c5a4458dadd37a882c6ba077a8530a7f1af3"
+  },
+  {
+    "path": "apps/api/src/routes/adminBalanceAdjustments.test.ts",
+    "bytes": 8098,
+    "sha256": "6351719a871f9cb64aae562549db6ebe0bd6cd1661e6f2f8b327d9471ad64ecc"
+  },
+  {
+    "path": "apps/api/src/routes/adminBalanceAdjustments.ts",
+    "bytes": 3226,
+    "sha256": "d6e71f3129555647ff140221e0205a4cbbbcfa2b07a40d7c88712fcb890feb28"
+  },
+  {
+    "path": "apps/api/src/routes/adminCredits.test.ts",
+    "bytes": 16013,
+    "sha256": "c576e7a0115b60e8175415e72cb9b185ab198540e36bfb1853b084c843160d2b"
+  },
+  {
+    "path": "apps/api/src/routes/adminCredits.ts",
+    "bytes": 4177,
+    "sha256": "c0cc3e1b268747e7911ffd14985fa269652d8b571b84b1998583969e456fc56f"
+  },
+  {
+    "path": "apps/api/src/routes/adminMerchants.ts",
+    "bytes": 13474,
+    "sha256": "278a2a3af7bdfc3a3826263fb8c67688bdcbdb0cbc7722176f79ba991e9022e2"
+  },
+  {
+    "path": "apps/api/src/routes/adminMerchantsBulk.ts",
+    "bytes": 2278,
+    "sha256": "9125daaf3af6a7bba7c2e6a82c7a38c7aec87e9595079af4b54572b9177a0d34"
+  },
+  {
+    "path": "apps/api/src/routes/adminMerchantsRecompute.ts",
+    "bytes": 2011,
+    "sha256": "e6519d12176b2bbd7d2dbb515e66d40445c9f8d202d1e792ea5d9e53b27edeb4"
+  },
+  {
+    "path": "apps/api/src/routes/analytics.test.ts",
+    "bytes": 21122,
+    "sha256": "1279995237a86f72ed95e4c7298a6c1c31b7d110579ab630a5763495716d2ff5"
+  },
+  {
+    "path": "apps/api/src/routes/analytics.ts",
+    "bytes": 5249,
+    "sha256": "a0be3fc88cba83440e03b711ba9ca33158f87aebeac1d8745e2500bd587a09ac"
+  },
+  {
+    "path": "apps/api/src/routes/apiKeys.ts",
+    "bytes": 2793,
+    "sha256": "1e4035a77343a63682c2099550e5a444bb7fb16879645c09b745613dce9fd81b"
+  },
+  {
+    "path": "apps/api/src/routes/auth.ts",
+    "bytes": 11607,
+    "sha256": "10544a97585458b806dbefeb1a21820390b6217ba077a078018d23539fe4b03f"
+  },
+  {
+    "path": "apps/api/src/routes/businessProfile.ts",
+    "bytes": 2894,
+    "sha256": "d3c4284ee5ccaba53c0d9d6b9411138cc6c0107ee4964cc1e84763a3fad07d9a"
+  },
+  {
+    "path": "apps/api/src/routes/health.test.ts",
+    "bytes": 1947,
+    "sha256": "9b5f6f1c08b27d22ddcfc4f93c44a62264377d008519eebacb2eecc72ab5c6f7"
+  },
+  {
+    "path": "apps/api/src/routes/health.ts",
+    "bytes": 1298,
+    "sha256": "c697f4eb9b85bbcdf24c6c265db7df856e7b81a0bd12b920b71bb3b0e6701371"
+  },
+  {
+    "path": "apps/api/src/routes/kyc.ts",
+    "bytes": 4074,
+    "sha256": "d9cd4fac8fa8cb968137cdd6eb36b914bc4fd2b36d22e4d2afdbac5073b0c753"
+  },
+  {
+    "path": "apps/api/src/routes/paymentLinks.test.ts",
+    "bytes": 15194,
+    "sha256": "07fb5a277da42179414e6d4dd6eaa5af54400930e21439b2f8a5435bbed0a877"
+  },
+  {
+    "path": "apps/api/src/routes/paymentLinks.ts",
+    "bytes": 5986,
+    "sha256": "6d197f9bbc4990b2f9129963d1494865cd62e928d79c70b11accd948388a0e61"
+  },
+  {
+    "path": "apps/api/src/routes/refunds.ts",
+    "bytes": 1329,
+    "sha256": "2345bb728e9f9b327b28ab2397736f5bdabfb75c9ab842d9c0fcc604b82d8599"
+  },
+  {
+    "path": "apps/api/src/routes/reporting.ts",
+    "bytes": 2930,
+    "sha256": "72714edb7c995918ca144d8edac34af545aa28e64326dbd6a40301760d871d5c"
+  },
+  {
+    "path": "apps/api/src/routes/settlement.test.ts",
+    "bytes": 20885,
+    "sha256": "738857b33a19aacd5b630617d50357401c21b1b4b4976d1552813bffaa4f3770"
+  },
+  {
+    "path": "apps/api/src/routes/settlement.ts",
+    "bytes": 4173,
+    "sha256": "38616e1e1b1a424864f8ded2ffc5f9039f5e7d2381e42dbcbe78cf54b30baf87"
+  },
+  {
+    "path": "apps/api/src/routes/transactions.test.ts",
+    "bytes": 12793,
+    "sha256": "9b81ba3605fed4dfd8973121e161aba94ef569373b3c7789234dffa818003a8b"
+  },
+  {
+    "path": "apps/api/src/routes/transactions.ts",
+    "bytes": 7655,
+    "sha256": "852b9573a5502680e7c8b50aeadc13ec54c5b738473a2fc966a1cb23a4b0227a"
+  },
+  {
+    "path": "apps/api/src/routes/webhooks.test.ts",
+    "bytes": 21714,
+    "sha256": "ac852291f74f4ed129c19d212e57c395b6caf482515278729c96ce84f0b5196c"
+  },
+  {
+    "path": "apps/api/src/routes/webhooks.ts",
+    "bytes": 9332,
+    "sha256": "3f0dce4dee881901b97f0b81f32b989443cee2a1c6d6c504360617599397130f"
+  },
+  {
+    "path": "apps/api/src/settlement/query.ts",
+    "bytes": 14181,
+    "sha256": "d6f2f4eee522d8fac6ccb8ace79d1524a4abedf733b1cfa0eaa78abf2c3677e8"
+  },
+  {
+    "path": "apps/api/src/transactions/events.ts",
+    "bytes": 4621,
+    "sha256": "8afa9f1df76bdecd74a8cbb62581adc52b7770181feac38daf797dc03acb4d1c"
+  },
+  {
+    "path": "apps/api/src/transactions/exportCsv.test.ts",
+    "bytes": 6196,
+    "sha256": "fd8dd222fe9957e43d640e71b968343771ead63fddb5ceec1498298e0665f3fa"
+  },
+  {
+    "path": "apps/api/src/transactions/exportCsv.ts",
+    "bytes": 2890,
+    "sha256": "d053717e696ab6884e023baffae020ff4d9ab99358ca261febee4011e64823f7"
+  },
+  {
+    "path": "apps/api/src/transactions/lookup.ts",
+    "bytes": 807,
+    "sha256": "26b205c0365839c038e6b9b22c6d9d8cbcc8ad9fd323cfc039120cab72f2320e"
+  },
+  {
+    "path": "apps/api/src/transactions/query.ts",
+    "bytes": 6415,
+    "sha256": "751667d494aa97552c0b6eb07e38db561de9450588b7c238eda84f379f04cb2e"
+  },
+  {
+    "path": "apps/api/src/transactions/receipt.ts",
+    "bytes": 1434,
+    "sha256": "6c943d85f4f8e6e43f07e0614221f470c670efdb26da9990d3403ada62a10d05"
+  },
+  {
+    "path": "apps/api/src/transactions/serialize.ts",
+    "bytes": 1639,
+    "sha256": "de5ba87a9820f47711e2de8e5c3d67dd3db429170ac0eab26ef69c9229736973"
+  },
+  {
+    "path": "apps/api/src/v1/fees/calculateFee.ts",
+    "bytes": 1712,
+    "sha256": "173814576146ee86effb0af459f667902e9bf8a08f916024bfd760a863ad2b41"
+  },
+  {
+    "path": "apps/api/src/v1/routes/transactions.ts",
+    "bytes": 1633,
+    "sha256": "09c7b9c8e9ab376438317b9010f3ed97cedbdcd4db234289a4617b0afc572550"
+  },
+  {
+    "path": "apps/api/src/webhooks/archiveReplay.test.ts",
+    "bytes": 8938,
+    "sha256": "1b2786ac88849f40690c5a4d176a5c3122c5c884bf0ab940cb5a642b29d5aadb"
+  },
+  {
+    "path": "apps/api/src/webhooks/archiveReplay.ts",
+    "bytes": 5947,
+    "sha256": "908cfd54182c8772e37f173c6948a3b21d652a427a14379045217e8f8e0c1d0f"
+  },
+  {
+    "path": "apps/api/src/webhooks/cancel.ts",
+    "bytes": 1294,
+    "sha256": "2137fbb6cbafedf5723fa856a81b3309638d1a8a44868d6b8cf053248bf65fa9"
+  },
+  {
+    "path": "apps/api/src/webhooks/create.ts",
+    "bytes": 3036,
+    "sha256": "e1a8cff1d141aeeafac9c7ce83edf9919ccda84741b61a07b21120d3adf2df18"
+  },
+  {
+    "path": "apps/api/src/webhooks/deliveries.ts",
+    "bytes": 6011,
+    "sha256": "b319542fbe302196816ce8b2b53449bae93b141d81ea5afd949556478f208d33"
+  },
+  {
+    "path": "apps/api/src/webhooks/dispatcher.test.ts",
+    "bytes": 19060,
+    "sha256": "693bb5e0f1b9514c4d47722e3b093001a081df9879dcd644c5cb9b67a429408a"
+  },
+  {
+    "path": "apps/api/src/webhooks/dispatcher.ts",
+    "bytes": 13535,
+    "sha256": "18afffac8b519a994ea0784295bd6e41affc1c4b1d62ffc04dfd71fb9c341a22"
+  },
+  {
+    "path": "apps/api/src/webhooks/envelope.test.ts",
+    "bytes": 1492,
+    "sha256": "edfc1c20ce7d951d78ea72fc0f339ffb3041cb884fcdd0b5ff28c0e4ad6f8c58"
+  },
+  {
+    "path": "apps/api/src/webhooks/envelope.ts",
+    "bytes": 3169,
+    "sha256": "676789c9dd5abcfb820a6649e1bf4c18135af1570d62e747a3c75c4948093f64"
+  },
+  {
+    "path": "apps/api/src/webhooks/headers.ts",
+    "bytes": 612,
+    "sha256": "da4e36cb0402ed4589865cc875a1b637f8370f64821c6b3257be4f176dbe7393"
+  },
+  {
+    "path": "apps/api/src/webhooks/inboundVerify.test.ts",
+    "bytes": 2648,
+    "sha256": "ebafc18078bcab8d0dbbec49a4dc7f7ff68a64a067fad9f367b747814127e271"
+  },
+  {
+    "path": "apps/api/src/webhooks/inboundVerify.ts",
+    "bytes": 2249,
+    "sha256": "ce39e12ec6a1bc5ef04f6792af8bee2721ba7d7aa499b113139c6407d68e90a5"
+  },
+  {
+    "path": "apps/api/src/webhooks/list.ts",
+    "bytes": 1997,
+    "sha256": "9d418cfaed9d80ba77fe7854c93421fa73ff8dd6d13b8c29410f23f2c1c7fe1f"
+  },
+  {
+    "path": "apps/api/src/webhooks/payoutDisbursement.test.ts",
+    "bytes": 2284,
+    "sha256": "a27e86036f4134dd65b6a297ea2541cbd697d210516d9b9a7ee2cb30afc90098"
+  },
+  {
+    "path": "apps/api/src/webhooks/payoutDisbursement.ts",
+    "bytes": 608,
+    "sha256": "7970ab8cf83081fe38fa752ce20c128df07c5ba1e85a2d47f49b5dbac734cbdb"
+  },
+  {
+    "path": "apps/api/src/webhooks/replay.ts",
+    "bytes": 4721,
+    "sha256": "57351491159d4b789421b694c094d2c323beb96e993ee432a65b7e2e16745081"
+  },
+  {
+    "path": "apps/api/src/webhooks/replayBatch.ts",
+    "bytes": 4507,
+    "sha256": "82aa9baec7dcf1b239e0698bc47f33fef542bb6452356254c53ff6e49a80181c"
+  },
+  {
+    "path": "apps/api/src/webhooks/secretCrypto.test.ts",
+    "bytes": 1621,
+    "sha256": "5dd656060882bade4c654cab0326c6bbb74b363d3a96ee9bfbe35818090ac309"
+  },
+  {
+    "path": "apps/api/src/webhooks/secretCrypto.ts",
+    "bytes": 3044,
+    "sha256": "42fed16d23c1d46db97433d9e2df56c6575ccd4ef1938653ec931ea5bd7ab0e3"
+  },
+  {
+    "path": "apps/api/src/webhooks/sign.test.ts",
+    "bytes": 3717,
+    "sha256": "072159f9da092a671045d59f023c17aee779fd043a24746975d503c9948f1a97"
+  },
+  {
+    "path": "apps/api/src/webhooks/sign.ts",
+    "bytes": 3891,
+    "sha256": "22fc565b8e8f91e0fb7f078305123a704180c76ce693f51adf195c9458005dd2"
+  },
+  {
+    "path": "apps/api/src/webhooks/testSend.test.ts",
+    "bytes": 6930,
+    "sha256": "cb0d47dc50b08f834a0165d26d5f2287766d9f96cf1478b6dcc8eb8b63a768e6"
+  },
+  {
+    "path": "apps/api/src/webhooks/testSend.ts",
+    "bytes": 2782,
+    "sha256": "b412ac3b6db913c51ec5a7e2200664f524adbc2f868813c4b5c713401571c640"
+  },
+  {
+    "path": "apps/api/src/webhooks/transport.ts",
+    "bytes": 2244,
+    "sha256": "26d3d6252154534f0d9a9b6b8acb8128aa2a400b1fc9dd37150c5007e3b176dd"
+  },
+  {
+    "path": "apps/api/src/webhooks/update.ts",
+    "bytes": 1942,
+    "sha256": "71ef15ca60fb468d8a0bc9af1b6e5e5b4909f58c06e8cef6d84bce328183fbed"
+  },
+  {
+    "path": "apps/api/tsconfig.json",
+    "bytes": 252,
+    "sha256": "6315c968f1d1a501b1dea1c269dea7183be68b8166dc1cc409c9cc0156a9e80d"
+  },
+  {
+    "path": "apps/reporting/package.json",
+    "bytes": 512,
+    "sha256": "327d59236e57272a9c222813c96d7d0025b4635052c6b1070c778175d61edd82"
+  },
+  {
+    "path": "apps/reporting/src/bahrainDate.ts",
+    "bytes": 794,
+    "sha256": "4d872d87d705e72dc927191f980f5497d21c517c365f89f1f1b32f753e1a088a"
+  },
+  {
+    "path": "apps/reporting/src/cli/catchUp.ts",
+    "bytes": 1212,
+    "sha256": "7132fa4d181100a6e4573f12c18bcac6df084c6c7c5d164c639d18138a2e7825"
+  },
+  {
+    "path": "apps/reporting/src/cli/rebuild.test.ts",
+    "bytes": 6353,
+    "sha256": "9fd64cf38b7fba203644066dc7d7dce989bf5ccde403da750fab7d955f835f2d"
+  },
+  {
+    "path": "apps/reporting/src/cli/rebuild.ts",
+    "bytes": 3146,
+    "sha256": "3a1de3bdba488d822801d3a3f310b745288b0c50490f56b8ee1d15c8a6e6cbc0"
+  },
+  {
+    "path": "apps/reporting/src/cli/worker.ts",
+    "bytes": 1247,
+    "sha256": "aebfc169d8c7244b487a72b784d299dd19096b6daddb302e032b3bfb344e13ec"
+  },
+  {
+    "path": "apps/reporting/src/config.ts",
+    "bytes": 1972,
+    "sha256": "9ffc195fc5d102a45906599f706af5d4505a0463f47b46ddd90275fd6b338d04"
+  },
+  {
+    "path": "apps/reporting/src/consumer/applyEvent.test.ts",
+    "bytes": 10802,
+    "sha256": "c130b053c8a3d0765113a4be9afd5b6744164c5927a036b7b34baa0afb622ed9"
+  },
+  {
+    "path": "apps/reporting/src/consumer/applyEvent.ts",
+    "bytes": 8872,
+    "sha256": "6508cd67da312d601852a92bbb0f993dd4b67f7dc817b11db6f52eddc9f6cf9b"
+  },
+  {
+    "path": "apps/reporting/src/consumer/cursor.ts",
+    "bytes": 2312,
+    "sha256": "bb5858ce19839e60d4e8600fc1c6ab8551603b193bb86642a20dceb5b890445d"
+  },
+  {
+    "path": "apps/reporting/src/consumer/listener.ts",
+    "bytes": 3314,
+    "sha256": "798a96148717aa86958a31bb8aac623f9b61c6161c94fd478e55cf84d59b30cd"
+  },
+  {
+    "path": "apps/reporting/src/consumer/runConsumerPass.test.ts",
+    "bytes": 7675,
+    "sha256": "b50f6c9de7b0c470a67287983aacb50f6eeb3505f329649c9c0808042da02c38"
+  },
+  {
+    "path": "apps/reporting/src/consumer/runConsumerPass.ts",
+    "bytes": 2908,
+    "sha256": "9001fc1845d1b2e496c047db390a9bc9aa6861a7dc384129cbfd6948e6b120ec"
+  },
+  {
+    "path": "apps/reporting/src/db/pool.ts",
+    "bytes": 1092,
+    "sha256": "8ec23b38746d25fd5d716eee18a9ae0c73f0f6f25e3d891bda80fc38ebce0fa8"
+  },
+  {
+    "path": "apps/reporting/src/db/queryOne.ts",
+    "bytes": 761,
+    "sha256": "ac97f6987fb56270e7dc111b05c3aade2be231dbabce38793dc213471ccd85a5"
+  },
+  {
+    "path": "apps/reporting/src/db/withTransaction.ts",
+    "bytes": 1277,
+    "sha256": "f3de6f0bc61ca5fc640c2ec0f1ac843745d6cfb2f27cb3c44f1bfeaa4500c880"
+  },
+  {
+    "path": "apps/reporting/src/index.ts",
+    "bytes": 1624,
+    "sha256": "915d87f084d079bd9fe7104540afcbf4b11a3e710b0e67baeb1135f04c09207b"
+  },
+  {
+    "path": "apps/reporting/tsconfig.json",
+    "bytes": 188,
+    "sha256": "0df1098bfcfb289adff6e57010331622a30150c305c336ba88c5df1c9cb38457"
+  },
+  {
+    "path": "apps/settlement/cmd/settlement/main.go",
+    "bytes": 7813,
+    "sha256": "07c6b41a36983ba19182a4afb0305d36c45e8f0c6086994ecdfb84bf8a6eb160"
+  },
+  {
+    "path": "apps/settlement/go.mod",
+    "bytes": 476,
+    "sha256": "e0c3fcf1b1d4ad543d38e29076a19357097d8cda8060fca8e5284bedf76da0cb"
+  },
+  {
+    "path": "apps/settlement/go.sum",
+    "bytes": 2812,
+    "sha256": "1f9244af29035e514270df084ba04b6f90de4452cc862d513ce2594a8ee3c25c"
+  },
+  {
+    "path": "apps/settlement/internal/balances/cache.go",
+    "bytes": 2294,
+    "sha256": "7ea15e0ec98b9d256cc28371a202c0445927adafa63dfe8573e5f73f30af6954"
+  },
+  {
+    "path": "apps/settlement/internal/config/config.go",
+    "bytes": 5651,
+    "sha256": "3564d36296302f222ebfb9246338b870bf0b1ee07f362c45c643596ce8a5df6d"
+  },
+  {
+    "path": "apps/settlement/internal/config/config_test.go",
+    "bytes": 1303,
+    "sha256": "b3cafdc67195973a43a8587a1eb522857e5acd714f05f1d84b335c6aa74ca145"
+  },
+  {
+    "path": "apps/settlement/internal/db/pool.go",
+    "bytes": 1395,
+    "sha256": "e37969a1d3509bd25b04c9116f6f520f6852c0855eb534dfdec97aa6e4a278c5"
+  },
+  {
+    "path": "apps/settlement/internal/internalapi/server.go",
+    "bytes": 13837,
+    "sha256": "bf97f2283796e405c9c8b381d96de7f646adfe66e2ff9cc95582b21dcf661691"
+  },
+  {
+    "path": "apps/settlement/internal/internalapi/server_test.go",
+    "bytes": 14646,
+    "sha256": "08c8f3e36f60676c8defc6eabb3ca26dafd8712b36d58f2d4782a500cbe05113"
+  },
+  {
+    "path": "apps/settlement/internal/ledger/rebuild.go",
+    "bytes": 4717,
+    "sha256": "9f163ce2174640775bdd23bb7686a8ce31878242bb03659a64a168fcfcaddb9c"
+  },
+  {
+    "path": "apps/settlement/internal/ledger/rebuild_test.go",
+    "bytes": 5487,
+    "sha256": "bd44a3640f58c22318fee5c82e55a7d01827a913567969fc5c64a9fdfc33b66c"
+  },
+  {
+    "path": "apps/settlement/internal/ledger/refresh.go",
+    "bytes": 2836,
+    "sha256": "e3a38c63b394aff1064cf2c8f20eefd5dcb982116b3f0607d34af4810a5c14b9"
+  },
+  {
+    "path": "apps/settlement/internal/ledger/refresh_test.go",
+    "bytes": 3051,
+    "sha256": "eb3997753fc0ece06a09f6ee11d64376820595263a14956b289516db4cf42d80"
+  },
+  {
+    "path": "apps/settlement/internal/money/fils.go",
+    "bytes": 2009,
+    "sha256": "94d230aab33ea11c117bb9db9e64e22377f3a9b417de9f364dbe39a41c683f76"
+  },
+  {
+    "path": "apps/settlement/internal/money/fils_test.go",
+    "bytes": 2598,
+    "sha256": "30cfc4b2851e820941a7b22d705944dd61f31e8df78e9a26955f80206ace5653"
+  },
+  {
+    "path": "apps/settlement/internal/money/rounding_drift_test.go",
+    "bytes": 1509,
+    "sha256": "db99255588beccceb809967a6cda4e24663c8b3cafdbc8ea102f2dcea9d532c9"
+  },
+  {
+    "path": "apps/settlement/internal/scheduler/daemon.go",
+    "bytes": 5689,
+    "sha256": "ab5c4df13d46074200c1536bac2275c8f6837017e9e8cdb950bcbac7434bc50e"
+  },
+  {
+    "path": "apps/settlement/internal/scheduler/status.go",
+    "bytes": 2019,
+    "sha256": "dafded90b5948e3ef53d7547c8944ff7441f36df7dbd7e7d70e53665c1537296"
+  },
+  {
+    "path": "apps/settlement/internal/scheduler/status_test.go",
+    "bytes": 671,
+    "sha256": "b425484e0dc3683c4628551538b5ee618fc50da23096ff8c8fe36de557436893"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/batch.go",
+    "bytes": 18875,
+    "sha256": "156677adb5ae4e415864fb6c779b595073fc195e8cc042f1510acee961e6be43"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/batch_test.go",
+    "bytes": 20880,
+    "sha256": "ad96954fce429b38a2d61ee5ae24a0ca55340830840dfeef02377989cd3e3e11"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/discounted_fee.go",
+    "bytes": 466,
+    "sha256": "3c0da8e76fe674c07201f554d6158a12de0862084c6317a9fa4be497448f1c07"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/discounted_fee_test.go",
+    "bytes": 3160,
+    "sha256": "c059964f268fe204450ad38f9af662f735884a4b674f5953d781837cc62b9e9f"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/fee_schedule.go",
+    "bytes": 2543,
+    "sha256": "f46931ea8fdcc83b5b3892766ab005a95f664c88d77140391b74e55f627dab4e"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/fee_schedule_test.go",
+    "bytes": 4884,
+    "sha256": "cecde992116a6844614d0367ce58de8eda6aab3a90dd259ecd180f3554555a95"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/payable.go",
+    "bytes": 355,
+    "sha256": "461796a900c877dfe64b88ee693924688af2246f1775f32be220a8aa1350acd7"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/payout_estimate.go",
+    "bytes": 1692,
+    "sha256": "f46126900b044367d7a11105c7acce3fcf067879290d9aba894bee5a9911377b"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/payout_estimate_test.go",
+    "bytes": 1290,
+    "sha256": "3a91336e2a41e7a198e07f445bd53263cc6c12282e559c9c108def3bae37f148"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/payout_notify.go",
+    "bytes": 3792,
+    "sha256": "9411ab4914bf9a15a1070c097230ac4ccb597c2ec61f6756b04c7901a041e108"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/payout_notify_test.go",
+    "bytes": 4442,
+    "sha256": "7c180d4c8013a1d6775fd157cbb3caa459ed102471403d197bcf718a15512638"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/platform_volume.go",
+    "bytes": 1887,
+    "sha256": "1e32689ae7cc1e3ac66c44e04a1c21a3c79b640791cae4e63821b52ada7dd0ec"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/platform_volume_test.go",
+    "bytes": 2290,
+    "sha256": "723e52e5556795778d049e6817c204ff32e0fffb078904f50600e9cf587010e3"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/recalculate_mdr.go",
+    "bytes": 7532,
+    "sha256": "df29887a662949569a177c1b912a98e7864ec535216b7aee35536436aad94bf0"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/recalculate_mdr_test.go",
+    "bytes": 8680,
+    "sha256": "9423dbc10ffdf951d9e3585eac5258597530591f34148ead83930a749b24c412"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/scheme_export.go",
+    "bytes": 5098,
+    "sha256": "d3395522884924a81ba6201d9e3a25652f27db8d633bd334095e3951447bbd5e"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/scheme_export_test.go",
+    "bytes": 1604,
+    "sha256": "3d21b9b855fa2b060ebfe860ec00e38a6c4f8776bdc39e64ab2d5375ec9654e8"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/window.go",
+    "bytes": 2162,
+    "sha256": "3d06e8c25143f0dc69224226814212fcbd50169661ea9e9f559c00b51bf9e21c"
+  },
+  {
+    "path": "apps/settlement/internal/settlement/window_utc_compat_test.go",
+    "bytes": 2456,
+    "sha256": "265c6f0b6d5fea4fc11c5e8803dc66c15fb9b3538864598f2186e324bc6abf18"
+  },
+  {
+    "path": "apps/settlement/internal/splits/allocate.go",
+    "bytes": 5363,
+    "sha256": "8bb1c366a2911eb2ed3432dbd1580c45e743ff35db8ff4919ba191b38303a8df"
+  },
+  {
+    "path": "apps/settlement/internal/splits/shares.go",
+    "bytes": 503,
+    "sha256": "61c72e4dd7fcccb196991e35d4231cf5e644b38f99409080de7ec51f55f3a3e9"
+  },
+  {
+    "path": "apps/settlement/internal/splits/shares_test.go",
+    "bytes": 847,
+    "sha256": "4db48a4cda7224cd28991218c55f2c152c97e4fcb30135c7a9bc60154bf44d68"
+  },
+  {
+    "path": "apps/web/index.html",
+    "bytes": 389,
+    "sha256": "c15fd50d272ff4cde4da2c0c74df14f4305265b9292b1be8a48c313eaee40d47"
+  },
+  {
+    "path": "apps/web/package.json",
+    "bytes": 581,
+    "sha256": "971badf89491ac21346e5f70c4c9238cfac784fcef807e3859034c294c652507"
+  },
+  {
+    "path": "apps/web/src/api/analytics.ts",
+    "bytes": 1368,
+    "sha256": "bad9ac51e7361688a8c236ec1377470493668678055d7414b32560f8f65fb145"
+  },
+  {
+    "path": "apps/web/src/api/client.ts",
+    "bytes": 3115,
+    "sha256": "dd6399c580f120ca51831ec63d8eeab22f6b8d36b1fa77df44072bb4398ccd78"
+  },
+  {
+    "path": "apps/web/src/api/dashboardAuth.ts",
+    "bytes": 1902,
+    "sha256": "b12876d3e81c91e21494740f32b53b017ccdcf09e78c7b14a58b41ee870c07d9"
+  },
+  {
+    "path": "apps/web/src/api/paymentLinks.ts",
+    "bytes": 2611,
+    "sha256": "1d21196a026d3934b099a7dfb3ce7745b5dceb5ac484f36f6c2763e5c5124c3f"
+  },
+  {
+    "path": "apps/web/src/api/query.ts",
+    "bytes": 1366,
+    "sha256": "5433b83638686dcaad240160d547ef5be8dd4107f53081361030fe1d22d362b5"
+  },
+  {
+    "path": "apps/web/src/api/settlement.ts",
+    "bytes": 1792,
+    "sha256": "fdb186231d5273d217d6a02b58734b0646b9c04901992522d46f43fe29ad5c6c"
+  },
+  {
+    "path": "apps/web/src/api/transactions.ts",
+    "bytes": 2519,
+    "sha256": "318420446b5ee8170687998c30a94d6ee0e7c5ca0b5110a25b9fc1b7f83cf9a7"
+  },
+  {
+    "path": "apps/web/src/api/webhooks.ts",
+    "bytes": 3503,
+    "sha256": "bfd64920a0f60489ba64ec244ab70de7b45bdbc2457402326767d2c0e3eeb7d6"
+  },
+  {
+    "path": "apps/web/src/auth/DashboardAuthContext.tsx",
+    "bytes": 3750,
+    "sha256": "fb444984d7ceb1d4974ed944ec45b3b770057828783e57d27c388d67b371d901"
+  },
+  {
+    "path": "apps/web/src/auth/RequireDashboardAuth.tsx",
+    "bytes": 1236,
+    "sha256": "adac876c97d2226fdfc558de33277e4af38fdc723a7eaac66bc09d9a53ccda77"
+  },
+  {
+    "path": "apps/web/src/auth/RequireRole.tsx",
+    "bytes": 2631,
+    "sha256": "ba58502a81ecda07b7af40002188b8b9734b6cf184815da0dc4ddb1f1c4f0a2e"
+  },
+  {
+    "path": "apps/web/src/components/DashboardLayout.tsx",
+    "bytes": 2671,
+    "sha256": "91bbac178bc4262364b19ef6ff8f9fca86206237a14b80e07365a761e5ea6f86"
+  },
+  {
+    "path": "apps/web/src/components/Pagination.tsx",
+    "bytes": 880,
+    "sha256": "9bc9f751bc51bd59f7d8f7bd0e639113cd2fbeaf66fa40b39fe29f0b2f42e9a7"
+  },
+  {
+    "path": "apps/web/src/components/StalenessBadge.tsx",
+    "bytes": 1419,
+    "sha256": "6db0e2a52357e55a9d683aaaf1653032a2d5970ebc0987dc4f72088ca2bdfd39"
+  },
+  {
+    "path": "apps/web/src/dashboard.css",
+    "bytes": 5651,
+    "sha256": "1397dbeca6cea3e9086c95a8c0aff4f5e8ec4348db341988eaaec8d9f9c400cd"
+  },
+  {
+    "path": "apps/web/src/dashboard.test.ts",
+    "bytes": 2627,
+    "sha256": "6c7dc6c8e06bb26a90c167779a37fd82c400da4e849358486eceb830bcd54b7a"
+  },
+  {
+    "path": "apps/web/src/format.ts",
+    "bytes": 2135,
+    "sha256": "0fcb615cf4d1d1decafdf93394efd4aa462d16321a2a5f4efc8240a94b8e6915"
+  },
+  {
+    "path": "apps/web/src/main.tsx",
+    "bytes": 432,
+    "sha256": "cfb78fba44731b8518664b1014a810bc55dbced9d09fe00e92242ccd6f94a923"
+  },
+  {
+    "path": "apps/web/src/pages/checkout/CheckoutPage.css",
+    "bytes": 1147,
+    "sha256": "5a18ef818ccf086c5544ff1a4d36cd8cb1fc54d859a5561beaf569457dd3b184"
+  },
+  {
+    "path": "apps/web/src/pages/checkout/CheckoutPage.tsx",
+    "bytes": 8932,
+    "sha256": "73c24ab6746de92567d5fbff90dff3cd08369cb3c7a7a391107e49ca083668b7"
+  },
+  {
+    "path": "apps/web/src/pages/dashboard-login/LoginPage.tsx",
+    "bytes": 7881,
+    "sha256": "6c47fad7ebe3fde3526e85dc18e2837d9af6930594eae1ff93bbf1c553115445"
+  },
+  {
+    "path": "apps/web/src/pages/overview/OverviewPage.tsx",
+    "bytes": 7442,
+    "sha256": "6459758f080b4fc6c3ad78bfb7c79f387277d7b8c1cdb77e29eedb8f8fe6e4ac"
+  },
+  {
+    "path": "apps/web/src/pages/payment-links/PaymentLinkCreatePage.tsx",
+    "bytes": 4087,
+    "sha256": "9a2f5ac8862ea917a080ad231159646eb19044f2f042fdda2faedc33171efbc0"
+  },
+  {
+    "path": "apps/web/src/pages/payment-links/PaymentLinkDetailPage.tsx",
+    "bytes": 6190,
+    "sha256": "0641e100e069f2c6bd1decb2e4a4008dae3bd48778eb84a645996c3b12b3f763"
+  },
+  {
+    "path": "apps/web/src/pages/payment-links/PaymentLinkListPage.tsx",
+    "bytes": 4444,
+    "sha256": "6b221d36464563ed748fcab1c742bc4f02625f9b1f1af609207aa369a81f27f5"
+  },
+  {
+    "path": "apps/web/src/pages/settlement/ReconciliationPage.tsx",
+    "bytes": 5345,
+    "sha256": "543c1a668a410ab11905f6b29b0406f88b616f0014ab0a720e8ba3b77d9bd09d"
+  },
+  {
+    "path": "apps/web/src/pages/settlement/SettlementBatchDetailPage.tsx",
+    "bytes": 6156,
+    "sha256": "0e6d60634a7b745ad6726c87b1d1327f9aa8afa7af396155f430f616401b9e6b"
+  },
+  {
+    "path": "apps/web/src/pages/settlement/SettlementBatchListPage.tsx",
+    "bytes": 4637,
+    "sha256": "79752261ca5d17428252e30d82b3337e6e0ea497d63eb186a52e576116d589e2"
+  },
+  {
+    "path": "apps/web/src/pages/transactions/RefundDrawer.tsx",
+    "bytes": 4606,
+    "sha256": "0cab60b3ab5eb6e294c5ac06b9697a0a0aaee4c2e98d2931c667c33b00a8e9a3"
+  },
+  {
+    "path": "apps/web/src/pages/transactions/TransactionDetailPage.tsx",
+    "bytes": 9364,
+    "sha256": "bfc095dfc51c588229648be9ed5aa8ddbaaef55c2b96a488fd08b38cbce83638"
+  },
+  {
+    "path": "apps/web/src/pages/transactions/TransactionListPage.tsx",
+    "bytes": 5828,
+    "sha256": "4016c90b589b0fdebd31409342d83c157d8cf6923835c38688bff7c5848333ec"
+  },
+  {
+    "path": "apps/web/src/pages/webhooks/WebhookEndpointCreatePage.tsx",
+    "bytes": 4274,
+    "sha256": "ded975883705d7790da49602fbee3c23e4a2f7ff5ade577362ab6c8d9e44e0a1"
+  },
+  {
+    "path": "apps/web/src/pages/webhooks/WebhookEndpointDetailPage.tsx",
+    "bytes": 9175,
+    "sha256": "16ccb6f6ad1c1ccc176ba4d9505f7cb47ca3ab958cc105a58865fa2dc3f0baac"
+  },
+  {
+    "path": "apps/web/src/pages/webhooks/WebhookEndpointListPage.tsx",
+    "bytes": 4862,
+    "sha256": "f57647d9977101d131040f115127df750e324c092e2f4ffc14cf408e21a0d62e"
+  },
+  {
+    "path": "apps/web/src/router.tsx",
+    "bytes": 4886,
+    "sha256": "871ede3e5be9ee526ca77bfc83a65754acfe0eb29f76db6b9e2a47421dbbb27c"
+  },
+  {
+    "path": "apps/web/src/types.ts",
+    "bytes": 8863,
+    "sha256": "a201789e983372f55acd1bef6eee49e82a5d31a98302cb5b78d859f2e084159b"
+  },
+  {
+    "path": "apps/web/src/utils/helpers.ts",
+    "bytes": 4512,
+    "sha256": "4853c02b7b955940a20e8c8c8bb30d256909ead8dcdb97521e4663042e01658f"
+  },
+  {
+    "path": "apps/web/tsconfig.json",
+    "bytes": 297,
+    "sha256": "361edda94e0a6bc395440acf5dd961962b16ae310d0ebef73dbd149bdd779e75"
+  },
+  {
+    "path": "apps/web/vite.config.ts",
+    "bytes": 260,
+    "sha256": "aaa2463999693c2a9a61583a8592b4ded31646a6d518220fa35dc2cfa41c192d"
+  },
+  {
+    "path": "db/migrate.ts",
+    "bytes": 3409,
+    "sha256": "f75aa26a4a798f01060d846b2ec135941c5b15d04fd7f34933a78f344ef0ba0d"
+  },
+  {
+    "path": "db/migrations/0001_extensions.sql",
+    "bytes": 349,
+    "sha256": "c4be7a976d58a48afc939fbc2e8dd652b6424ece03e25be7a9245fac65c67739"
+  },
+  {
+    "path": "db/migrations/0002_merchants.sql",
+    "bytes": 595,
+    "sha256": "f5ffb127282ffa8d2de9788c781c076950a997df2c0fb3ffb8d9092fbd9d97c2"
+  },
+  {
+    "path": "db/migrations/0003_merchant_users.sql",
+    "bytes": 609,
+    "sha256": "1be3207c3b1a0f9ff150d1f09fd6d17a0fd7ec3cb8d6f517acb7fa6438cc2a73"
+  },
+  {
+    "path": "db/migrations/0004_transactions.sql",
+    "bytes": 1088,
+    "sha256": "2299e2e2e390acc16aed663a2f96b45fba15d7ca75dffd8391ace01d80dd6658"
+  },
+  {
+    "path": "db/migrations/0005_holds.sql",
+    "bytes": 733,
+    "sha256": "b9613fa04e5ac043a7051220c20f81172bd5b3c4c7d65fbed0e61902943e7219"
+  },
+  {
+    "path": "db/migrations/0006_settlement_batches.sql",
+    "bytes": 882,
+    "sha256": "c1511a257c8af4410f1b3c7cd724f3f9bafbf24511c42b9c00f7cb41fccc88a7"
+  },
+  {
+    "path": "db/migrations/0007_ledger_double_entry.sql",
+    "bytes": 3225,
+    "sha256": "96e6dddad5e5a3209924c247ea909c9aa8407c27891c92db1e74cada8a574d34"
+  },
+  {
+    "path": "db/migrations/0008_scheme_export_lines.sql",
+    "bytes": 888,
+    "sha256": "dae0426be8c27107f270609f4e0a350c8d59b22b8a700d99f80f4802a2793feb"
+  },
+  {
+    "path": "db/migrations/0009_outbox_events.sql",
+    "bytes": 616,
+    "sha256": "f1a139874411cb5b0557c9204cdb3cce21639f404b19842bf70ae69c7da9c541"
+  },
+  {
+    "path": "db/migrations/0010_merchant_user_password_auth.sql",
+    "bytes": 989,
+    "sha256": "0867c3d7632d89ab437f40228d6ea55b8e7bb5375f3d78765297652a1681553e"
+  },
+  {
+    "path": "db/migrations/0011_otp_challenges.sql",
+    "bytes": 1207,
+    "sha256": "baddccff3b0c1d9a62a801c57e6c5975229f1849177520431cacbe04aa7aac84"
+  },
+  {
+    "path": "db/migrations/0012_sessions.sql",
+    "bytes": 1426,
+    "sha256": "9d2de089d2ee1478c13c3d78492b2c168b0ccdce660e211694a2b29ddbc1701f"
+  },
+  {
+    "path": "db/migrations/0013_api_keys.sql",
+    "bytes": 823,
+    "sha256": "763e17a178f218101678f4facf55ac29e0b2e0ff355ae4a48a2795f369c3edf8"
+  },
+  {
+    "path": "db/migrations/0014_merchant_onboarding_state.sql",
+    "bytes": 1387,
+    "sha256": "48548bdb403449bf44b8b2bd575a8751cfc233e9094ae56905dc205055be86f7"
+  },
+  {
+    "path": "db/migrations/0015_kyc_documents.sql",
+    "bytes": 1085,
+    "sha256": "6c5d80d06f6a65cddcb5d6be81413c2f3673c2dbd9c3ebadd051c0213ee4a572"
+  },
+  {
+    "path": "db/migrations/0016_merchant_kyc_reviews.sql",
+    "bytes": 1243,
+    "sha256": "db50ef3e18eb35a054fddbd7e11bf5b7c240b4f6cf57f0ef076c30b017f3ac3a"
+  },
+  {
+    "path": "db/migrations/0017_transaction_acquirer_reference.sql",
+    "bytes": 829,
+    "sha256": "06ed2df2f390758f55652f708b8c3d19fdce40f100e07102ac024a55dfcefc23"
+  },
+  {
+    "path": "db/migrations/0018_transaction_events.sql",
+    "bytes": 1391,
+    "sha256": "ea8a84d5afc0efe152e717c2bbe0bca9a68bf18a201487d0c33933f84c8147ec"
+  },
+  {
+    "path": "db/migrations/0019_idempotency_keys.sql",
+    "bytes": 1935,
+    "sha256": "b90676dc8a54ce4c645cc040e459a9737364dbdfbc3e307320327dd0ffc4120e"
+  },
+  {
+    "path": "db/migrations/0020_payment_links.sql",
+    "bytes": 3747,
+    "sha256": "6cb61c78a77dcc4a195104b011998652b48fec9800b1d2256c97ed8253edaba8"
+  },
+  {
+    "path": "db/migrations/0021_webhook_endpoints.sql",
+    "bytes": 1950,
+    "sha256": "3f3771493bb0b6c7955a711d77da204238e96c19c24c8e47415aab2fdb295aca"
+  },
+  {
+    "path": "db/migrations/0022_webhook_deliveries.sql",
+    "bytes": 2854,
+    "sha256": "e23054fb1322aae1e49a402cb1d33e72d5e4bf1cde63483e29907c3c2a9db566"
+  },
+  {
+    "path": "db/migrations/0023_transaction_events_settlement_batch.sql",
+    "bytes": 1061,
+    "sha256": "f9f303655f384c3f8380a2ab002739cb8bfae00e2e83a517ce2795e7190193c6"
+  },
+  {
+    "path": "db/migrations/0024_settlement_batches_paid_at.sql",
+    "bytes": 139,
+    "sha256": "e3262208b4b396e62056718e06092a07747a5b135c78857efebfc3c8c1d8ba77"
+  },
+  {
+    "path": "db/migrations/0025_merchant_balances.sql",
+    "bytes": 518,
+    "sha256": "06c75127184ba1f99ad6f9654317c2415572b03d2a2083fddd541662afad0db6"
+  },
+  {
+    "path": "db/migrations/0026_scheme_export_lines_batch_txn_unique.sql",
+    "bytes": 798,
+    "sha256": "d80b7aeec695d56832d90e66ea293f4d75af16b1da05c18aa3c3ecacd7426a45"
+  },
+  {
+    "path": "db/migrations/0027_merchant_daily_volume.sql",
+    "bytes": 1612,
+    "sha256": "43c2d932186638c9fa0ff739915c9cee8e510b0ec5b7c752880f6e4880e5b0bf"
+  },
+  {
+    "path": "db/migrations/0028_merchant_payout_trends.sql",
+    "bytes": 1394,
+    "sha256": "986e72128b64f7657f06230ee93ebc29ac3bebcf51e6755b1ba27861df533d77"
+  },
+  {
+    "path": "db/migrations/0029_payment_links_merchant_paid_amount_index.sql",
+    "bytes": 288,
+    "sha256": "f91a66487d97e7fa4c24d947b5afa74547e86407afdd865a035d70f4920f6c03"
+  },
+  {
+    "path": "db/migrations/0030_reporting_outbox_cursor.sql",
+    "bytes": 869,
+    "sha256": "1e3fb102492079adc2d6c8950d6f2af1846317792706060c1a041a45f5869a6e"
+  },
+  {
+    "path": "db/migrations/0031_admin_users.sql",
+    "bytes": 1535,
+    "sha256": "000c7349ce8f258f094857bc0c1a32d7377cf27be862f3eee4a76c28f9c687fc"
+  },
+  {
+    "path": "db/migrations/0032_admin_otp_challenges.sql",
+    "bytes": 1085,
+    "sha256": "210a348b66d903ceec2a974d91a06e3e28b132d18dbb18ad0e5d6410c5e1e3a9"
+  },
+  {
+    "path": "db/migrations/0033_admin_sessions.sql",
+    "bytes": 1387,
+    "sha256": "e6784ee15d1a1c193aee99aedeb8386c6d7489cbaaa91b3d85b4a9c3d1b749db"
+  },
+  {
+    "path": "db/migrations/0034_admin_audit_log.sql",
+    "bytes": 1812,
+    "sha256": "66481e3061b34f72d297cf46787683b42cdd2adc85550b10b8fc1f5aa28941a8"
+  },
+  {
+    "path": "db/migrations/0035_admin_impersonation_grants.sql",
+    "bytes": 1866,
+    "sha256": "9edea684ee543f8436fe01ed7385744b04a9549c327491a6dfffa80892955964"
+  },
+  {
+    "path": "db/migrations/0036_merchant_kyc_reviews_admin_reviewer.sql",
+    "bytes": 589,
+    "sha256": "f4e8b8b64842717d6154e21f981a8339fdd36f610a1389911eb41425e0c504c3"
+  },
+  {
+    "path": "db/migrations/0037_api_keys_admin_rotation.sql",
+    "bytes": 1500,
+    "sha256": "5afa985450f9718fe4af05ad0eb40bce111f213c56f4580e3ff0614a8d941921"
+  },
+  {
+    "path": "db/migrations/0038_kyc_documents_thumbnail.sql",
+    "bytes": 659,
+    "sha256": "8219a1ac3a93c5da923eab322f9db3dfe4f68d88c7b8ba437848c6d20ecd4603"
+  },
+  {
+    "path": "db/migrations/0040_merchants_lifetime_payout_monitoring_estimate.sql",
+    "bytes": 489,
+    "sha256": "31c64128d2fc611d0692201128ff74f19e736bbf7b660c49e47efababc5cd56b"
+  },
+  {
+    "path": "db/migrations/0042_refunds.sql",
+    "bytes": 1945,
+    "sha256": "dc9c39ceb4437eaf5724f98b1b45a279fc35cbeb99a0a65724b56599d5fd0871"
+  },
+  {
+    "path": "db/migrations/0043_transactions_refunded_fils.sql",
+    "bytes": 822,
+    "sha256": "aafdf600673d0d6f4f590b5fcfe2d075858a2bb112467d8d7a1c91dd77c5e59f"
+  },
+  {
+    "path": "db/migrations/0044_transaction_events_refund_types.sql",
+    "bytes": 777,
+    "sha256": "b815c0a46c3c929d3c18c3a71510e89b8928b7c2f435470eb52379409399d04b"
+  },
+  {
+    "path": "db/migrations/0045_merchant_split_children.sql",
+    "bytes": 1616,
+    "sha256": "45438276419aac3cce849c45530cf73614eec4c47e833b59663b0990cb9f7615"
+  },
+  {
+    "path": "db/migrations/0046_settlement_batch_splits.sql",
+    "bytes": 958,
+    "sha256": "d2b9bbadde0efb1159fa582e5f5cd293a45cc882491fe7e4a537977cc8152a9c"
+  },
+  {
+    "path": "db/migrations/0047_merchant_discount_bps.sql",
+    "bytes": 678,
+    "sha256": "6bb7f2bc0dd5962806fdf6c514c97a814d8e9fc7e406079d010d7d16bcccbe78"
+  },
+  {
+    "path": "db/migrations/0048_fee_schedules.sql",
+    "bytes": 1610,
+    "sha256": "558371b8b6f626487edb8db6d2d6cc8e34c630964dd080c245b6287d610a29de"
+  },
+  {
+    "path": "db/migrations/0049_platform_stats.sql",
+    "bytes": 840,
+    "sha256": "0aa01fc5b02c27ef0260f18ad9ee060d749368df200ba0ce8a0d88a55b860af0"
+  },
+  {
+    "path": "db/migrations/0050_scheme_export_lines_acquirer_amount.sql",
+    "bytes": 1008,
+    "sha256": "67730a464fc6bb49b1ea6a9e58b24dd2a1a98f9f16ea16c5ce1cf74c6b8bb93a"
+  },
+  {
+    "path": "db/migrations/0051_acquirer_callback_notes.sql",
+    "bytes": 1740,
+    "sha256": "7ce3d46c49fa77a8f619de61dd0b4c15d0fb8f7660d49b2725e875301a3faa0e"
+  },
+  {
+    "path": "db/migrations/0052_merchants_refunds_enabled.sql",
+    "bytes": 647,
+    "sha256": "edfa4a5cb80397419a9a2821eba49bccdce54ab73e6a6a1c4f740c130d946deb"
+  },
+  {
+    "path": "db/migrations/0053_legacy_transactions.sql",
+    "bytes": 918,
+    "sha256": "8aea81881a61a6cb47508bea5f520d8a457401acc7f48f7e150c593d95ed795a"
+  },
+  {
+    "path": "db/migrations/0054_views.sql",
+    "bytes": 953,
+    "sha256": "6e4590b78d45d3f290b37b85d6d488610c5796f956fbbbe9b17e17c867498d9c"
+  },
+  {
+    "path": "db/migrations/0055_chart_of_accounts_suspense.sql",
+    "bytes": 451,
+    "sha256": "be70783de9deb8a3c2e37b869762572d2c414bb382235a09832e11c3d8e47bf4"
+  },
+  {
+    "path": "db/migrations/0056_api_keys_revoke_after.sql",
+    "bytes": 244,
+    "sha256": "f6bbe4ed69b1b5003b90e632e76c6d9fb0f386e59e17acac255276eb3eb9de8d"
+  },
+  {
+    "path": "db/migrations/0057_settlement_payout_disbursements.sql",
+    "bytes": 1209,
+    "sha256": "46d327d72d2ee6da6692b8adddf4b3e990d11d59cf4537b2b414265fb4d5e035"
+  },
+  {
+    "path": "db/migrations/0058_live_sessions.sql",
+    "bytes": 298,
+    "sha256": "09b38a9a3c3318ba3ee2b8ca00ece886214c6e9d04ed52a3be496c7ab2f26c32"
+  },
+  {
+    "path": "db/migrations/0060_credit_requests.sql",
+    "bytes": 3848,
+    "sha256": "883a98b0ef2e105f171313deaf3693edc158b11a851fc6e83efe13cfb5bf340d"
+  },
+  {
+    "path": "db/migrations/0061_chart_of_accounts_goodwill.sql",
+    "bytes": 660,
+    "sha256": "59380934f0ea71c79c7586b6d16b339ac2012e0d8b6243909c6a7364d5bc6fa9"
+  },
+  {
+    "path": "db/migrations/0064_chart_of_accounts_manual_adjustment.sql",
+    "bytes": 295,
+    "sha256": "353cfa0d1ef5c3a42350d9788d3664af884817571dd2029b2ebf88d0c56f6d5f"
+  },
+  {
+    "path": "db/migrations/0065_adjustment_imports.sql",
+    "bytes": 827,
+    "sha256": "617d2dfb36003ed79f6ba1da10ba82322aecf11d528e014454e514df6a6c6e3b"
+  },
+  {
+    "path": "db/migrations/0066_adjustment_import_rows.sql",
+    "bytes": 1137,
+    "sha256": "00ba93ad81e4930001e85646c1fbcefef6ddcc313d9bd99ec0193a37ac6f3417"
+  },
+  {
+    "path": "db/migrations/0068_webhook_delivery_archives.sql",
+    "bytes": 1965,
+    "sha256": "d7c052e1afe9fdf6d140c61827728fcb3c000d5cafa32768cb05f2e4c73c61c1"
+  },
+  {
+    "path": "db/migrations/0069_reporting_saved_filters.sql",
+    "bytes": 894,
+    "sha256": "6f6a0ea1c252343e0d9200fde9296808078ffac780fe1431572782c49fb78729"
+  },
+  {
+    "path": "db/migrations/0070_refund_reason_default.sql",
+    "bytes": 462,
+    "sha256": "f8d4fe5761b2159e40ca781ad58bb162f42b6901b3d49e931c84cb9b21246332"
+  },
+  {
+    "path": "db/migrations/0071_refund_fee_index.sql",
+    "bytes": 264,
+    "sha256": "a8adcdbbc6531a28c389c7e419fcda3da1e4ba5dfb359cdbadf40e3d7ea5b4db"
+  },
+  {
+    "path": "db/migrations/0072_refund_merchant_summary.sql",
+    "bytes": 850,
+    "sha256": "110a86f4ffe1e552ae85da699721170929bbb014971b4c322ac438a621695af0"
+  },
+  {
+    "path": "db/seed/fixtures/marchReconciliation.ts",
+    "bytes": 3574,
+    "sha256": "575f28153620f5e9811f374901f7b32736083cbbf646c1116cba314137ef37a4"
+  },
+  {
+    "path": "db/seed/fixtures/merchants.ts",
+    "bytes": 8783,
+    "sha256": "1e744de9c759689401fb04cc266d2abb46ac909e524f36c5926b859e73887c3b"
+  },
+  {
+    "path": "db/seed/fixtures/production_seed.sql",
+    "bytes": 15513533,
+    "sha256": "91d1831939daf42c766fe2a1bb83c3aa517cb365f4c990a39519ada1850b03e2"
+  },
+  {
+    "path": "db/seed/fixtures/transactions.ts",
+    "bytes": 18565,
+    "sha256": "d595746ad50268cebb3517546efb004820de5d4af3a929f16fc87a4106980254"
+  },
+  {
+    "path": "db/seed/generate.ts",
+    "bytes": 43022,
+    "sha256": "760ee8eb84f666205c9b16946cd99e1926a3c37e46ea8b376dbe5c761ee5cfb9"
+  },
+  {
+    "path": "db/seed/index.ts",
+    "bytes": 2805,
+    "sha256": "65e6f411c527f22c5418818a055b043259e7bb9918d55c7484febf61a5850801"
+  },
+  {
+    "path": "db/seed/rng.ts",
+    "bytes": 2759,
+    "sha256": "81dbb59e25f2720a489d63a0204d8791788b207eb43f6703bf453b902faa6ce0"
+  },
+  {
+    "path": "db/seed/selfVerify.integration.test.ts",
+    "bytes": 6569,
+    "sha256": "9e5bc104592ee9aff20bf32723ae643908c4fce9f5ff6083ad108c7e03660572"
+  },
+  {
+    "path": "db/seed/selfVerify.ts",
+    "bytes": 5627,
+    "sha256": "8f4b192e1f7270dbcbdf46bd640d3915052132c337c2375acc3b47caf7a230d0"
+  },
+  {
+    "path": "db/tsconfig.json",
+    "bytes": 279,
+    "sha256": "c2292595e7095963bbd9e718c5a8a91dc33289ac2ab417393c5f7ac511ee7fba"
+  },
+  {
+    "path": "docs/ADMIN.md",
+    "bytes": 5360,
+    "sha256": "eb011351e2a2d1ade9781c76e554cbd6937566386df5ae23a84ee0dc17611127"
+  },
+  {
+    "path": "docs/ARCHITECTURE.md",
+    "bytes": 4203,
+    "sha256": "0634d787076bf4edb7ac5cd56c132e3c8962f255d2738fe72473970cad504fab"
+  },
+  {
+    "path": "docs/HANDOVER.md",
+    "bytes": 3682,
+    "sha256": "3fe0890e85d3662942ef593e3cc5106cb533d2031350e976ebb8b6a0378c0f2d"
+  },
+  {
+    "path": "docs/ONBOARDING.md",
+    "bytes": 5809,
+    "sha256": "71a6bf5854812f38b4d2bfdea7c73a9240270d0d7f235de0ed0679423f2074bb"
+  },
+  {
+    "path": "docs/RUNBOOK.md",
+    "bytes": 5165,
+    "sha256": "3f9a2822207c8d3c5e28ab794c3ca89294395085f13dae93beb11917ac50cc16"
+  },
+  {
+    "path": "docs/adr/0001-integer-fils.md",
+    "bytes": 1438,
+    "sha256": "66fbfe16a1c588795b19a36f647cd81f444382930fda89899c15875634f99ad3"
+  },
+  {
+    "path": "docs/adr/0002-scheme-residue-at-export.md",
+    "bytes": 1958,
+    "sha256": "40911038ede9e73bc5fb1b15b4e2d9936f1654edf59fc94fa65f7674a6412617"
+  },
+  {
+    "path": "docs/adr/0003-report-date-windows.md",
+    "bytes": 1962,
+    "sha256": "4e4a9e126b2bd26fad0201e06cdf1a4e4a1c5edf07c2ab13368ad9114be5f38d"
+  },
+  {
+    "path": "docs/adr/0004-balance-rebuild-source.md",
+    "bytes": 1127,
+    "sha256": "37c1e17ee7f95246b84a870a6a1fb4c2d69450e0152075ab674918084ef7eea4"
+  },
+  {
+    "path": "docs/adr/0005-settlement-v2-shadow-ledger.md",
+    "bytes": 2053,
+    "sha256": "8cb9682518ab320ca727180945d45cb6b8d45778cc6ad1b32f8dae1884ccd8f2"
+  },
+  {
+    "path": "docs/adr/0006-display-adjustments.md",
+    "bytes": 1251,
+    "sha256": "e791ff13f36dc5a12307f8d926d2b3c948d64a8d11fe6d76a92a030274af8636"
+  },
+  {
+    "path": "docs/adr/README.md",
+    "bytes": 897,
+    "sha256": "a9588b81ce15d89ba56e4842e9adf7fd0e16dbc0fb0b40e9a7899946a6b23520"
+  },
+  {
+    "path": "docs/archive/onboarding-checklist-2026-01.md",
+    "bytes": 2384,
+    "sha256": "d7ab2aacf01a15f8cd737f62b47a300faa45af6ad09c40c535b6c366735f532b"
+  },
+  {
+    "path": "docs/archive/slack-export-fp-finance-2026-09.txt",
+    "bytes": 7055,
+    "sha256": "ed3681e58d2bd63621a8d1e708b517fc3aacae0d3e4c8cc0142d40fbd7b9a348"
+  },
+  {
+    "path": "docs/archive/slack-export-fp-ops-2026-05.txt",
+    "bytes": 6116,
+    "sha256": "e6557a13be4965998f1405d3c11a6b173563a045b7cad9223f94144bdedcc2cb"
+  },
+  {
+    "path": "docs/design/settlement-v2.md",
+    "bytes": 5284,
+    "sha256": "18f64965fe82cb04b94ba8faecc91d49bde07d659b08c4a52c82c8bf8eff46e3"
+  },
+  {
+    "path": "docs/exports/README.md",
+    "bytes": 1768,
+    "sha256": "84cc92de2a3cd1995a2619b224e911f4226e8d25dda2892d9730ccaf6c4b859b"
+  },
+  {
+    "path": "docs/exports/admin-audit-2026-09.csv",
+    "bytes": 41803,
+    "sha256": "c7f4a611a939704b0cd4452c81eb6a699f75c6fc5d126f83711103823515c54d"
+  },
+  {
+    "path": "docs/exports/merchant-balances-rebuild-2026-09-15.csv",
+    "bytes": 849,
+    "sha256": "71abf4a91748223530f301ae1aab9cc5781fb9ab0fc62e13951dbe84d42aca09"
+  },
+  {
+    "path": "docs/exports/scheme/delta-wholesale-2026-09-14.csv",
+    "bytes": 14516,
+    "sha256": "7df1a362095232ff56a20c84cd8c02d02569f3a444aeea01c185891750b32370"
+  },
+  {
+    "path": "docs/exports/scheme/scheme_export_lines-delta-wholesale-2026-09-14.tsv",
+    "bytes": 24865,
+    "sha256": "1b44e3acc9b2258899456e764ee543a00ea7626badf45fab428a4b30c0e09f8f"
+  },
+  {
+    "path": "docs/exports/settlement-batches-2026-09-01_20.csv",
+    "bytes": 13226,
+    "sha256": "9f6fe88a1d6f8aacb0c659d790fb9ab2d5847be206cd697e74f0c906bd91f9e3"
+  },
+  {
+    "path": "docs/exports/webhook-deliveries-beta-2026-09.csv",
+    "bytes": 53951,
+    "sha256": "6dfa515620b9e35067f8ca305aaa3a312d90defa8f21a65b8fe314ef7be9736e"
+  },
+  {
+    "path": "docs/incidents/postmortem-2026-05.md",
+    "bytes": 7926,
+    "sha256": "dbb247414909372512ce9041c7814ee64a7630940ee8477f14aa40b159588d2c"
+  },
+  {
+    "path": "docs/meetings/2026-06-02-eng-sync.md",
+    "bytes": 2475,
+    "sha256": "39cbcf4816ecd460c205ac2ba76636692ec80c3402886184986c524c3d0a5adb"
+  },
+  {
+    "path": "docs/meetings/2026-07-08-finance-eng.md",
+    "bytes": 2079,
+    "sha256": "072db6fa4653173b5269229c07bded5606deed2e7ea8efc87d75191148a45af6"
+  },
+  {
+    "path": "docs/meetings/2026-09-17-fp-203-review.md",
+    "bytes": 1301,
+    "sha256": "fce2f46a9cecb660d31faadb73622d886e1c34264613cd6d68eb0fe37dc5fd6e"
+  },
+  {
+    "path": "docs/perf/2026-07-settlement-summary-slow.md",
+    "bytes": 2340,
+    "sha256": "c172e3bcd481b1427b08d386cd82e2beb2154c6d22c89e101eb60657a5d6776d"
+  },
+  {
+    "path": "docs/perf/fp-209-loadtest-2026-09.md",
+    "bytes": 2601,
+    "sha256": "3602c1626971dfb9d9c0d03ac9a61a75770ca378ac9fa697915eb8a1b6a76653"
+  },
+  {
+    "path": "docs/research/acquirer-comparison-2025-11.md",
+    "bytes": 2450,
+    "sha256": "1ef6351b4612b17a1eab8e8d94955536e1e3721a784d2ebf7f45ef3406b56448"
+  },
+  {
+    "path": "docs/runbooks/shadow-ledger-cutover.md",
+    "bytes": 2641,
+    "sha256": "95197b376f6d2fba8fa221f83ef381a2e7ec5959c87424832401316c060344fb"
+  },
+  {
+    "path": "ops/.env.docker",
+    "bytes": 995,
+    "sha256": "3285b4ab85cef3cdd2b0a85d53744c51dba46080bd47b58a1d8abf396d6423ee"
+  },
+  {
+    "path": "ops/README.md",
+    "bytes": 3157,
+    "sha256": "c91f44e6a4efb4ec939f1429b70375e43f557791ae2592ba1fec88f92ab3fe32"
+  },
+  {
+    "path": "ops/docker-compose.yml",
+    "bytes": 4896,
+    "sha256": "bf57553311ee0e390c2f7bc762ed529276f55445052d33d882fadccd7c67121b"
+  },
+  {
+    "path": "package-lock.json",
+    "bytes": 138339,
+    "sha256": "54b7ab5d3abb8e35c582ee654fc588c9a72996aa0b0ebbd8ecbcae708448d583"
+  },
+  {
+    "path": "package.json",
+    "bytes": 634,
+    "sha256": "18c48d698c66b34e46c64024060f92def14cce730d2ae78cfcde9e44d0f913f9"
+  },
+  {
+    "path": "packages/events/package.json",
+    "bytes": 303,
+    "sha256": "bad2c9e022f2df8bb279ad0e9995724a9608bb3b72f003a7851215f9e3004feb"
+  },
+  {
+    "path": "packages/events/src/index.ts",
+    "bytes": 165,
+    "sha256": "530cd31abe557dd5cf52bc2786781ae13668f04764e55c00369b16c237da6e94"
+  },
+  {
+    "path": "packages/events/src/outbox.test.ts",
+    "bytes": 3610,
+    "sha256": "c9f1ff339bd1e7a1b3e30d3b56234052a11d461da50ad2d9cc1324a0aeb4d99e"
+  },
+  {
+    "path": "packages/events/src/outbox.ts",
+    "bytes": 3975,
+    "sha256": "3a01a9184c7a6e621fc7638258a30901e0bd79d2a70b81de328ce6ee23319e20"
+  },
+  {
+    "path": "packages/events/tsconfig.json",
+    "bytes": 122,
+    "sha256": "dedfd4213321e3ff12c6f1ca48c4a9eeedf8e507d641f4f3e4ceaa33afc0d02a"
+  },
+  {
+    "path": "packages/money/package.json",
+    "bytes": 302,
+    "sha256": "42756a6095595a95dd936fc8ebbb4471bdfd7abbe3a755f81a0876355ed95905"
+  },
+  {
+    "path": "packages/money/src/allocate_drift_known.test.ts",
+    "bytes": 1328,
+    "sha256": "453db792d3dc2e96b09453f9e63a4c2adb7e024ffe86ddacb6a68f4355406f35"
+  },
+  {
+    "path": "packages/money/src/fils.test.ts",
+    "bytes": 9480,
+    "sha256": "2c483db0d6590091b0712205fca4e9298d61f5d17c165c179ebb17b636d6ca29"
+  },
+  {
+    "path": "packages/money/src/fils.ts",
+    "bytes": 11674,
+    "sha256": "210b81c7af23f5ad8666fa4617a1f0c085d2733d44be9ece2282d5ecef8063f7"
+  },
+  {
+    "path": "packages/money/src/index.ts",
+    "bytes": 257,
+    "sha256": "373091aabed08c7e4a751bef4e3d7b4a1595dd06d62be5e37bef46f1ab514fa0"
+  },
+  {
+    "path": "packages/money/src/parse_cents_compat.test.ts",
+    "bytes": 1617,
+    "sha256": "3aedfe3f76727d4e3169fe3f7ef8b46bda3f1467288e7a075fa14d128ac65dfd"
+  },
+  {
+    "path": "packages/money/src/rounding_legacy.test.ts",
+    "bytes": 1641,
+    "sha256": "027a20d0c5cb16be784f6c1ccef1c96c19e335d88110fb55fa4f8023bca5ca9b"
+  },
+  {
+    "path": "packages/money/tsconfig.json",
+    "bytes": 122,
+    "sha256": "dedfd4213321e3ff12c6f1ca48c4a9eeedf8e507d641f4f3e4ceaa33afc0d02a"
+  },
+  {
+    "path": "scripts/expire_holds.test.ts",
+    "bytes": 802,
+    "sha256": "6dad174e8741645d68a21a0070ba37d4d3eb1abafc0d8690eadafcd08e30e3b2"
+  },
+  {
+    "path": "scripts/expire_holds.ts",
+    "bytes": 2306,
+    "sha256": "0b3497419d9bc597e9b22b20823d8cab5df7923a15f4eef8b75d66ab7d99549f"
+  },
+  {
+    "path": "scripts/lib/sqlFilter.ts",
+    "bytes": 962,
+    "sha256": "af286417bb736fb83de2d49c9240fb76d7d5bf17437fae020885e58db9cea950"
+  },
+  {
+    "path": "scripts/reconcile_march.integration.test.ts",
+    "bytes": 4976,
+    "sha256": "a8ac4482b42f72fa21f63d8ec56bdfc1cfae27dcb7bc99423b5377f550ce4f4f"
+  },
+  {
+    "path": "scripts/reconcile_march.test.ts",
+    "bytes": 754,
+    "sha256": "394940b507635c93e430468fa34b39ac56cdd4c7ce426490ada680fdea4ead21"
+  },
+  {
+    "path": "scripts/reconcile_march.ts",
+    "bytes": 5323,
+    "sha256": "17c8b420a629144a7a0b5d03b43095c1f0ab894ca00ce90ae3070cd3d0729c5f"
+  },
+  {
+    "path": "scripts/tsconfig.json",
+    "bytes": 279,
+    "sha256": "c2292595e7095963bbd9e718c5a8a91dc33289ac2ab417393c5f7ac511ee7fba"
+  },
+  {
+    "path": "tsconfig.base.json",
+    "bytes": 448,
+    "sha256": "c2323c9e357deff424194cb1138a94b91814663f77678a8705ee1a2211f11d94"
+  },
+  {
+    "path": "tsconfig.json",
+    "bytes": 136,
+    "sha256": "8dd641a469c3bb3a84c9d74d4f039d9a131f4f0b4328e6fddf362dd3598ad925"
+  },
+  {
+    "path": "Evidence/DOCS_FULL_INVESTIGATION.md",
+    "bytes": 87820,
+    "sha256": "06e2fcc4fa04c3676470fe6b0f89e0a77fe00090df5537c0b3e21c57ac635d2d"
+  }
+]

@@ -1,0 +1,171 @@
+{
+  "applied": [
+    {
+      "filename": "0001_extensions.sql"
+    },
+    {
+      "filename": "0002_merchants.sql"
+    },
+    {
+      "filename": "0003_merchant_users.sql"
+    },
+    {
+      "filename": "0004_transactions.sql"
+    },
+    {
+      "filename": "0005_holds.sql"
+    },
+    {
+      "filename": "0006_settlement_batches.sql"
+    },
+    {
+      "filename": "0007_ledger_double_entry.sql"
+    },
+    {
+      "filename": "0008_scheme_export_lines.sql"
+    },
+    {
+      "filename": "0009_outbox_events.sql"
+    },
+    {
+      "filename": "0010_merchant_user_password_auth.sql"
+    },
+    {
+      "filename": "0011_otp_challenges.sql"
+    },
+    {
+      "filename": "0012_sessions.sql"
+    },
+    {
+      "filename": "0013_api_keys.sql"
+    },
+    {
+      "filename": "0014_merchant_onboarding_state.sql"
+    },
+    {
+      "filename": "0015_kyc_documents.sql"
+    },
+    {
+      "filename": "0016_merchant_kyc_reviews.sql"
+    },
+    {
+      "filename": "0017_transaction_acquirer_reference.sql"
+    },
+    {
+      "filename": "0018_transaction_events.sql"
+    },
+    {
+      "filename": "0019_idempotency_keys.sql"
+    },
+    {
+      "filename": "0020_payment_links.sql"
+    },
+    {
+      "filename": "0021_webhook_endpoints.sql"
+    },
+    {
+      "filename": "0022_webhook_deliveries.sql"
+    },
+    {
+      "filename": "0023_transaction_events_settlement_batch.sql"
+    },
+    {
+      "filename": "0024_settlement_batches_paid_at.sql"
+    },
+    {
+      "filename": "0025_merchant_balances.sql"
+    },
+    {
+      "filename": "0026_scheme_export_lines_batch_txn_unique.sql"
+    },
+    {
+      "filename": "0027_merchant_daily_volume.sql"
+    },
+    {
+      "filename": "0028_merchant_payout_trends.sql"
+    },
+    {
+      "filename": "0029_payment_links_merchant_paid_amount_index.sql"
+    },
+    {
+      "filename": "0030_reporting_outbox_cursor.sql"
+    },
+    {
+      "filename": "0031_admin_users.sql"
+    },
+    {
+      "filename": "0032_admin_otp_challenges.sql"
+    },
+    {
+      "filename": "0033_admin_sessions.sql"
+    },
+    {
+      "filename": "0034_admin_audit_log.sql"
+    },
+    {
+      "filename": "0035_admin_impersonation_grants.sql"
+    },
+    {
+      "filename": "0036_merchant_kyc_reviews_admin_reviewer.sql"
+    },
+    {
+      "filename": "0037_api_keys_admin_rotation.sql"
+    },
+    {
+      "filename": "0038_kyc_documents_thumbnail.sql"
+    },
+    {
+      "filename": "0040_merchants_lifetime_payout_monitoring_estimate.sql"
+    },
+    {
+      "filename": "0042_refunds.sql"
+    },
+    {
+      "filename": "0043_transactions_refunded_fils.sql"
+    },
+    {
+      "filename": "0044_transaction_events_refund_types.sql"
+    },
+    {
+      "filename": "0045_merchant_split_children.sql"
+    },
+    {
+      "filename": "0046_settlement_batch_splits.sql"
+    },
+    {
+      "filename": "0047_merchant_discount_bps.sql"
+    },
+    {
+      "filename": "0048_fee_schedules.sql"
+    },
+    {
+      "filename": "0049_platform_stats.sql"
+    },
+    {
+      "filename": "0050_scheme_export_lines_acquirer_amount.sql"
+    },
+    {
+      "filename": "0051_acquirer_callback_notes.sql"
+    },
+    {
+      "filename": "0052_merchants_refunds_enabled.sql"
+    },
+    {
+      "filename": "0053_legacy_transactions.sql"
+    }
+  ],
+  "probes": [
+    {
+      "name": "0054_views.sql",
+      "code": "42P01",
+      "message": "relation \"settlement_batch_events\" does not exist",
+      "position": "679"
+    },
+    {
+      "name": "0055_chart_of_accounts_suspense.sql",
+      "code": "42703",
+      "message": "column \"code\" of relation \"chart_of_accounts\" does not exist",
+      "position": "100"
+    }
+  ]
+}
