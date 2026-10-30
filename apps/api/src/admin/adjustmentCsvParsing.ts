@@ -2,9 +2,16 @@ import { parseBhdToFils, type Fils } from "@filspay/money";
 import { BadRequestError } from "../lib/errors.js";
 
 
-/** Parses one CSV row's amount column into fils. */
-
-
+/**
+ * Parses one CSV row's amount column (in BD) into fils.
+ *
+ * BD has 3 decimal places: 1 BD = 1000 fils, so "4.75" = 4750 fils.
+ * Uses parseBhdToFils, which understands that. This previously used
+ * parseDecimalMinor, which assumes 2 decimals (like cents), so every
+ * imported correction was posted at a tenth of its value ("4.75" -> 475)
+ * and a third decimal was silently dropped ("4.755" -> 475).
+ * Amounts with more than 3 decimals are now rejected instead of truncated.
+ */
 export function parseAdjustmentAmountFils(raw: string): Fils {
   try {
     return parseBhdToFils(raw);
