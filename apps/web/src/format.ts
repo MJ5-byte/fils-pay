@@ -1,4 +1,5 @@
-import { formatBhd, toFils } from "@filspay/money";
+import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
+import type { TransactionEventDto } from "./types.js";
 
 /**
  * The dashboard's display helpers. Deliberately thin: `bhd` delegates to
@@ -10,6 +11,35 @@ import { formatBhd, toFils } from "@filspay/money";
  */
 export function bhd(amountFils: number): string {
   return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
+}
+
+/**
+ * A refund amount typed in BHD as integer fils, via the shared parser (3
+ * decimals, no floats). Blank is `undefined`: the API then refunds everything
+ * still refundable. Zero and negatives throw, like a malformed entry.
+ */
+export function parseRefundAmount(input: string): number | undefined {
+  if (input.trim() === "") return undefined;
+  let fils: number;
+  try {
+    fils = Number(parseBhdToFils(input));
+  } catch {
+    throw new RangeError("Enter a BHD amount with at most 3 decimals, like 4.750.");
+  }
+  if (fils <= 0) throw new RangeError("Refund amount must be greater than zero.");
+  return fils;
+}
+
+/** Total refunded so far. The transaction DTO has no `refundedFils`, but its
+ *  timeline already carries each refund as a negative-amount event. */
+export function refundedFilsFromEvents(events: readonly TransactionEventDto[]): number {
+  return events.reduce(
+    (sum, e) =>
+      (e.eventType === "refunded" || e.eventType === "refund_partial") && e.amountFils !== null
+        ? sum - e.amountFils
+        : sum,
+    0,
+  );
 }
 
 /** `—` for a null/absent value, so an empty table cell is visibly empty

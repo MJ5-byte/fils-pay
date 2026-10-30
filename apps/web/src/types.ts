@@ -123,6 +123,17 @@ export interface TransactionEventDto {
  *  (`reply.send(result.body)`) — so there is nothing for this page to read
  *  it from, and a repeat void is indistinguishable from a first one on the
  *  wire. That is fine: both mean "now voided". */
+export interface RefundResponse {
+  id: string;
+  transactionId: string;
+  amountFils: number;
+  feeReversedFils: number;
+  status: string;
+  transactionStatus: string;
+  refundedTotalFils: number;
+  occurredAt: string;
+}
+
 export type CaptureResponse = TransactionDto;
 export type VoidResponse = TransactionDto;
 

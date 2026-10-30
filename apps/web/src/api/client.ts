@@ -46,7 +46,11 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(res.status, (body as ApiErrorBody) ?? { error: "unknown_error" });
+    const errorBody = (body as (Partial<ApiErrorBody> & { code?: string }) | null) ?? {};
+    // The API answers refusals as `{ error, message }`. A body without `error`
+    // (a proxy page, an older route) falls back to `code`, then a fixed
+    // string, so the banner is never blank.
+    throw new ApiError(res.status, { ...errorBody, error: errorBody.error ?? errorBody.code ?? "unknown_error" });
   }
   return body as T;
 }

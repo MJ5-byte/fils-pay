@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildQuery } from "./api/query.js";
-import { bhd, dash, dayStartIso, localDateTimeToIso } from "./format.js";
+import { bhd, dash, dayStartIso, localDateTimeToIso, parseRefundAmount, refundedFilsFromEvents } from "./format.js";
+import type { TransactionEventDto } from "./types.js";
 
 /**
  * The pure logic behind the dashboard's query strings and money/date display.
@@ -49,6 +50,40 @@ test("bhd shows a negative amount instead of throwing", () => {
   // with the router's error screen.
   assert.equal(bhd(-34), "-0.034 BHD");
   assert.equal(bhd(-23456), "-23.456 BHD");
+});
+
+test("parseRefundAmount turns a 3-decimal BHD entry into integer fils", () => {
+  assert.equal(parseRefundAmount("4.75"), 4750);
+  assert.equal(parseRefundAmount(" 4.755 "), 4755);
+  assert.equal(parseRefundAmount("5"), 5000);
+  // Blank means "refund everything still refundable".
+  assert.equal(parseRefundAmount(""), undefined);
+});
+
+test("parseRefundAmount rejects zero, negatives and a 4th decimal", () => {
+  assert.throws(() => parseRefundAmount("0"));
+  assert.throws(() => parseRefundAmount("-1"));
+  assert.throws(() => parseRefundAmount("1.2345"));
+  assert.throws(() => parseRefundAmount("abc"));
+});
+
+test("refundedFilsFromEvents sums refund events and ignores the rest", () => {
+  const ev = (eventType: string, amountFils: number | null): TransactionEventDto => ({
+    id: eventType + String(amountFils),
+    transactionId: "t",
+    eventType,
+    amountFils,
+    actorType: "merchant_user",
+    actorId: null,
+    metadata: {},
+    occurredAt: "2026-10-30T00:00:00.000Z",
+    createdAt: "2026-10-30T00:00:00.000Z",
+  });
+  assert.equal(
+    refundedFilsFromEvents([ev("captured", 5000), ev("refund_partial", -1500), ev("refunded", -500), ev("voided", null)]),
+    2000,
+  );
+  assert.equal(refundedFilsFromEvents([]), 0);
 });
 
 test("dash renders absent values as an em dash but keeps zero", () => {
