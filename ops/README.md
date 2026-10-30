@@ -16,9 +16,10 @@ cp ops/.env.docker.example ops/.env.docker
 # then edit ops/.env.docker and set every variable
 ```
 
-`ops/.env.docker` is gitignored: keep real secrets out of git, and on a
-public host rotate `ACQUIRER_CALLBACK_SIGNING_SECRET` away from any value
-that was ever committed (see BHA-51) and set it there.
+`ops/.env.docker` is tracked in git with placeholders only, so each host
+fills in its own copy and real values never go into a commit. On a public
+host rotate `ACQUIRER_CALLBACK_SIGNING_SECRET` away from any value that was
+ever committed (see BHA-51) and set it there.
 
 ## Quick start
 
@@ -45,7 +46,7 @@ serves their production builds instead (see "Hosted box").
 |---|---|
 | `docker-compose.yml` | the stack |
 | `.env.docker.example` | template for `.env.docker`; placeholder names only, tracked in git |
-| `.env.docker` | shared service settings and secrets, loaded by compose via `env_file`; gitignored, created per host from the template |
+| `.env.docker` | shared service settings and secrets, loaded by compose via `env_file`; tracked with placeholders only, each host overwrites it from the template and fills in real values |
 | `Dockerfile.node` | image for api, reporting, migrate and seed (`node:20.18`, full install) |
 | `Dockerfile.go` | multi-stage build of `apps/settlement` |
 | `Dockerfile.web` | builds apps/web and apps/admin, serves them from nginx |

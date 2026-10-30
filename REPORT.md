@@ -950,3 +950,11 @@
 - **Cause:** The API had no merchant-scoped single-link read, so `PaymentLinkDetailPage` fetched the newest 100 links (the list's maximum page) and searched them for the id.
 - **Breaks:** An old active link stayed payable and the merchant had no way to cancel it from the dashboard. It was first filed as an improvement because the page admitted its limit; a listed link that cannot be opened is a wrong outcome a user hits, so it is a bug.
 - **Fix:** New `GET /v1/merchants/:merchantId/payment-links/:id` (own merchant only, 404 for anyone else's link) and the detail page calls it. Test added: 105 links, two pages with no duplicates or gaps, the oldest opens by id, another merchant gets 404. Red (404) before, green after. The list pager itself needed no change.
+
+### Bug: The acquirer callback signing secret is committed in git
+- **Status:** Fixed
+- **Type:** Security, medium
+- **Problem:** `ops/.env.docker` is tracked in git and set `ACQUIRER_CALLBACK_SIGNING_SECRET` to a real value, so anyone with the repo could sign acquirer callbacks for any deployment that kept it.
+- **Cause:** The file was committed before `.gitignore` listed it, and an ignore rule has no effect on a file git already tracks. Its own comments claimed it was gitignored and that the committed value was safe to keep; both claims were false, and the "rotated everything again" commit left the value in the tree.
+- **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
+- **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
