@@ -162,7 +162,18 @@ func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, mdrBps
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("settlement: RecalculateMDR: iterate batch events for %s: %w", batchID, err)
 	}
-	return fee, nil
+
+	// CloseBatch stores fee_fils net of the fee its refunds reversed, so the
+	// recomputed fee has to be net of them too, or an unchanged rate posts
+	// the reversed fee back as an adjustment.
+	var feeReversedFils int64
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(SUM(fee_reversed_fils), 0) FROM refunds WHERE settlement_batch_id = $1 AND status = 'succeeded'
+	`, batchID).Scan(&feeReversedFils)
+	if err != nil {
+		return 0, fmt.Errorf("settlement: RecalculateMDR: sum batch fee reversals for %s: %w", batchID, err)
+	}
+	return fee - money.Fils(feeReversedFils), nil
 }
 
 // postMdrAdjustment posts the two-leg, entry_group_id-balanced pair for one

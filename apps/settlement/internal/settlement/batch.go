@@ -67,10 +67,10 @@ type eligibleEvent struct {
 // CloseBatch computes and freezes settlement figures for one merchant's
 // one business day. Idempotent: re-running it against an already-closed
 // or already-paid batch for the same (merchant, date) is a safe no-op.
-// Every capture-type transaction_events row and every manual-credit
-// merchant_payable ledger leg it selects is marked with this batch's id
-// inside the same transaction that freezes the batch's totals, so a row can
-// never be picked up by two batches.
+// Every capture-type transaction_events row, every manual-credit
+// merchant_payable ledger leg and every refunds row it selects is marked
+// with this batch's id inside the same transaction that freezes the batch's
+// totals, so a row can never be picked up by two batches.
 func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) (BatchResult, error) {
 	start, end := BusinessDayWindow(businessDate)
 	if now().Before(end) {
@@ -331,12 +331,58 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	rows.Close()
 	batchGross += creditFils
 
+	// Step 9b: claim unbatched refunds and take them out of the batch: the
+	// refunded amount out of gross, the fee processRefund reversed out of
+	// fee, so net = gross - fee still holds. A refund is a new money
+	// movement on the day it happens, so a refund on a sale whose batch is
+	// already paid comes off a later batch instead of reopening the paid one.
+	// The window has no lower bound: a refund that did not fit an earlier
+	// batch, or whose transaction committed after its own day closed, is
+	// picked up by the next close. Refunds are taken oldest first, and one
+	// that would push net below zero stays unclaimed and carries forward,
+	// because a negative batch has no payout leg to recover the money.
+	// Credits are claimed first so they count toward what a refund can
+	// come off.
+	rows, err = tx.Query(ctx, `
+		SELECT id, amount_fils, fee_reversed_fils
+		  FROM refunds
+		 WHERE merchant_id = $1
+		   AND status = 'succeeded'
+		   AND settlement_batch_id IS NULL
+		   AND occurred_at < $2
+		 ORDER BY occurred_at, id
+		 FOR UPDATE
+	`, merchantID, end)
+	if err != nil {
+		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: select eligible refunds: %w", err)
+	}
+	var refundIDs []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		var amountFils, feeReversedFils int64
+		if err := rows.Scan(&id, &amountFils, &feeReversedFils); err != nil {
+			rows.Close()
+			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: scan eligible refund: %w", err)
+		}
+		if NetPayableFils(batchGross-money.Fils(amountFils), batchFee-money.Fils(feeReversedFils)) < 0 {
+			continue
+		}
+		refundIDs = append(refundIDs, id)
+		batchGross -= money.Fils(amountFils)
+		batchFee -= money.Fils(feeReversedFils)
+	}
+	if err := rows.Err(); err != nil {
+		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: iterate eligible refunds: %w", err)
+	}
+	rows.Close()
+
 	netPayout := NetPayableFils(batchGross, batchFee)
 
 	// Record this batch's contribution to the platform-wide lifetime
 	// processed-volume counter, in the same transaction that freezes this
 	// batch's own totals — so the counter and the batch it describes
-	// commit or roll back together. Credits are not card volume.
+	// commit or roll back together. Processed volume is what was captured:
+	// credits are not card volume, and a later refund does not un-process it.
 	if err := RecordPlatformProcessedVolume(ctx, tx, platformProcessedFils, int64(capturedGross)); err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: record platform volume: %w", err)
 	}
@@ -351,8 +397,8 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: freeze batch totals: %w", err)
 	}
 
-	// Step 11: mark every included event as batched — permanently
-	// ineligible for any future batch.
+	// Step 11: mark every included event and refund as batched —
+	// permanently ineligible for any future batch.
 	if len(eventIDs) > 0 {
 		_, err = tx.Exec(ctx, `
 			UPDATE transaction_events SET settlement_batch_id = $2 WHERE id = ANY($1)
@@ -367,6 +413,14 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		`, creditLegIDs, batchID)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: mark credits batched: %w", err)
+		}
+	}
+	if len(refundIDs) > 0 {
+		_, err = tx.Exec(ctx, `
+			UPDATE refunds SET settlement_batch_id = $2 WHERE id = ANY($1)
+		`, refundIDs, batchID)
+		if err != nil {
+			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: mark refunds batched: %w", err)
 		}
 	}
 
@@ -453,6 +507,12 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 	if status != "closed" {
 		tx.Rollback(ctx) //nolint:errcheck
 		return PayoutResult{BatchID: batchID, MerchantID: merchantID, NotClosed: true, NetPayoutFils: money.Fils(netPayout)}, nil
+	}
+	// A negative net is money the merchant owes, and a payout has no leg
+	// to collect it: marking the batch paid would write it off. CloseBatch
+	// never produces one; refuse rather than lose it if something else does.
+	if netPayout < 0 {
+		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: batch %s has negative net payout %d fils", batchID, netPayout)
 	}
 
 	// Post the payout leg pair only when net_payout_fils > 0 — omitted

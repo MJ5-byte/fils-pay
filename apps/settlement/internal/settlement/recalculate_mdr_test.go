@@ -302,3 +302,31 @@ func TestRecalculateMDR_PaidBatchUntouched(t *testing.T) {
 // compile-time assertion that RecalculateMDR keeps the *pgxpool.Pool
 // signature the internal API handler passes it.
 var _ func(context.Context, *pgxpool.Pool, uuid.UUID, time.Time, time.Time) (RecalcResult, error) = RecalculateMDR
+
+// A batch that carries a refund has its fee stored net of the reversed
+// fee, so recomputing at the same rate must subtract that reversal too,
+// or it posts a phantom fee increase equal to the reversed fee.
+func TestRecalculateMDR_RefundInBatchUnchangedRateAdjustsNothing(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+
+	businessDate := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+	txnID, _ := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start.Add(time.Hour))
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 4000, 100, start.Add(2*time.Hour))
+
+	if _, err := CloseBatch(ctx, pool, merchantID, businessDate); err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+
+	from, to := recalcWindow(businessDate)
+	result, err := RecalculateMDR(ctx, pool, merchantID, from, to)
+	if err != nil {
+		t.Fatalf("RecalculateMDR: %v", err)
+	}
+	if len(result.Adjusted) != 0 {
+		t.Errorf("unchanged rate adjusted %d batch(es): %+v", len(result.Adjusted), result.Adjusted)
+	}
+}

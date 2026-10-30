@@ -325,6 +325,14 @@
 - **Cause:** Step B of the dispatcher (`attemptDueDeliveries` in `apps/api/src/webhooks/dispatcher.ts`) joined `webhook_endpoints` without checking its status; only Step A, which creates rows, required `status = 'active'`.
 - **Breaks:** A merchant who disabled an endpoint (retired or compromised URL) kept sending payment payloads, signed with its secret, to that URL.
 - **Fix:** Added `AND we.status = 'active'` to the Step B query. Held rows stay `pending` and go out on the first pass after the endpoint is active again. Test added in `dispatcher.test.ts`.
+
+### Bug: Refunds never come off the merchant's payout
+- **Status:** Fixed
+- **Type:** Money, critical
+- **Problem:** A refunded sale was still paid out to the merchant in full: the daily settlement batch counted the capture and never subtracted the refund, so the batch's net payout stopped matching the merchant's ledger by the refunded amount less the reversed fee.
+- **Cause:** `CloseBatch` in `apps/settlement/internal/settlement/batch.go:148-158` selected only `captured` and `partially_captured` transaction events. Nothing in settlement ever read the `refunds` table, even though migration 0042 gave it a `settlement_batch_id` column and an unbatched index for exactly this claim.
+- **Breaks:** Once `POST /v1/refunds` is live, every refund is money returned to the customer and also paid to the merchant, and reconciliation shows an unexplained gap.
+- **Fix:** `CloseBatch` now claims the merchant's unbatched succeeded refunds dated before the end of its business day, oldest first, under the same row lock and batch id as the capture events. A refund that would push the batch's net below zero stays unclaimed and carries to the next batch that can absorb it, because a payout cannot collect money back; `PayoutBatch` and the balance cache now refuse a negative payout instead of marking it paid and writing it off. It takes the refunded amount out of gross and the fee recorded in `fee_reversed_fils` out of fee, so net = captures - fees - refunds + reversed fees in integer fils and still equals gross - fee. A refund made after its sale's batch was paid comes off a later batch, from the day the refund happened, the same day its ledger legs are dated. A paid batch is never reopened. `RecalculateMDR` now subtracts those reversals from its recomputed fee, so it no longer posts a false adjustment on a batch with refunds. Tests added in `batch_test.go` and `recalculate_mdr_test.go`. PR: https://github.com/SilentYsf/fils-pay/pull/50
 ### Bug: KYC PDF-only check trusts the filename, not the file bytes
 - **Status:** Fixed
 - **Type:** Security, medium

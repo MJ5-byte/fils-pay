@@ -149,6 +149,52 @@ func insertAdditionalCaptureEvent(t *testing.T, pool *pgxpool.Pool, merchantID, 
 	return feeFils
 }
 
+// insertRefund inserts what apps/api's processRefund.ts writes for one
+// refund: the refunds row, the negative refund transaction_events row, and
+// the reversal ledger legs (gross back out of merchant_payable, the reversed
+// fee back into it).
+func insertRefund(t *testing.T, pool *pgxpool.Pool, merchantID, txnID uuid.UUID, status string, amountFils, feeReversedFils money.Fils, occurredAt time.Time) uuid.UUID {
+	t.Helper()
+	ctx := context.Background()
+
+	var refundID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO refunds
+		  (transaction_id, merchant_id, amount_fils, fee_reversed_fils, status, acquirer_reference, reason, created_by_type, created_by_id, occurred_at)
+		VALUES ($1, $2, $3, $4, $5, $6, 'requested_by_customer', 'merchant_session', $7, $8)
+		RETURNING id
+	`, txnID, merchantID, int64(amountFils), int64(feeReversedFils), status, "acq-refund-"+uuid.New().String(), uuid.New(), occurredAt).Scan(&refundID)
+	if err != nil {
+		t.Fatalf("insertRefund: insert refunds: %v", err)
+	}
+	if status != "succeeded" {
+		return refundID
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, occurred_at)
+		VALUES ($1, 'refund_partial', $2, 'system', $3)
+	`, txnID, -int64(amountFils), occurredAt)
+	if err != nil {
+		t.Fatalf("insertRefund: insert transaction_events: %v", err)
+	}
+
+	groupID := uuid.New()
+	_, err = pool.Exec(ctx, `
+		INSERT INTO ledger_entries
+		  (entry_group_id, merchant_id, transaction_id, account_id, direction, amount_fils, occurred_at, description)
+		VALUES
+		  ($1, $2, $3, 'merchant_payable',     'debit',  $4, $6, 'refund: gross'),
+		  ($1, $2, $3, 'card_scheme_clearing', 'credit', $4, $6, 'refund: gross'),
+		  ($1, $2, $3, 'platform_fee_revenue', 'debit',  $5, $6, 'refund: MDR fee reversal'),
+		  ($1, $2, $3, 'merchant_payable',     'credit', $5, $6, 'refund: MDR fee reversal')
+	`, groupID, merchantID, txnID, int64(amountFils), int64(feeReversedFils), occurredAt)
+	if err != nil {
+		t.Fatalf("insertRefund: insert ledger legs: %v", err)
+	}
+	return refundID
+}
+
 // countRows runs a COUNT(*) query on the shared pool, outside any test
 // transaction, so it only sees committed rows.
 func countRows(t *testing.T, pool *pgxpool.Pool, query string, args ...any) int {
@@ -1025,5 +1071,320 @@ func TestCloseBatch_PaysPostedManualCreditsExactlyOnce(t *testing.T) {
 	}
 	if payable != 0 {
 		t.Errorf("merchant_payable ledger balance after every batch paid = %d, want 0", payable)
+	}
+}
+
+// TestCloseBatch_SubtractsRefundsInWindow pins the payout formula once
+// refunds exist: net = captures - fees - refunds + reversed fees, and the
+// batch's net matches the merchant_payable movement the ledger recorded for
+// the same day, down to the fils.
+func TestCloseBatch_SubtractsRefundsInWindow(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+
+	businessDate := time.Date(2026, 3, 24, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+
+	// 10.000 BD captured, fee 250 fils. 4.000 BD refunded the same day,
+	// reversing 100 fils of fee.
+	txnID, fee := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start.Add(time.Hour))
+	if fee != 250 {
+		t.Fatalf("capture fee = %d, want 250", fee)
+	}
+	refundID := insertRefund(t, pool, merchantID, txnID, "succeeded", 4000, 100, start.Add(2*time.Hour))
+	// A failed refund moved no money, and one from the next day had not
+	// happened yet when this day closed: neither may count here.
+	insertRefund(t, pool, merchantID, txnID, "failed", 1000, 0, start.Add(3*time.Hour))
+	laterRefundID := insertRefund(t, pool, merchantID, txnID, "succeeded", 500, 10, start.AddDate(0, 0, 1).Add(time.Hour))
+
+	result, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+
+	if result.GrossFils != 6000 {
+		t.Errorf("GrossFils = %d, want 6000 (10000 captured - 4000 refunded)", result.GrossFils)
+	}
+	if result.FeeFils != 150 {
+		t.Errorf("FeeFils = %d, want 150 (250 charged - 100 reversed)", result.FeeFils)
+	}
+	if result.NetPayoutFils != 5850 {
+		t.Errorf("NetPayoutFils = %d, want 5850 (10000 - 250 - 4000 + 100)", result.NetPayoutFils)
+	}
+
+	var ledgerNet int64
+	err = pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+		  FROM ledger_entries
+		 WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+		   AND occurred_at >= $2 AND occurred_at < $3
+	`, merchantID, start, start.AddDate(0, 0, 1)).Scan(&ledgerNet)
+	if err != nil {
+		t.Fatalf("query ledger merchant_payable: %v", err)
+	}
+	if money.Fils(ledgerNet) != result.NetPayoutFils {
+		t.Errorf("ledger merchant_payable for the day = %d, batch net = %d; they must tie", ledgerNet, result.NetPayoutFils)
+	}
+
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE id = $1 AND settlement_batch_id = $2`, refundID, result.BatchID); n != 1 {
+		t.Errorf("the in-window refund was not marked with the batch id")
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE id = $1 AND settlement_batch_id IS NULL`, laterRefundID); n != 1 {
+		t.Errorf("the next day's refund was claimed by this batch")
+	}
+}
+
+// TestCloseBatch_RefundAfterPaidBatchLandsInNextBatch: a paid batch is
+// never reopened. A refund made after the capture's batch was paid is
+// deducted from the batch of the business day the refund happened, the
+// same day its ledger legs are dated.
+func TestCloseBatch_RefundAfterPaidBatchLandsInNextBatch(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+
+	day1 := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
+	day2 := day1.AddDate(0, 0, 1)
+	start1, _ := BusinessDayWindow(day1)
+	start2, _ := BusinessDayWindow(day2)
+
+	txnID, _ := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start1.Add(time.Hour))
+	first, err := CloseBatch(ctx, pool, merchantID, day1)
+	if err != nil {
+		t.Fatalf("CloseBatch day 1: %v", err)
+	}
+	if _, err := PayoutBatch(ctx, pool, first.BatchID); err != nil {
+		t.Fatalf("PayoutBatch day 1: %v", err)
+	}
+	if first.NetPayoutFils != 9750 {
+		t.Fatalf("day 1 NetPayoutFils = %d, want 9750", first.NetPayoutFils)
+	}
+
+	// Day 2: the day-1 sale is partly refunded, and a new 6.000 BD sale
+	// comes in (fee 150 fils).
+	refundID := insertRefund(t, pool, merchantID, txnID, "succeeded", 4000, 100, start2.Add(time.Hour))
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 6000, start2.Add(2*time.Hour))
+
+	again, err := CloseBatch(ctx, pool, merchantID, day1)
+	if err != nil {
+		t.Fatalf("re-CloseBatch day 1: %v", err)
+	}
+	if !again.AlreadyClosed || again.NetPayoutFils != 9750 {
+		t.Errorf("paid day-1 batch changed: AlreadyClosed=%v NetPayoutFils=%d, want true and 9750", again.AlreadyClosed, again.NetPayoutFils)
+	}
+
+	second, err := CloseBatch(ctx, pool, merchantID, day2)
+	if err != nil {
+		t.Fatalf("CloseBatch day 2: %v", err)
+	}
+	if second.GrossFils != 2000 || second.FeeFils != 50 || second.NetPayoutFils != 1950 {
+		t.Errorf("day 2 batch = gross %d, fee %d, net %d; want 2000, 50, 1950 (6000 - 150 - 4000 + 100)",
+			second.GrossFils, second.FeeFils, second.NetPayoutFils)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE id = $1 AND settlement_batch_id = $2`, refundID, second.BatchID); n != 1 {
+		t.Errorf("the day-2 refund was not claimed by the day-2 batch")
+	}
+}
+
+// merchantPayableLedger is the merchant's lifetime merchant_payable balance
+// in the ledger, credits minus debits.
+func merchantPayableLedger(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID) money.Fils {
+	t.Helper()
+	var net int64
+	err := pool.QueryRow(context.Background(), `
+		SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+		  FROM ledger_entries
+		 WHERE merchant_id = $1 AND account_id = 'merchant_payable'
+	`, merchantID).Scan(&net)
+	if err != nil {
+		t.Fatalf("merchantPayableLedger: %v", err)
+	}
+	return money.Fils(net)
+}
+
+func cachedPayable(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID) money.Fils {
+	t.Helper()
+	var cached int64
+	err := pool.QueryRow(context.Background(), `
+		SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1
+	`, merchantID).Scan(&cached)
+	if err != nil {
+		t.Fatalf("cachedPayable: %v", err)
+	}
+	return money.Fils(cached)
+}
+
+func closeAndPay(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) BatchResult {
+	t.Helper()
+	result, err := CloseBatch(context.Background(), pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch %s: %v", businessDate.Format("2006-01-02"), err)
+	}
+	if _, err := PayoutBatch(context.Background(), pool, result.BatchID); err != nil {
+		t.Fatalf("PayoutBatch %s: %v", businessDate.Format("2006-01-02"), err)
+	}
+	return result
+}
+
+// TestCloseBatch_RefundBeyondDayNetCarriesForward: a refund bigger than
+// what the merchant earned that day must not close a negative batch,
+// because a payout has no leg to collect money back and the shortfall
+// would be written off. The refund stays unclaimed and comes off the next
+// batch that can carry it, so nothing is lost and the cache ends equal to
+// the ledger.
+func TestCloseBatch_RefundBeyondDayNetCarriesForward(t *testing.T) {
+	pool := mustPool(t)
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+
+	day1 := time.Date(2026, 3, 27, 0, 0, 0, 0, time.UTC)
+	day2, day3 := day1.AddDate(0, 0, 1), day1.AddDate(0, 0, 2)
+	start1, _ := BusinessDayWindow(day1)
+	start2, _ := BusinessDayWindow(day2)
+	start3, _ := BusinessDayWindow(day3)
+
+	txnID, _ := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start1.Add(time.Hour))
+	if got := closeAndPay(t, pool, merchantID, day1).NetPayoutFils; got != 9750 {
+		t.Fatalf("day 1 NetPayoutFils = %d, want 9750", got)
+	}
+
+	// Day 2: a 4.000 BD refund (100 fils fee reversed) and no sales.
+	refundID := insertRefund(t, pool, merchantID, txnID, "succeeded", 4000, 100, start2.Add(time.Hour))
+	second := closeAndPay(t, pool, merchantID, day2)
+	if second.GrossFils != 0 || second.FeeFils != 0 || second.NetPayoutFils != 0 {
+		t.Errorf("day 2 batch = gross %d, fee %d, net %d; want 0, 0, 0 (the refund carries)", second.GrossFils, second.FeeFils, second.NetPayoutFils)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE id = $1 AND settlement_batch_id IS NULL`, refundID); n != 1 {
+		t.Errorf("the refund was claimed by a batch that could not carry it")
+	}
+
+	// Day 3: a 6.000 BD sale (150 fils fee) carries the refund.
+	insertCaptureEvent(t, pool, merchantID, mdrBps, 6000, start3.Add(time.Hour))
+	third := closeAndPay(t, pool, merchantID, day3)
+	if third.GrossFils != 2000 || third.FeeFils != 50 || third.NetPayoutFils != 1950 {
+		t.Errorf("day 3 batch = gross %d, fee %d, net %d; want 2000, 50, 1950 (6000 - 150 - 4000 + 100)", third.GrossFils, third.FeeFils, third.NetPayoutFils)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE id = $1 AND settlement_batch_id = $2`, refundID, third.BatchID); n != 1 {
+		t.Errorf("the carried refund was not claimed by the day-3 batch")
+	}
+
+	// Paid out in total: 9750 + 0 + 1950 = 11700 = 16000 - 400 - 4000 + 100.
+	var paidOut int64
+	err := pool.QueryRow(context.Background(), `
+		SELECT COALESCE(SUM(amount_fils), 0) FROM ledger_entries
+		 WHERE merchant_id = $1 AND account_id = 'merchant_payable' AND description = 'settlement payout: batch paid'
+	`, merchantID).Scan(&paidOut)
+	if err != nil {
+		t.Fatalf("sum payout legs: %v", err)
+	}
+	if paidOut != 11700 {
+		t.Errorf("total paid out = %d, want 11700", paidOut)
+	}
+	if ledger, cache := merchantPayableLedger(t, pool, merchantID), cachedPayable(t, pool, merchantID); ledger != 0 || cache != 0 {
+		t.Errorf("merchant_payable ledger = %d, cache = %d; want both 0 once everything is paid", ledger, cache)
+	}
+}
+
+// TestPayoutBatch_RefusesNegativeNet: a negative net is money the merchant
+// owes; marking the batch paid would write it off, so PayoutBatch refuses
+// and leaves the batch, the ledger and the cache as they were.
+func TestPayoutBatch_RefusesNegativeNet(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	merchantID := insertActiveMerchant(t, pool, 250)
+	businessDate := time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)
+
+	closed, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE settlement_batches SET net_payout_fils = -500 WHERE id = $1`, closed.BatchID); err != nil {
+		t.Fatalf("force negative net: %v", err)
+	}
+
+	if _, err := PayoutBatch(ctx, pool, closed.BatchID); err == nil {
+		t.Fatal("PayoutBatch accepted a negative net payout")
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM settlement_batches WHERE id = $1 AND status = 'closed'`, closed.BatchID); n != 1 {
+		t.Errorf("batch left 'closed' state after a refused payout")
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM ledger_entries WHERE settlement_batch_id = $1`, closed.BatchID); n != 0 {
+		t.Errorf("refused payout posted %d ledger legs", n)
+	}
+	if cache := cachedPayable(t, pool, merchantID); cache != 0 {
+		t.Errorf("cached_payable_fils = %d after a refused payout, want 0", cache)
+	}
+}
+
+// TestCloseBatch_RefundsStayWithTheirMerchant: two merchants refund in the
+// same window; each batch takes only its own merchant's refunds.
+func TestCloseBatch_RefundsStayWithTheirMerchant(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantA := insertActiveMerchant(t, pool, mdrBps)
+	merchantB := insertActiveMerchant(t, pool, mdrBps)
+
+	businessDate := time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+
+	txnA, _ := insertCaptureEvent(t, pool, merchantA, mdrBps, 10000, start.Add(time.Hour))
+	txnB, _ := insertCaptureEvent(t, pool, merchantB, mdrBps, 5000, start.Add(time.Hour))
+	refundA := insertRefund(t, pool, merchantA, txnA, "succeeded", 4000, 100, start.Add(2*time.Hour))
+	refundB := insertRefund(t, pool, merchantB, txnB, "succeeded", 1000, 25, start.Add(2*time.Hour))
+
+	a, err := CloseBatch(ctx, pool, merchantA, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch A: %v", err)
+	}
+	b, err := CloseBatch(ctx, pool, merchantB, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch B: %v", err)
+	}
+
+	if a.GrossFils != 6000 || a.FeeFils != 150 || a.NetPayoutFils != 5850 {
+		t.Errorf("merchant A batch = gross %d, fee %d, net %d; want 6000, 150, 5850", a.GrossFils, a.FeeFils, a.NetPayoutFils)
+	}
+	if b.GrossFils != 4000 || b.FeeFils != 100 || b.NetPayoutFils != 3900 {
+		t.Errorf("merchant B batch = gross %d, fee %d, net %d; want 4000, 100, 3900", b.GrossFils, b.FeeFils, b.NetPayoutFils)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE (id = $1 AND settlement_batch_id = $2) OR (id = $3 AND settlement_batch_id = $4)`, refundA, a.BatchID, refundB, b.BatchID); n != 2 {
+		t.Errorf("each refund must be claimed by its own merchant's batch, got %d of 2", n)
+	}
+}
+
+// TestCloseBatch_SeveralPartialRefundsOnOneSale: a sale refunded in three
+// parts on the day it was made nets to zero, fee included. The reversals
+// are the cumulative ones processRefund records: fee(3000) = 75,
+// fee(6000) - fee(3000) = 75, fee(10000) - fee(6000) = 100.
+func TestCloseBatch_SeveralPartialRefundsOnOneSale(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+	const mdrBps = 250
+	merchantID := insertActiveMerchant(t, pool, mdrBps)
+
+	businessDate := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	start, _ := BusinessDayWindow(businessDate)
+
+	txnID, _ := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start.Add(time.Hour))
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 3000, 75, start.Add(2*time.Hour))
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 3000, 75, start.Add(3*time.Hour))
+	insertRefund(t, pool, merchantID, txnID, "succeeded", 4000, 100, start.Add(4*time.Hour))
+
+	result, err := CloseBatch(ctx, pool, merchantID, businessDate)
+	if err != nil {
+		t.Fatalf("CloseBatch: %v", err)
+	}
+	if result.GrossFils != 0 || result.FeeFils != 0 || result.NetPayoutFils != 0 {
+		t.Errorf("batch = gross %d, fee %d, net %d; want 0, 0, 0 for a fully refunded sale", result.GrossFils, result.FeeFils, result.NetPayoutFils)
+	}
+	if n := countRows(t, pool, `SELECT count(*) FROM refunds WHERE transaction_id = $1 AND settlement_batch_id = $2`, txnID, result.BatchID); n != 3 {
+		t.Errorf("claimed %d of 3 partial refunds", n)
+	}
+	if ledger := merchantPayableLedger(t, pool, merchantID); ledger != result.NetPayoutFils {
+		t.Errorf("merchant_payable ledger = %d, batch net = %d; they must tie", ledger, result.NetPayoutFils)
 	}
 }

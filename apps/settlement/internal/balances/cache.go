@@ -9,6 +9,7 @@ package balances
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -54,6 +55,11 @@ func ApplyBatchClose(ctx context.Context, tx pgx.Tx, merchantID, batchID uuid.UU
 // is not used because it already holds captures not yet closed, and their
 // close would add them a second time.
 func ApplyPayout(ctx context.Context, tx pgx.Tx, merchantID, batchID uuid.UUID, netPayoutFils money.Fils) error {
+	// A payout only ever moves money out; a negative one would raise the
+	// cache with no ledger leg behind it.
+	if netPayoutFils < 0 {
+		return fmt.Errorf("balances: ApplyPayout: negative payout %d fils for batch %s", netPayoutFils, batchID)
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
 		SELECT $1, COALESCE(SUM(net_payout_fils), 0), now()
