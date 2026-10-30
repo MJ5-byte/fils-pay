@@ -370,6 +370,21 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Acquirer callback stores an unvalidated outcome string
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** A signed acquirer fraud-review callback could store any string as its `outcome` (for example `totally_made_up`), which then shows on the transaction timeline that support and finance read.
+- **Cause:** `routes/acquirerCallbacks.ts` checked only that `outcome` was present, then cast `body.outcome as AcquirerCallbackInput["outcome"]` and inserted it; migration 0051 defines `outcome TEXT NOT NULL` with no CHECK, so the enum was never validated. Two comments claimed otherwise and were both false: the route comment said `outcome` was "validated against the AcquirerCallbackInput union ("approved" | "rejected")", which even named the wrong values (the real union is `cleared | confirmed_fraud`), and the input-type comment said it was "validated against the two allowed values by the route schema". There was no such validation and no schema.
+- **Breaks:** Arbitrary outcome values enter the data and surface in the UI, so support and finance can read a fraud verdict the acquirer never sent.
+- **Fix:** Added one source of truth for the allowed outcomes (`ACQUIRER_CALLBACK_OUTCOMES = ["cleared", "confirmed_fraud"]`) in `acquirer/callbacks.ts`, and a type-guard check at the route boundary that rejects any other value with a clean 400 before the callback is stored. Removed the unsafe `as` cast and corrected both false comments. Test added: an unknown outcome returns 400 and writes no note. A DB CHECK on the column is a reasonable defence-in-depth follow-up, but it is a schema change that needs human approval, so it is not in this PR.
+
+### Bug: Acquirer callback crashes on an invalid occurredAt
+- **Status:** Fixed
+- **Type:** UX, low
+- **Problem:** A signed acquirer callback whose `occurredAt` is not a real date (for example `not-a-real-date`) failed its insert, was retried three times, then returned a 500.
+- **Cause:** `routes/acquirerCallbacks.ts` checked only that `occurredAt` was present, never that it was a date, so a non-date reached the `received_at TIMESTAMPTZ` column and the insert threw; `withCallbackRetry` burned three attempts before surfacing a 500.
+- **Breaks:** Bad callback input wastes retries and returns a server error instead of a clear rejection the acquirer can act on.
+- **Fix:** Added a boundary check (`Number.isNaN(Date.parse(occurredAt))`, the same shape `routes/analytics.ts` already uses) that rejects a non-date with a clean 400 before any DB work or retry. Test added: a malformed occurredAt returns 400 and writes no note.
 ### Bug: Reporting saved-filters has no creation quota and no bounded listing
 - **Status:** Fixed
 - **Type:** Performance, medium

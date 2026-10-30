@@ -1,13 +1,17 @@
 import type { Pool } from "pg";
 import { NotFoundError } from "../lib/errors.js";
 
-/** @property outcome Validated against the two allowed values by the route schema. */
+/** The outcomes the acquirer's fraud-review callback may report. */
+export const ACQUIRER_CALLBACK_OUTCOMES = ["cleared", "confirmed_fraud"] as const;
+export type AcquirerCallbackOutcome = (typeof ACQUIRER_CALLBACK_OUTCOMES)[number];
+
+/** @property outcome One of ACQUIRER_CALLBACK_OUTCOMES, validated at the route boundary. */
 export interface AcquirerCallbackInput {
   callbackId: string;
   type: "fraud_review.completed";
   transactionId: string;
   occurredAt: string;
-  outcome: "cleared" | "confirmed_fraud";
+  outcome: AcquirerCallbackOutcome;
   note: string;
 }
 

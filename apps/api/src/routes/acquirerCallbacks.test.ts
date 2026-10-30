@@ -136,6 +136,40 @@ test("POST /v1/acquirer/callbacks rejects a callback sent without a signature he
   assert.equal(await noteCount(callbackId), "0");
 });
 
+test("POST /v1/acquirer/callbacks rejects an outcome outside the allowed set and stores nothing", async () => {
+  const transactionId = await createTransaction();
+  const callbackId = `acqcb_${randomUUID()}`;
+  const body = { ...callbackBody(transactionId, callbackId), outcome: "totally_made_up" };
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "invalid_request");
+  assert.equal(await noteCount(callbackId), "0");
+});
+
+test("POST /v1/acquirer/callbacks rejects a malformed occurredAt and stores nothing", async () => {
+  const transactionId = await createTransaction();
+  const callbackId = `acqcb_${randomUUID()}`;
+  const body = { ...callbackBody(transactionId, callbackId), occurredAt: "not-a-real-date" };
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.json().error, "invalid_request");
+  assert.equal(await noteCount(callbackId), "0");
+});
+
 test("POST /v1/acquirer/callbacks returns 404 for an unknown transaction id", async () => {
   const callbackId = `acqcb_${randomUUID()}`;
   const body = callbackBody(randomUUID(), callbackId);
