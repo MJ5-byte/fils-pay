@@ -300,10 +300,11 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
         await markAdminAuditOutcome(app.db, auditLogId, "failed", {
           error: appErr?.code ?? "internal_error",
           message: (err as Error).message,
-        }).catch(() => {
-          // best-effort outcome recording, per insertAdminAuditLog's own doc
-          // comment on cross-process actions — the attempt row already
-          // committed above is the durable record that this ran.
+        }).catch((updateErr: unknown) => {
+          request.log.error(
+            { err: updateErr, auditLogId },
+            "failed to record mdr_recalculation failure outcome on admin_audit_log",
+          );
         });
         throw err;
       }
@@ -311,10 +312,11 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
       await markAdminAuditOutcome(app.db, auditLogId, "succeeded", {
         batchesConsidered: summary.batchesConsidered,
         adjustedCount: summary.adjusted.length,
-      }).catch(() => {
-        // best-effort outcome recording, per insertAdminAuditLog's own doc
-        // comment on cross-process actions — the attempt row already
-        // committed above is the durable record that this ran.
+      }).catch((updateErr: unknown) => {
+        request.log.error(
+          { err: updateErr, auditLogId },
+          "failed to record mdr_recalculation success outcome on admin_audit_log",
+        );
       });
 
       reply.code(200).send(summary);

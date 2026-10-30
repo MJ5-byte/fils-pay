@@ -161,6 +161,25 @@ test("an unreachable settlement service is a 502 settlement_unreachable, never a
   assert.equal(err.code, "settlement_unreachable");
 });
 
+test("an unreachable settlement service never tells the client the internal path or the raw fetch error", async () => {
+  const realError = console.error;
+  console.error = () => {};
+  try {
+    const err = await triggerSettlementRunBatch(configFor("http://127.0.0.1:1"), {
+      date: "2026-09-09",
+    }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof AppError);
+    assert.equal(err.code, "settlement_unreachable");
+    assert.ok(!err.message.includes("/internal"), err.message);
+    assert.ok(!err.message.includes("fetch failed"), err.message);
+  } finally {
+    console.error = realError;
+  }
+});
+
 test("a timeout is also settlement_unreachable — nothing completed, so it is not a run failure", async () => {
   // Never responds; the AbortController must fire.
   const fake = await startFakeSettlement(() => {});

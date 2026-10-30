@@ -1104,6 +1104,22 @@
 - **Breaks:** Anyone starting the api locally without setting the key could not boot it. Production is unaffected: with `NODE_ENV=production` there is no fallback and the missing key is refused.
 - **Fix:** Replaced the dev-only fallback with the base64 of a 32 byte dev-only phrase, same shape. Reproduced by calling `loadConfig` with only `DATABASE_URL` set: it threw before the change and loads a 32 byte key after. No test added, since the existing suites pass an explicit key and a config test file does not exist.
 
+### Bug: Admin settlement errors show internal paths and raw error text
+- **Status:** Fixed
+- **Type:** Security, low
+- **Problem:** An admin whose action hit a settlement failure saw the internal settlement route and the raw fetch error, e.g. "settlement internal call to /internal/run-batch failed: fetch failed".
+- **Cause:** `callSettlementInternal` in `apps/api/src/admin/settlementClient.ts` built its AppError messages from the internal path, the upstream status and the caught error's text, and `errorHandler` sends AppError messages to the client as is.
+- **Breaks:** Internal service layout and error details reach the browser, against the rule that user-facing errors never leak internals.
+- **Fix:** The three messages are now fixed text with the same error codes; the detail goes to the server log with `console.error`, the shape already used for the response body; Go's own 4xx validation code is still shown to the operator. One test added.
+
+### Bug: MDR recalculation hides audit outcome write failures
+- **Status:** Fixed
+- **Type:** Data, low
+- **Problem:** When recording the outcome of an MDR recalculation on `admin_audit_log` failed, nothing was logged.
+- **Cause:** The two `markAdminAuditOutcome` calls in the `mdr_recalculation` route in `apps/api/src/routes/admin.ts` ended in empty catches, unlike the other admin actions in the same file.
+- **Breaks:** The audit row can say "failed" for a recalculation that ran, with no log line to explain it.
+- **Fix:** Both catches now log with `request.log.error` like their siblings. No test, since the change only adds a log line.
+
 ### Bug: An API outage signs the user out without a word
 - **Status:** Fixed
 - **Type:** UX, low
