@@ -3,41 +3,17 @@ package ledger
 import (
 	"context"
 	"testing"
-
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func insertClosedBatchWithLine(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, batchDate string, amountFils int64, lineSequence int) uuid.UUID {
-	t.Helper()
-	ctx := context.Background()
-
-	var batchID uuid.UUID
-	err := pool.QueryRow(ctx, `
-		INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
-		VALUES ($1, $2, 'closed', $3, 0, $3, now())
-		RETURNING id
-	`, merchantID, batchDate, amountFils).Scan(&batchID)
-	if err != nil {
-		t.Fatalf("insertClosedBatchWithLine: insert batch: %v", err)
-	}
-
-	_, err = pool.Exec(ctx, `
-		INSERT INTO scheme_export_lines (settlement_batch_id, amount_fils, line_sequence)
-		VALUES ($1, $2, $3)
-	`, batchID, amountFils, lineSequence)
-	if err != nil {
-		t.Fatalf("insertClosedBatchWithLine: insert export line: %v", err)
-	}
-
-	return batchID
-}
+// The admin "Recalculate cached balances" button must read the ledger, like
+// the rebuild-balances CLI (FP-203). These tests used to seed scheme export
+// lines, the old (wrong) source, so they only passed while the bug existed.
 
 func TestRefreshBalanceCache_OverwritesDriftedCache(t *testing.T) {
 	pool := mustPool(t)
 	merchantID := insertActiveMerchant(t, pool)
 
-	insertClosedBatchWithLine(t, pool, merchantID, "2026-06-10", 25000, 1)
+	postLedgerLeg(t, pool, merchantID, "credit", 25000)
 	want := int64(25000)
 
 	_, err := pool.Exec(context.Background(), `
@@ -81,8 +57,8 @@ func TestRefreshBalanceCache_SumsAcrossBatches(t *testing.T) {
 	pool := mustPool(t)
 	merchantID := insertActiveMerchant(t, pool)
 
-	insertClosedBatchWithLine(t, pool, merchantID, "2026-06-11", 15000, 1)
-	insertClosedBatchWithLine(t, pool, merchantID, "2026-06-12", 6000, 1)
+	postLedgerLeg(t, pool, merchantID, "credit", 15000)
+	postLedgerLeg(t, pool, merchantID, "credit", 6000)
 
 	want := int64(15000 + 6000)
 

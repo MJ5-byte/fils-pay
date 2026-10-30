@@ -2,6 +2,7 @@ package settlement
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,5 +121,40 @@ func TestEnqueuePayoutNotificationsSkipsIneligibleBatches(t *testing.T) {
 	}
 	if got := countPaidEvents(t, pool, notPaid); got != 0 {
 		t.Fatalf("a batch that has not reached 'paid' must not be notified, got %d event(s)", got)
+	}
+}
+
+// Incident 2026-08-21: the daemon tick and a CLI run-batch overlapped and both
+// passed the NOT EXISTS check. Run many enqueuers at once; still one event.
+func TestEnqueuePayoutNotificationsConcurrentRunsSendOnce(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool, 250)
+	paidBatch := insertBatch(t, pool, merchantID, time.Date(2026, 3, 6, 0, 0, 0, 0, time.UTC), "paid", 33_000)
+
+	const runners = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, runners)
+	start := make(chan struct{})
+	for i := 0; i < runners; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if _, err := EnqueuePayoutNotifications(ctx, pool); err != nil {
+				errs <- err
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent EnqueuePayoutNotifications: %v", err)
+	}
+
+	if got := countPaidEvents(t, pool, paidBatch); got != 1 {
+		t.Fatalf("concurrent runs must enqueue exactly 1 settlement.paid event, got %d", got)
 	}
 }
