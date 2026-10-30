@@ -355,3 +355,27 @@ test("runConsumerPass: atomicity — an apply failure partway through a multi-ev
   const cursorFinal = await getCursor();
   assert.ok(cursorFinal >= goodEvent.id, "watermark now past the previously-blocked good event");
 });
+
+test("runConsumerPass: refund.succeeded rolls into refund_count/refund_gross_fils on the Bahrain business day, once across repeated passes", async () => {
+  const merchantId = await createMerchant("refund-rollup");
+  const event = await enqueueEvent(pool, {
+    eventType: "refund.succeeded",
+    aggregateType: "transaction",
+    aggregateId: randomUUID(),
+    payload: { merchantId, refundId: randomUUID(), amountFils: 750, feeReversedFils: 11, refundedTotalFils: 750, newStatus: "partially_refunded" },
+  });
+  // 22:30 UTC on the 5th is 01:30 on the 6th in Bahrain.
+  await pool.query(`UPDATE outbox_events SET created_at = $2 WHERE id = $1`, [event.id, "2026-03-05T22:30:00Z"]);
+
+  await runConsumerPass(pool, config);
+  await runConsumerPass(pool, config);
+
+  const result = await pool.query(
+    `SELECT volume_date::text AS volume_date, refund_count, refund_gross_fils FROM merchant_daily_volume WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].volume_date, "2026-03-06");
+  assert.equal(result.rows[0].refund_count, 1);
+  assert.equal(Number(result.rows[0].refund_gross_fils), 750);
+});

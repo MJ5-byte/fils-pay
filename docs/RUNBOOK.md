@@ -60,6 +60,18 @@ does the same for all merchants. If the rebuilt figure is still wrong, use
 **Adjust balance** for the remaining difference and note the ticket in the
 reason.
 
+## After deploying migration 0080 (refund columns)
+
+The reporting watermark already passed every `refund.succeeded` event made before the deploy,
+so those refunds are not in `merchant_daily_volume`. Run the rebuild once after migrating:
+
+```bash
+reporting rebuild
+```
+
+It truncates the two rollup tables and replays the outbox, so it also fills `refund_count` and
+`refund_gross_fils` for older refunds. Dashboard daily volume is briefly empty while it runs.
+
 ## Dashboards look stale
 
 Analytics lag the write model by up to a poll interval; every response

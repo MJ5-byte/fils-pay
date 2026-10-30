@@ -74,6 +74,23 @@ test("GET /v1/reporting/export-summary sums the caller's own daily volume", asyn
   assert.deepEqual(res.json(), { totalDays: 2, grossFils: 12_500 + 4_750 });
 });
 
+test("GET /v1/reporting/export-summary does not count a refund-only day as a day with volume", async () => {
+  const { merchantId, rawKey } = await createApprovedMerchantWithApiKey("export-summary-refund-day");
+  await pool.query(
+    `INSERT INTO merchant_daily_volume (merchant_id, volume_date, captured_count, captured_gross_fils, refund_count, refund_gross_fils)
+     VALUES ($1, '2026-10-05', 1, 4000, 0, 0), ($1, '2026-10-06', 0, 0, 1, 750)`,
+    [merchantId],
+  );
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/v1/reporting/export-summary",
+    headers: { authorization: `Bearer ${rawKey}` },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json(), { totalDays: 1, grossFils: 4_000 });
+});
+
 test("GET /v1/reporting/export-summary without credentials answers 401", async () => {
   const res = await app.inject({ method: "GET", url: "/v1/reporting/export-summary" });
   assert.equal(res.statusCode, 401, res.body);

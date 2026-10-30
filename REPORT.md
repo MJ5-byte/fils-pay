@@ -1017,3 +1017,11 @@
 - **Cause:** The file was committed before `.gitignore` listed it, and an ignore rule has no effect on a file git already tracks. Its own comments claimed it was gitignored and that the committed value was safe to keep; both claims were false, and the "rotated everything again" commit left the value in the tree.
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
+
+### Bug: Refunds never reach the merchant's daily volume
+- **Status:** Fixed
+- **Type:** Data, medium
+- **Problem:** A merchant who refunded payments saw no refund count or refund total anywhere in the dashboard's daily volume.
+- **Cause:** `merchant_daily_volume` had no refund columns, `runConsumerPass.ts` did not list `refund.succeeded`, and the only refund helper (`applyDailySummaryRollup` in `applyEvent.ts`) was never called and keyed its day on the UTC date of the event instead of the Bahrain business day (ADR-0003).
+- **Breaks:** Daily volume overstated net business: refunds were invisible to reporting, and the consumer watermark moved past every refund event without recording it.
+- **Fix:** Migration `0080` adds `refund_count` and `refund_gross_fils` (additive). The consumer now applies `refund.succeeded` on the Bahrain day of the event, once, through the same watermark as captures. `GET /v1/analytics/volumes` and the Overview table show the two figures. The `refund_merchant_summary` view is left alone: nothing reads it, and fixing its join means dropping a view. After deploy, run a reporting rebuild so refunds made before the migration are counted. Test added in `runConsumerPass.test.ts`.

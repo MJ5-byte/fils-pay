@@ -133,7 +133,7 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/export-summary", { preHandler: requireMerchantAuth }, async (request) => {
     const result = await app.db.query(
-      `SELECT COUNT(*) AS total, SUM(captured_gross_fils) AS gross
+      `SELECT COUNT(*) FILTER (WHERE captured_count > 0) AS total, SUM(captured_gross_fils) AS gross
          FROM merchant_daily_volume WHERE merchant_id = $1`,
       [request.merchantAuth!.merchantId],
     );
