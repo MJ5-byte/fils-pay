@@ -21,6 +21,7 @@ import { createAcquirerSimulator } from "../acquirer/simulator.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
 import { processRefund } from "./processRefund.js";
 import { captureTransaction } from "./capture.js";
+import { authorizeTransaction } from "./authorize.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -49,15 +50,25 @@ const VALID_CARD = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030,
 
 /** The real simulator, recording every acquirer key it is called with. Each
  *  distinct key is one movement of money; a repeated key is a cached replay. */
-function countingSimulator(): { acquirer: AcquirerSimulator; refundKeys: string[]; captureKeys: string[] } {
+function countingSimulator(): {
+  acquirer: AcquirerSimulator;
+  authorizeKeys: string[];
+  refundKeys: string[];
+  captureKeys: string[];
+} {
   const real = createAcquirerSimulator(config);
   const refundKeys: string[] = [];
   const captureKeys: string[] = [];
+  const authorizeKeys: string[] = [];
   return {
+    authorizeKeys,
     refundKeys,
     captureKeys,
     acquirer: {
-      authorize: (req) => real.authorize(req),
+      authorize: (req) => {
+        authorizeKeys.push(req.idempotencyKey);
+        return real.authorize(req);
+      },
       capture: (req) => {
         captureKeys.push(req.idempotencyKey);
         return real.capture(req);
@@ -174,4 +185,70 @@ test("a capture retried after a DB failure that followed acquirer approval captu
   assert.equal(retry.statusCode, 200);
   assert.equal(new Set(sim.captureKeys).size, 1, `acquirer captured under keys ${sim.captureKeys.join(", ")}`);
   assert.equal(await ledgerGroups(transactionId, "capture: gross"), 1);
+});
+
+test("an authorize retried after a DB failure that followed acquirer approval holds once", async () => {
+  const { merchantId, actor } = await merchantWithAuthorizedTransaction(false);
+  const sim = countingSimulator();
+  const input = {
+    merchantId,
+    amountFils: toFils(5_000),
+    card: VALID_CARD,
+    reference: "bha-181",
+    idempotencyKey: randomUUID(),
+    actor,
+  };
+
+  const suffix = randomUUID().replace(/-/g, "");
+  const fn = `bha181_fail_${suffix}`;
+  await pool.query(
+    `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+     BEGIN
+       IF NEW.reference = 'bha-181' THEN
+         RAISE EXCEPTION 'injected transaction failure';
+       END IF;
+       RETURN NEW;
+     END $$`,
+  );
+  await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON transactions FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+  try {
+    await assert.rejects(authorizeTransaction(pool, sim.acquirer, input), /injected transaction failure/);
+  } finally {
+    await pool.query(`DROP TRIGGER ${fn} ON transactions`);
+    await pool.query(`DROP FUNCTION ${fn}()`);
+  }
+
+  const retry = await authorizeTransaction(pool, sim.acquirer, input);
+  assert.equal(retry.statusCode, 201);
+  assert.equal(new Set(sim.authorizeKeys).size, 1, `acquirer authorized under keys ${sim.authorizeKeys.join(", ")}`);
+});
+
+test("a different request under the same key after an approve-then-rollback never replays the first approval", async () => {
+  const { merchantId, actor } = await merchantWithAuthorizedTransaction(false);
+  const sim = countingSimulator();
+  const idempotencyKey = randomUUID();
+  const first = { merchantId, amountFils: toFils(5_000), card: VALID_CARD, reference: "bha-181-b", idempotencyKey, actor };
+
+  const suffix = randomUUID().replace(/-/g, "");
+  const fn = `bha181b_fail_${suffix}`;
+  await pool.query(
+    `CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+     BEGIN
+       IF NEW.reference = 'bha-181-b' THEN
+         RAISE EXCEPTION 'injected transaction failure';
+       END IF;
+       RETURN NEW;
+     END $$`,
+  );
+  await pool.query(`CREATE TRIGGER ${fn} BEFORE INSERT ON transactions FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+  try {
+    await assert.rejects(authorizeTransaction(pool, sim.acquirer, first), /injected transaction failure/);
+  } finally {
+    await pool.query(`DROP TRIGGER ${fn} ON transactions`);
+    await pool.query(`DROP FUNCTION ${fn}()`);
+  }
+
+  const second = await authorizeTransaction(pool, sim.acquirer, { ...first, amountFils: toFils(7_000) });
+  assert.equal(second.statusCode, 201);
+  assert.equal(new Set(sim.authorizeKeys).size, 2, `acquirer authorized under keys ${sim.authorizeKeys.join(", ")}`);
 });

@@ -127,7 +127,10 @@ export async function authorizeTransaction(
       amountFils: input.amountFils,
       currency: "BHD",
       card: input.card,
-      idempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+      // Keyed on the claim's scope and request hash, not its row id: a rollback after
+      // the acquirer approved discards the row, and the retry must replay that approval,
+      // but a different body under the same key must not.
+      idempotencyKey: `${claim.row.merchantId}:${claim.row.endpoint}:${claim.row.key}:${claim.row.requestHash}:${claim.row.attemptCount}`,
     });
 
     if (acquirerResult.outcome === "approved") {
