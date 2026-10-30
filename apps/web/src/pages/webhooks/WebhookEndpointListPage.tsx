@@ -100,12 +100,16 @@ export function WebhookEndpointListPage() {
 
   return (
     <section className="fp-page fp-stagger">
-      <PageHeader title="Webhook endpoints" lede={<> Where we deliver event notifications, and the health of each. </>} />
+      <PageHeader
+        title="Webhook endpoints"
+        lede={<> Where we deliver event notifications, and the health of each. </>}
+        actions={
+          <Link className="dash-button dash-button-primary" to="/dashboard/webhooks/new">
+            <IconPlus /> New endpoint
+          </Link>
+        }
+      />
       <div className="fp-list-card">
-        <div className="dash-toolbar"><span className="dash-muted">Registered endpoints</span><div className="fp-toolbar-action"><Link className="dash-button dash-button-primary" to="/dashboard/webhooks/new">
-          <IconPlus /> New endpoint
-        </Link></div></div>
-
         {error ? <p className="dash-error">{error}</p> : null}
 
         <div className="dash-table-wrap">

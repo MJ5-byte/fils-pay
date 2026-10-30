@@ -261,6 +261,7 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--fp-brand); outli
 .fp-page-lede { grid-column: 1 / -1; grid-row: 2; margin: 0; color: var(--fp-ink-2); }
 .fp-page-figure { grid-column: 2; grid-row: 1; }
 .fp-page-actions { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; gap: 8px; }
+.fp-page-actions:empty { display: none; }
 .fp-skeleton { position: relative; display: inline-block; max-width: 100%; overflow: hidden; background: var(--fp-surface-2); }
 .fp-skeleton::after { content: ""; position: absolute; inset: 0; background: var(--fp-surface); opacity: .6; transform: translateX(-100%); animation: fp-shimmer 1.8s var(--fp-ease) infinite; }
 .fp-tooltip { position: relative; display: inline-flex; }

@@ -101,16 +101,18 @@ export function PaymentLinkListPage() {
 
   return (
     <section className="fp-page fp-stagger">
-      <PageHeader title="Payment links" lede={<> Reusable checkout links you can share, track and settle. </>} />
-      <div className="fp-list-card">
-        <div className="dash-toolbar fp-toolbar-end">
+      <PageHeader
+        title="Payment links"
+        lede={<> Reusable checkout links you can share, track and settle. </>}
+        actions={
           <RequireRole allow={["owner", "finance"]}>
             <Link className="dash-button dash-button-primary" to="/dashboard/payment-links/new">
               <IconPlus /> New payment link
             </Link>
           </RequireRole>
-        </div>
-
+        }
+      />
+      <div className="fp-list-card">
         {error ? <p className="dash-error">{error}</p> : null}
 
         <div className="dash-table-wrap">
