@@ -87,6 +87,7 @@ interface DeliveryRow {
   attempt_count: number;
   next_attempt_at: Date;
   response_status_code: number | null;
+  response_body_excerpt: string | null;
   signature: string | null;
   delivery_event_id: string;
 }
@@ -253,6 +254,33 @@ test("transport-level failure (thrown/rejected transport): treated as a non-2xx 
   assert.equal(delivery.attempt_count, 1);
   assert.equal(delivery.response_status_code, null);
 });
+
+for (const statusCode of [200, 500]) {
+  test(`receiver body containing a NUL byte (${statusCode}): the attempt is still recorded and other deliveries are sent`, async () => {
+    const merchantId = await createMerchant(`nul-body-${statusCode}`);
+    const nulEndpoint = await createEndpoint(merchantId, `http://nul.test/webhook-${randomUUID()}`);
+    const okEndpoint = await createEndpoint(merchantId, `http://ok.test/webhook-${randomUUID()}`);
+    const outboxEvent = await enqueueCaptured(merchantId);
+
+    const sentToOk: string[] = [];
+    const transport: WebhookTransport = async (req) => {
+      if (req.url.includes("nul.test")) return { statusCode, body: "bad\u0000body" };
+      sentToOk.push(req.url);
+      return { statusCode: 200, body: "ok" };
+    };
+
+    await runDispatchPass(pool, transport, config);
+
+    const nul = await getDelivery(String(outboxEvent.id), nulEndpoint.id);
+    assert.equal(nul.attempt_count, 1);
+    assert.equal(nul.status, statusCode === 200 ? "succeeded" : "pending");
+    assert.equal(nul.response_status_code, statusCode);
+    assert.equal(nul.response_body_excerpt, "badbody");
+    const ok = await getDelivery(String(outboxEvent.id), okEndpoint.id);
+    assert.equal(ok.status, "succeeded");
+    assert.equal(sentToOk.length, 1);
+  });
+}
 
 test("multi-endpoint independence: one endpoint succeeds, the other exhausts, unaffected by each other", async () => {
   const merchantId = await createMerchant("multi-endpoint");
