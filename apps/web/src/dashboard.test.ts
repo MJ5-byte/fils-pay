@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildQuery } from "./api/query.js";
-import { bhd, dash, dayStartIso, localDateTimeToIso, parseRefundAmount, refundedFilsFromEvents } from "./format.js";
+import { bhd, dash, dayStartIso, localDateTimeToIso, parseBhdAmount, parseRefundAmount, refundedFilsFromEvents } from "./format.js";
 import type { TransactionEventDto } from "./types.js";
 
 /**
@@ -65,6 +65,20 @@ test("parseRefundAmount rejects zero, negatives and a 4th decimal", () => {
   assert.throws(() => parseRefundAmount("-1"));
   assert.throws(() => parseRefundAmount("1.2345"));
   assert.throws(() => parseRefundAmount("abc"));
+});
+
+test("parseBhdAmount reads BHD text as exact integer fils", () => {
+  assert.equal(parseBhdAmount("0.5"), 500);
+  assert.equal(parseBhdAmount("12"), 12000);
+  assert.equal(parseBhdAmount("1.250"), 1250);
+  assert.equal(parseBhdAmount(" 0.001 "), 1);
+  assert.equal(parseBhdAmount("4.35"), 4350);
+});
+
+test("parseBhdAmount rejects blank, zero, negatives, a 4th decimal and non-numbers", () => {
+  for (const bad of ["", "  ", "0", "0.000", "-1", "1.2345", "abc", "1e3", "1,5"]) {
+    assert.throws(() => parseBhdAmount(bad), RangeError, bad);
+  }
 });
 
 test("refundedFilsFromEvents sums refund events and ignores the rest", () => {

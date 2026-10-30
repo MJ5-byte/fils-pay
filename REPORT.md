@@ -1026,6 +1026,11 @@
 - **Breaks:** A forged callback signed with the committed value passes the signature check and writes a fake fraud-review verdict (cleared or confirmed fraud) onto any transaction's timeline, which support and finance read when deciding on voids and refunds.
 - **Fix:** The tracked file now holds an empty placeholder for the secret and true comments, and `ops/README.md` says each host fills in its own copy. The api already reads the secret from the environment and refuses to boot in production without it, so no code changed. The file stays in the tree and history is not rewritten; untracking it and rotating the secret on every host are left to the team.
 
+### Improvement: Capture and new payment link amounts are typed in BHD
+- **Type:** UX
+- **Before:** The Capture form and the New payment link form asked for "Amount in fils", while the refund form and every displayed amount use BHD. Typing `0.5` into the link form was rejected, and `5` meant 0.005 BHD.
+- **Why it shipped:** Money typed in a different unit from the one shown everywhere else invites a 1000x mistake on a form that moves money. The shared string parser `parseBhdToFils` already existed and the refund form already used it.
+- **Change:** New `parseBhdAmount` in `apps/web/src/format.ts` wraps that parser (no float maths); `parseRefundAmount` now delegates to it. Both forms label the field "Amount in BHD", placeholder `0.000`, and still send integer `amountFils`, so the API is unchanged: `0.5` is 500, `12` is 12000, `1.250` is 1250. Blank, zero, negatives, a 4th decimal and non-numbers show a plain message. Unit tests added in `apps/web/src/dashboard.test.ts`.
 ### Bug: Checkout says a payment link does not exist when the API is only busy
 - **Status:** Fixed
 - **Type:** UX, medium

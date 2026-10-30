@@ -14,20 +14,25 @@ export function bhd(amountFils: number): string {
 }
 
 /**
- * A refund amount typed in BHD as integer fils, via the shared parser (3
- * decimals, no floats). Blank is `undefined`: the API then refunds everything
- * still refundable. Zero and negatives throw, like a malformed entry.
+ * An amount typed in BHD as integer fils, via the shared parser (3 decimals, no
+ * floats): "0.5" is 500, "12" is 12000, "1.250" is 1250. Blank, zero,
+ * negatives, a 4th decimal and non-numbers throw a RangeError the form shows.
  */
-export function parseRefundAmount(input: string): number | undefined {
-  if (input.trim() === "") return undefined;
+export function parseBhdAmount(input: string): number {
   let fils: number;
   try {
     fils = Number(parseBhdToFils(input));
   } catch {
     throw new RangeError("Enter a BHD amount with at most 3 decimals, like 4.750.");
   }
-  if (fils <= 0) throw new RangeError("Refund amount must be greater than zero.");
+  if (fils <= 0) throw new RangeError("Amount must be greater than zero.");
   return fils;
+}
+
+/** A refund amount typed in BHD. Blank is `undefined`: the API then refunds
+ *  everything still refundable. */
+export function parseRefundAmount(input: string): number | undefined {
+  return input.trim() === "" ? undefined : parseBhdAmount(input);
 }
 
 /** Total refunded so far. The transaction DTO has no `refundedFils`, but its
