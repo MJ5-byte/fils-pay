@@ -57,6 +57,9 @@ export function isBlockedAddress(address: string): boolean {
   return family === 0 || blockedAddresses.check(address, family === 4 ? "ipv4" : "ipv6");
 }
 
+/** Callers keep at most 2000 characters of the receiver's reply, so reading more only costs memory. */
+const MAX_RESPONSE_BODY_BYTES = 64 * 1024;
+
 const TARGET_NOT_ALLOWED = "webhook target address is not allowed";
 
 const guardedLookup: LookupFunction = (hostname, options, callback) => {
@@ -112,13 +115,28 @@ export function createFetchTransport(config: Pick<Config, "webhookAllowPrivateTa
             lookup: config.webhookAllowPrivateTargets ? undefined : guardedLookup,
           },
           (response) => {
-            response.setEncoding("utf8");
-            let body = "";
-            response.on("data", (chunk: string) => {
-              body += chunk;
+            const chunks: Buffer[] = [];
+            let received = 0;
+            let settled = false;
+            response.on("data", (chunk: Buffer) => {
+              if (settled) return;
+              const room = MAX_RESPONSE_BODY_BYTES - received;
+              chunks.push(chunk.length > room ? chunk.subarray(0, room) : chunk);
+              received += Math.min(chunk.length, room);
+              if (chunk.length >= room) {
+                settled = true;
+                resolve({ statusCode: response.statusCode ?? null, body: Buffer.concat(chunks).toString("utf8") });
+                response.destroy();
+              }
             });
-            response.on("end", () => resolve({ statusCode: response.statusCode ?? null, body }));
-            response.on("error", reject);
+            response.on("end", () => {
+              if (settled) return;
+              settled = true;
+              resolve({ statusCode: response.statusCode ?? null, body: Buffer.concat(chunks).toString("utf8") });
+            });
+            response.on("error", (err) => {
+              if (!settled) reject(err);
+            });
           },
         );
         outgoing.on("error", reject);

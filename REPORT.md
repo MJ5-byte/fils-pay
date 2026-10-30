@@ -724,3 +724,11 @@
 - **Cause:** `listBatchTransactions` read `transactions.captured_fils`, the running lifetime total, while CloseBatch builds each line from the capture events it stamps with that batch's `settlement_batch_id`.
 - **Breaks:** Historical batch detail rewrote itself after the fact, so a merchant or finance reviewer reconciling a closed batch saw a false mismatch.
 - **Fix:** Captured is now the sum of that transaction's capture events stamped with this batch, the same deltas CloseBatch used. The column already existed, so no schema change. Test added: capture 4.000 BD, close the batch, capture 3.000 BD more, and the batch still shows 4.000 BD. The seed now stamps its ready-made closed batches on their capture events too, so freshly seeded demo batches show their real Captured figure.
+
+### Bug: A webhook receiver can make the API read an unbounded response (BHA-144)
+- **Status:** Fixed
+- **Type:** Performance, medium
+- **Problem:** A receiver that answers with a huge or never-ending body made the API keep reading and holding it, for every delivery and every test-send.
+- **Cause:** `createFetchTransport` in `apps/api/src/webhooks/transport.ts` appended every chunk to a string with no limit, although the dispatcher and test-send only keep the first 2000 characters of it.
+- **Breaks:** A fast receiver could push hundreds of MB into one delivery's memory on the 2 GB host, and a string past V8's limit throws a RangeError inside the data listener, which can take the API process down.
+- **Fix:** The transport stops reading at 64 KiB (`MAX_RESPONSE_BODY_BYTES`), destroys the response and resolves with the status code and the truncated body, once. The whole-exchange timeout is unchanged. Test added: a local receiver streams without end and the transport resolves in milliseconds, not at the timeout.
