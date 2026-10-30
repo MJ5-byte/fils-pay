@@ -363,6 +363,13 @@
 - **Breaks:** Any client typo or probe produced an internal error instead of a usable message, and a mistyped report date returned unfiltered data that looked valid.
 - **Fix:** Routes validate at the boundary with the repo's `UUID_RE`: bad ids give 404, bad limit, dates or filter shape give 400. The two keyset queries turn a Postgres class-22 error on a decoded cursor into 400 `invalid_cursor`. Reporting now validates and honours top-level `from`/`to` (the filter object wins if both are given). Tests added in `webhooks.test.ts`, `settlement.test.ts` and `reporting.test.ts`.
 
+### Bug: Client request errors are reported as 500 on every JSON route
+- **Status:** Fixed
+- **Type:** UX, high
+- **Problem:** A malformed JSON body, an unsupported `Content-Type`, or a body over the size limit answered `500 {"error":"internal_error"}` on every route, so a client's own bad request looked like a server crash. This is the shared root cause behind the per-route "bad input gives 500" findings.
+- **Cause:** The shared error handler in `apps/api/src/plugins/errorHandler.ts` mapped Fastify's request-parsing errors (`FST_ERR_CTP_INVALID_JSON_BODY`, `FST_ERR_CTP_INVALID_MEDIA_TYPE`, `FST_ERR_CTP_BODY_TOO_LARGE` and the like) to the catch-all 500 branch. Those errors already carry the correct 4xx `statusCode`, but the handler never read it.
+- **Breaks:** Integrators could not tell a request they could fix from a server fault, and every monitoring 500 hid a plain client mistake.
+- **Fix:** In the shared handler, a Fastify framework error (`FST_` code) carrying a 4xx `statusCode` now answers that status with a clean machine-readable code (`unsupported_media_type`, `payload_too_large`, else `bad_request`) and Fastify's own static message. Genuine server faults, including the handful of `FST_` codes that are 5xx, still answer 500 with no stack trace, SQL or internals. One route is unchanged; the one shared place every route routes through now classifies client errors correctly. Test added (`plugins/errorHandler.test.ts`): a malformed JSON body returns 400 and an unsupported content type returns 415, neither leaking internals.
 ### Bug: Login crashes on a non-UUID merchant id
 - **Status:** Fixed (BHA-75)
 - **Type:** UX, low
