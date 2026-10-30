@@ -11,7 +11,7 @@ SELECT
     SUM(r.fee_reversed_fils)     AS total_fee_reversed_fils,
     SUM(t.captured_fils)         AS original_captured_fils
 FROM refunds r
-JOIN transactions t ON t.id = r.id
+JOIN transactions t ON t.id = r.transaction_id
 WHERE r.status = 'succeeded'
 GROUP BY r.merchant_id, date_trunc('day', r.occurred_at AT TIME ZONE 'Asia/Bahrain');
 

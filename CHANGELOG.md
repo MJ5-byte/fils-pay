@@ -4,6 +4,18 @@ All notable changes to FilsPay. Dates are deploy dates (Asia/Bahrain).
 Versions are the API image tag; settlement and reporting are versioned with
 it. Format loosely follows Keep a Changelog.
 
+## [Unreleased]
+
+### Added
+- Refunds: `POST /v1/refunds`, `POST /v1/merchants/:id/refunds`, `refund.succeeded` webhook, dashboard refund drawer (migrations 0073-0075).
+- `CORS_ALLOWED_ORIGINS` for deployed frontends; `docs/DEPLOY.md`.
+
+### Fixed
+- Concurrent refunds could both pay out; payment links could double-charge or accept late payments; webhooks signed different bytes than they sent; acquirer callbacks were not de-duplicated.
+- Fresh migrations (0054, 0055, 0072) now apply.
+- Adjustment CSV amounts were 10x too small; weak randomness for OTP/slugs; impersonation could write; cross-merchant refund/cancel; Go net payout used float32.
+- See `docs/AUDIT-FP-300.md`.
+
 ## [1.9.2] - 2026-09-12
 
 ### Changed

@@ -37,7 +37,8 @@ export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallba
   await pool.query(
     `INSERT INTO acquirer_callback_notes
         (transaction_id, merchant_id, callback_id, callback_type, outcome, note, received_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (callback_id) DO NOTHING`,
     [
       callback.transactionId,
       txnRow.merchant_id,

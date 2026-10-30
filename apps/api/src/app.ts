@@ -12,7 +12,7 @@ import { businessProfileRoutes } from "./routes/businessProfile.js";
 import { kycRoutes } from "./routes/kyc.js";
 import { apiKeyRoutes } from "./routes/apiKeys.js";
 import { transactionRoutes } from "./routes/transactions.js";
-import { refundRoutes } from "./routes/refunds.js";
+import { merchantRefundRoutes, refundRoutes } from "./routes/refunds.js";
 import { paymentLinkMerchantRoutes, paymentLinkPublicRoutes } from "./routes/paymentLinks.js";
 import { webhookEndpointRoutes } from "./routes/webhooks.js";
 import { settlementRoutes } from "./routes/settlement.js";
@@ -47,15 +47,18 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.decorate("acquirer", createAcquirerSimulator(config));
   app.decorate("webhookTransport", options.webhookTransport ?? createFetchTransport());
 
+  const localOrigins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://[::1]:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://[::1]:5174",
+  ];
   app.register(cors, {
-    origin: [
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-      "http://[::1]:5173",
-      "http://localhost:5174",
-      "http://127.0.0.1:5174",
-      "http://[::1]:5174",
-    ],
+    // Production allows only the explicitly configured origins; elsewhere the
+    // local dev origins are allowed as well. Credentialed CORS, so never "*".
+    origin: config.nodeEnv === "production" ? config.corsAllowedOrigins : [...localOrigins, ...config.corsAllowedOrigins],
     credentials: true,
   });
   app.register(cookiesPlugin);
@@ -69,11 +72,10 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.register(apiKeyRoutes, { prefix: "/v1/merchants" });
   // v1/routes/transactions.ts is NOT this one. that tree is dead — MK
   app.register(transactionRoutes, { prefix: "/v1/transactions" });
-  // FP-212: RefundDrawer posts to /v1/merchants/:id/refunds, initiateMerchantRefund expects
-  // that path too. this prefix is the old stub — am
-  // MK: keep /v1/refunds, API.md documents it. the drawer is wrong
-  // FH: API.md has both?? asked in #eng, no answer yet (12/10/2026)
+  // Refunds are reachable at the documented POST /v1/refunds and at the
+  // merchant-scoped path the dashboard drawer uses; both share one handler path.
   app.register(refundRoutes, { prefix: "/v1/refunds" });
+  app.register(merchantRefundRoutes, { prefix: "/v1/merchants" });
   app.register(paymentLinkMerchantRoutes, { prefix: "/v1/merchants" });
   app.register(paymentLinkPublicRoutes, { prefix: "/v1/payment-links" });
   app.register(webhookEndpointRoutes, { prefix: "/v1/merchants" });
