@@ -1,0 +1,15 @@
+# Keep the Docker build context small and reproducible: node_modules is
+# reinstalled inside the image (npm ci), and none of the rest belongs in it.
+node_modules
+**/node_modules
+.git
+dist
+**/dist
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store
+.claude
+
+# Never bake env files into an image. Compose loads ops/.env.docker at
+# runtime via env_file instead.
+**/.env*

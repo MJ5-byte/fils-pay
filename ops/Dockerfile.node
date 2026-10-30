@@ -1,0 +1,29 @@
+# Shared image for the Node services in ops/docker-compose.yml: apps/api,
+# apps/reporting, and the one-off migrate and seed jobs. Each compose
+# service sets its own command; this image carries the installed npm
+# workspace and the tsx runner they all start their TypeScript with.
+#
+# Node 20 matches the version the repo develops against (see ops/README.md).
+
+# Build stage. The full node:20 image carries the python3/make/g++ toolchain
+# argon2's native module needs, and npm ci installs every workspace plus the
+# dev dependencies (tsx) the services run with.
+FROM node:20.18-bookworm AS deps
+WORKDIR /app
+COPY . .
+RUN npm ci
+
+# Runtime stage. node:20-slim shares the same Debian bookworm base as the
+# build image, so the native modules built above (argon2, sharp) load
+# unchanged, while the build toolchain is left behind.
+FROM node:20.18-slim AS runtime
+WORKDIR /app
+COPY --from=deps /app ./
+
+# Drop to the unprivileged `node` user the base image ships. The app only
+# reads its code and node_modules at runtime, so no chown is needed.
+USER node
+
+# Each compose service overrides this. The api is the sensible default so
+# the image is runnable on its own.
+CMD ["npx", "tsx", "apps/api/src/index.ts"]
